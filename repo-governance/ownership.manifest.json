@@ -47,6 +47,11 @@
       "sync_policy": "template_sync"
     },
     {
+      "pattern": ".github/workflows/template-ci.yml",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
       "pattern": "parity.manifest.json",
       "ownership": "template_owned",
       "sync_policy": "template_sync"
