@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to VoiceNotes Triage Hub.
+Thanks for contributing to Project Router Template.
 
 This repository is the shareable template upstream for the workflow. Please keep contributions neutral, reusable, and safe for a public GitHub template.
 

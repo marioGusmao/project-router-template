@@ -1,8 +1,8 @@
-# VoiceNotes Triage Hub
+# Project Router Template
 
 [English](README.md) | Português (Portugal)
 
-Este repositório é o template base partilhável para um fluxo de triagem de VoiceNotes que funciona tanto com Codex como com Claude Code.
+Project Router Template é o template base partilhável para um fluxo de triagem de VoiceNotes que funciona tanto com Codex como com Claude Code.
 
 O template mantém no Git o pipeline comum, as regras de segurança, as ferramentas de validação e exemplos neutros de routing. Cada utilizador guarda fora do Git os seus segredos locais, caminhos locais e dados reais de notas. Depois disso, cada pessoa pode criar o seu próprio repositório privado derivado deste template e personalizá-lo.
 
@@ -39,8 +39,8 @@ Se só queres usar o workflow, cria um repositório a partir do template. Não p
 
 ## Modelo Do Repositório
 
-- `VoiceNotes-template`: template GitHub partilhável, neutro e reutilizável
-- `VoiceNotes-private`: repositório privado diário derivado do template, onde podes manter branding, regras próprias e wording mais pessoal
+- `project-router-template`: template GitHub partilhável, neutro e reutilizável
+- `project-router-private`: repositório privado diário derivado do template, onde podes manter branding, regras próprias e wording mais pessoal
 
 O template é o upstream partilhado. O repositório privado é a casa operacional real.
 

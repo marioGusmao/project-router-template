@@ -1,5 +1,5 @@
 {
-  "template_name": "voicenotes-template",
+  "template_name": "project-router-template",
   "version": "0.1.0",
   "release_channel": "stable",
   "min_python": "3.10"

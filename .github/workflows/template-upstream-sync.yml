@@ -53,7 +53,7 @@ jobs:
               headers={
                   "Accept": "application/vnd.github+json",
                   "Authorization": f"Bearer {token}",
-                  "User-Agent": "voicenotes-template-upstream-sync",
+                  "User-Agent": "project-router-template-upstream-sync",
               },
           )
           with urllib.request.urlopen(request) as response:

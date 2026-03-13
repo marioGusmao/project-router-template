@@ -2,7 +2,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "voicenotes-template",
+      "package-name": "project-router-template",
       "extra-files": [
         "VERSION",
         {

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-VoiceNotes Triage Hub — intake and classification layer for Voicenotes captures before routing to downstream project inboxes. Pure Python, zero external package dependencies, file-based storage.
+Project Router Template — intake and classification layer for Voicenotes captures before routing to downstream project inboxes. Pure Python, zero external package dependencies, file-based storage.
 
 This repository is designed to be shareable on GitHub:
 

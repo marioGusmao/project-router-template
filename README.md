@@ -1,8 +1,8 @@
-# VoiceNotes Triage Hub
+# Project Router Template
 
 English | [Português (Portugal)](README.pt-PT.md)
 
-This repository is the shared starter upstream for a VoiceNotes triage workflow that works in both Codex and Claude Code.
+Project Router Template is the shared starter upstream for a VoiceNotes triage workflow that works in both Codex and Claude Code.
 
 The starter keeps the common pipeline, safety rules, governance tooling, and neutral routing examples in Git. Each user keeps local secrets, local inbox paths, and live note artifacts outside Git. A private daily repo can then add branded projects, personal skills, and personal operational rules on top of this base.
 
@@ -39,8 +39,8 @@ If you only want to use the workflow, create a repository from the template. You
 
 ## Repository Model
 
-- `VoiceNotes-template`: public GitHub template repo, neutral and shareable
-- `VoiceNotes-private`: private daily repo derived from the template, free to keep branded routing packs and personal workflow wording
+- `project-router-template`: public GitHub template repo, neutral and shareable
+- `project-router-private`: private daily repo derived from the template, free to keep branded routing packs and personal workflow wording
 
 The template is the shared upstream. The private repo is the real operational home.
 

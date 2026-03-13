@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions about private derived repos
-    url: https://github.com/marioGusmao/VoiceNotes-Template/blob/main/README.md
+    url: https://github.com/marioGusmao/project-router-template/blob/main/README.md
     about: Read the repository model first and keep private-repo specifics out of this public template issue tracker.
