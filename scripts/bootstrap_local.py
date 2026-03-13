@@ -29,7 +29,7 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def env_var_name(project_key: str) -> str:
     normalized = "".join(char if char.isalnum() else "_" for char in project_key.upper())
-    return f"VN_INBOX_{normalized}"
+    return f"VN_ROUTER_ROOT_{normalized}"
 
 
 def ensure_env_local(force: bool) -> str:
@@ -42,7 +42,7 @@ def ensure_env_local(force: bool) -> str:
 
 
 def prompt_for_path(project_key: str, existing_value: str | None) -> str | None:
-    prompt = f"Absolute inbox path for {project_key}"
+    prompt = f"Absolute project-router root path for {project_key}"
     if existing_value:
         prompt += f" [{existing_value}]"
     prompt += " (leave blank to keep inactive): "
@@ -66,18 +66,19 @@ def build_registry_local(force: bool) -> tuple[dict[str, Any] | None, list[str],
     warnings = [
         f"Ignoring unknown environment variable {key}."
         for key in sorted(os.environ)
-        if key.startswith("VN_INBOX_") and key not in known_env_vars
+        if key.startswith("VN_ROUTER_ROOT_") and key not in known_env_vars
     ]
 
     projects_payload: dict[str, dict[str, str]] = {}
     for key in project_keys:
-        existing_value = str((((existing_local.get("projects") or {}).get(key) or {}).get("inbox_path")) or "").strip() or None
+        existing_project = ((existing_local.get("projects") or {}).get(key) or {})
+        existing_value = str(existing_project.get("router_root_path") or existing_project.get("inbox_path") or "").strip() or None
         env_value = str(os.environ.get(env_var_name(key)) or "").strip() or None
         selected = existing_value if existing_value and not force else env_value
         if selected is None and os.isatty(0):
             selected = prompt_for_path(key, existing_value if force else None)
         if selected:
-            projects_payload[key] = {"inbox_path": selected}
+            projects_payload[key] = {"router_root_path": selected}
 
     REGISTRY_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {"projects": projects_payload}
@@ -99,7 +100,7 @@ def main() -> int:
         "configured_projects": sorted((registry_payload or {}).get("projects", {}).keys()),
         "next_steps": [
             "python3 scripts/project_router.py status",
-            "python3 scripts/project_router_client.py sync --output-dir ./data/raw",
+            "python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes",
         ],
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))

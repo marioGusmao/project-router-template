@@ -110,6 +110,8 @@ def main() -> int:
                 for project_key, raw in (registry.get("projects") or {}).items():
                     if "inbox_path" in raw:
                         errors.append(f"Shared registry project '{project_key}' must not define inbox_path.")
+                    if "router_root_path" in raw:
+                        errors.append(f"Shared registry project '{project_key}' must not define router_root_path.")
 
             secret_patterns = [
                 re.compile(r"VOICENOTES_API_KEY\s*=\s*(?!replace-with-your-voicenotes-token)"),

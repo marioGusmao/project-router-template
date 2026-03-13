@@ -62,6 +62,11 @@
       "sync_policy": "template_sync"
     },
     {
+      "pattern": "project-router/**",
+      "ownership": "shared_review",
+      "sync_policy": "review_required"
+    },
+    {
       "pattern": "projects/registry.example.json",
       "ownership": "template_owned",
       "sync_policy": "template_sync"

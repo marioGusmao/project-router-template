@@ -10,7 +10,7 @@ This skill exists to make the beginning of a VoiceNotes session predictable and 
 2. Check whether `.env.local` exists.
 3. Check whether `projects/registry.local.json` exists.
 4. If `.env.local` exists, fetch fresh notes by default:
-   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw`
+   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`

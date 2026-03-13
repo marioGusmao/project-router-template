@@ -33,13 +33,15 @@ python3 scripts/bootstrap_local.py
 python3 scripts/project_router.py <command>
 
 # Pipeline commands (in order)
-python3 scripts/project_router.py normalize      # raw JSON → markdown
-python3 scripts/project_router.py triage         # classify and route
-python3 scripts/project_router.py compile        # generate project-ready briefs
-python3 scripts/project_router.py review         # inspect decision packets
+python3 scripts/project_router.py normalize --source voicenotes      # raw JSON → markdown
+python3 scripts/project_router.py triage --source voicenotes         # classify and route
+python3 scripts/project_router.py compile --source voicenotes        # generate project-ready briefs
+python3 scripts/project_router.py review --source voicenotes         # inspect decision packets
 python3 scripts/project_router.py dispatch --dry-run  # preview dispatch targets
 python3 scripts/project_router.py discover       # cluster pending_project notes
 python3 scripts/project_router.py status         # queue counts
+python3 scripts/project_router.py scan-outboxes  # ingest downstream outboxes read-only
+python3 scripts/project_router.py doctor --project home_renovation   # validate a downstream contract
 
 # Record user decisions
 python3 scripts/project_router.py decide --note-id vn_123 --decision approve
@@ -48,7 +50,7 @@ python3 scripts/project_router.py decide --note-id vn_123 --decision approve
 python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123
 
 # Sync from the VoiceNotes API
-python3 scripts/project_router_client.py sync --output-dir ./data/raw
+python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes
 
 # Governance checks
 python3 scripts/check_agent_surface_parity.py
@@ -76,23 +78,29 @@ No linter or formatter is configured. No build step required.
 
 **Single-module CLI:** All logic lives in `src/project_router/cli.py` (~2000 lines). No external dependencies — stdlib only.
 
-**Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`
+**Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`, plus read-only downstream intake via `scan-outboxes`
 
-Each stage reads from the previous stage's output directory:
-- `data/raw/` (JSON) → `normalize` → `data/normalized/` (Markdown+YAML frontmatter)
-- `data/normalized/` → `triage` → updates frontmatter + copies to `data/review/` queues
-- `data/normalized/` → `compile` → `data/compiled/` (enriched briefs with extractions)
-- `data/compiled/` → `dispatch` → `data/dispatched/` + downstream inbox mirror
+Each stage reads from the previous stage's source-aware output directory:
+- `data/raw/voicenotes/` → `normalize --source voicenotes` → `data/normalized/voicenotes/`
+- `data/raw/project_router/<project>/` → `normalize --source project_router` → `data/normalized/project_router/<project>/`
+- `data/normalized/...` → `triage` / `compile` → source-aware `data/review/...` and `data/compiled/...`
+- `data/compiled/...` → `dispatch` → `data/dispatched/` + downstream inbox mirror
 
 **State directory** (`state/`, gitignored): sync checkpoints, user decision packets (JSON), discovery reports.
 
 **Project registry overlay:**
 
 - `projects/registry.shared.json` (committed): common project metadata, keywords, note types, thresholds
-- `projects/registry.local.json` (gitignored): machine-local inbox paths and optional local overrides
+- `projects/registry.local.json` (gitignored): machine-local `router_root_path` values and optional local overrides
 - `projects/registry.example.json` (committed): starter template for the local overlay
 
-Classification can run from the shared registry alone. Real dispatch requires the local overlay with real absolute inbox paths.
+Classification can run from the shared registry alone. Real dispatch requires the local overlay with real absolute `router_root_path` values.
+
+**Project-router protocol:**
+
+- Downstream repositories expose `project-router/router-contract.json`, `project-router/inbox/`, `project-router/outbox/`, and `project-router/conformance/`
+- `scan-outboxes` reads downstream `outbox/` directories without mutating them
+- `doctor` validates the contract and packet schema either repo-locally or from the central router
 
 **Template/private split:**
 
@@ -118,7 +126,7 @@ At the beginning of a session:
 2. If the machine is new, run `python3 scripts/bootstrap_local.py`
 3. Confirm `.env.local` and `projects/registry.local.json` exist
 4. If `.env.local` exists, use:
-   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw`
+   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`
@@ -138,9 +146,10 @@ These are critical — never violate:
 - **Never dispatch a normalized note directly** — compile first and dispatch from the compiled artifact
 - **Compiled packages must be fresh** relative to the canonical normalized note before dispatch
 - **Never write to a downstream project during session opening or review analysis** — stop at `review` and ask the user what to approve
+- **Never mutate downstream `project-router/outbox/` content during scan or review** — `scan-outboxes` is read-only
 - **Registry paths must be absolute** — placeholder paths trigger validation errors during dispatch
 - **Fail closed** when local config is missing or uses placeholder paths
-- **Canonical metadata lives in `data/normalized/`** — review copies are queue views, not the source of truth
+- **Canonical metadata lives in source-aware `data/normalized/` paths** — review copies are queue views, not the source of truth
 - **The pipeline is idempotent** — re-running must not duplicate notes or dispatch records
 - **Run the parity and ownership checks before publishing starter changes** — use `python3 scripts/check_agent_surface_parity.py --pre-publish` and `python3 scripts/check_repo_ownership.py`
 - **If a downstream repository must be edited**, read that repository's local agent instructions first

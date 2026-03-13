@@ -19,7 +19,7 @@ Use this workflow at the start of a Project Router session for VoiceNotes captur
 2. If the machine is new, run `python3 scripts/bootstrap_local.py`.
 3. Confirm `.env.local` and `projects/registry.local.json` exist.
 4. If `.env.local` exists, run:
-   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw`
+   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`

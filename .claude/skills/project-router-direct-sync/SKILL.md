@@ -21,7 +21,7 @@ Use this workflow to interact with VoiceNotes directly from the repository witho
 python3 scripts/project_router_client.py list --from 2026-03-01T00:00:00Z
 python3 scripts/project_router_client.py search --query "home renovation idea"
 python3 scripts/project_router_client.py get --id NTHiJljf --format markdown
-python3 scripts/project_router_client.py sync --output-dir ./data/raw
+python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes
 python3 scripts/project_router_client.py create --text "Remember to review the warranty"
 ```
 

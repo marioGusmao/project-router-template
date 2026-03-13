@@ -7,8 +7,9 @@ from collections import Counter
 import hashlib
 import json
 import os
-import re
 import shutil
+import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,21 +21,29 @@ DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 NORMALIZED_DIR = DATA_DIR / "normalized"
 COMPILED_DIR = DATA_DIR / "compiled"
-AMBIGUOUS_DIR = DATA_DIR / "review" / "ambiguous"
-NEEDS_REVIEW_DIR = DATA_DIR / "review" / "needs_review"
-PENDING_PROJECT_DIR = DATA_DIR / "review" / "pending_project"
+REVIEW_DIR = DATA_DIR / "review"
 DISPATCHED_DIR = DATA_DIR / "dispatched"
 PROCESSED_DIR = DATA_DIR / "processed"
 STATE_DIR = ROOT / "state"
 DECISIONS_DIR = STATE_DIR / "decisions"
 DISCOVERIES_DIR = STATE_DIR / "discoveries"
+PROJECT_ROUTER_STATE_DIR = STATE_DIR / "project_router"
+OUTBOX_SCAN_STATE_PATH = PROJECT_ROUTER_STATE_DIR / "outbox_scan_state.json"
+OUTBOX_SCAN_LOCK_PATH = PROJECT_ROUTER_STATE_DIR / "scan.lock"
 REGISTRY_LOCAL_PATH = ROOT / "projects" / "registry.local.json"
 REGISTRY_SHARED_PATH = ROOT / "projects" / "registry.shared.json"
 REGISTRY_EXAMPLE_PATH = ROOT / "projects" / "registry.example.json"
 ENV_LOCAL_PATH = ROOT / ".env.local"
 ENV_PATH = ROOT / ".env"
 DISCOVERY_REPORT_PATH = DISCOVERIES_DIR / "pending_project_latest.json"
+LOCAL_ROUTER_DIR = ROOT / "project-router"
 NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+VOICE_SOURCE = "voicenotes"
+PROJECT_ROUTER_SOURCE = "project_router"
+REVIEW_QUEUE_STATUSES = ("ambiguous", "needs_review", "pending_project")
+AMBIGUOUS_DIR = REVIEW_DIR / VOICE_SOURCE / "ambiguous"
+NEEDS_REVIEW_DIR = REVIEW_DIR / VOICE_SOURCE / "needs_review"
+PENDING_PROJECT_DIR = REVIEW_DIR / VOICE_SOURCE / "pending_project"
 
 STOPWORDS = {
     "a",
@@ -190,6 +199,7 @@ class ProjectRule:
     display_name: str
     language: str
     inbox_path: Path | None
+    router_root_path: Path | None
     note_type: str
     auto_dispatch_threshold: float
     keywords: list[str]
@@ -197,18 +207,182 @@ class ProjectRule:
 
 def ensure_layout() -> None:
     for path in (
-        RAW_DIR,
-        NORMALIZED_DIR,
-        COMPILED_DIR,
-        AMBIGUOUS_DIR,
-        NEEDS_REVIEW_DIR,
-        PENDING_PROJECT_DIR,
+        RAW_DIR / VOICE_SOURCE,
+        RAW_DIR / PROJECT_ROUTER_SOURCE,
+        NORMALIZED_DIR / VOICE_SOURCE,
+        NORMALIZED_DIR / PROJECT_ROUTER_SOURCE,
+        COMPILED_DIR / VOICE_SOURCE,
+        COMPILED_DIR / PROJECT_ROUTER_SOURCE,
+        REVIEW_DIR / VOICE_SOURCE / "ambiguous",
+        REVIEW_DIR / VOICE_SOURCE / "needs_review",
+        REVIEW_DIR / VOICE_SOURCE / "pending_project",
+        REVIEW_DIR / PROJECT_ROUTER_SOURCE / "parse_errors",
+        REVIEW_DIR / PROJECT_ROUTER_SOURCE / "needs_review",
+        REVIEW_DIR / PROJECT_ROUTER_SOURCE / "pending_project",
         DISPATCHED_DIR,
         PROCESSED_DIR,
         DECISIONS_DIR,
         DISCOVERIES_DIR,
+        PROJECT_ROUTER_STATE_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)
+
+
+def normalize_source_name(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    cleaned = str(raw).strip().lower()
+    aliases = {
+        "voice_notes": VOICE_SOURCE,
+        "voice-notes": VOICE_SOURCE,
+        "project-router": PROJECT_ROUTER_SOURCE,
+    }
+    return aliases.get(cleaned, cleaned)
+
+
+def parse_source_filter(raw: str | None) -> set[str]:
+    source = normalize_source_name(raw)
+    if source is None or source in {"all", "*"}:
+        return {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}
+    if source not in {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}:
+        raise SystemExit(f"Unsupported --source '{raw}'. Use one of: voicenotes, project_router, all.")
+    return {source}
+
+
+def source_project_key(metadata: dict[str, Any]) -> str | None:
+    value = metadata.get("source_project")
+    if value in (None, "", "null"):
+        return None
+    return str(value)
+
+
+def note_identity(metadata: dict[str, Any]) -> tuple[str, str | None, str]:
+    source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+    source_project = source_project_key(metadata)
+    note_id = require_valid_note_id(metadata.get("source_note_id"))
+    return source, source_project, note_id
+
+
+def identity_slug(source: str, source_project: str | None, note_id: str) -> str:
+    parts = [normalize_source_name(source) or source]
+    if source_project:
+        parts.append(source_project)
+    parts.append(note_id)
+    return "--".join(slugify(part) or part for part in parts)
+
+
+def raw_dir_for(source: str, source_project: str | None = None) -> Path:
+    source = normalize_source_name(source) or source
+    if source == VOICE_SOURCE:
+        return RAW_DIR / VOICE_SOURCE
+    if source == PROJECT_ROUTER_SOURCE:
+        if not source_project:
+            raise SystemExit("project_router artifacts require source_project.")
+        return RAW_DIR / PROJECT_ROUTER_SOURCE / source_project
+    raise SystemExit(f"Unsupported source '{source}'.")
+
+
+def normalized_dir_for(source: str, source_project: str | None = None) -> Path:
+    source = normalize_source_name(source) or source
+    if source == VOICE_SOURCE:
+        return NORMALIZED_DIR / VOICE_SOURCE
+    if source == PROJECT_ROUTER_SOURCE:
+        if not source_project:
+            raise SystemExit("project_router artifacts require source_project.")
+        return NORMALIZED_DIR / PROJECT_ROUTER_SOURCE / source_project
+    raise SystemExit(f"Unsupported source '{source}'.")
+
+
+def compiled_dir_for(source: str, source_project: str | None = None) -> Path:
+    source = normalize_source_name(source) or source
+    if source == VOICE_SOURCE:
+        return COMPILED_DIR / VOICE_SOURCE
+    if source == PROJECT_ROUTER_SOURCE:
+        if not source_project:
+            raise SystemExit("project_router artifacts require source_project.")
+        return COMPILED_DIR / PROJECT_ROUTER_SOURCE / source_project
+    raise SystemExit(f"Unsupported source '{source}'.")
+
+
+def review_dir_for(source: str, status: str) -> Path:
+    source = normalize_source_name(source) or source
+    if source == VOICE_SOURCE:
+        if status not in REVIEW_QUEUE_STATUSES:
+            raise SystemExit(f"Unsupported review status '{status}'.")
+        return REVIEW_DIR / VOICE_SOURCE / status
+    if source == PROJECT_ROUTER_SOURCE:
+        if status not in {"parse_errors", "needs_review", "pending_project"}:
+            raise SystemExit(f"Unsupported review status '{status}'.")
+        return REVIEW_DIR / PROJECT_ROUTER_SOURCE / status
+    raise SystemExit(f"Unsupported source '{source}'.")
+
+
+def outbox_path_for_project(project: ProjectRule) -> Path | None:
+    if project.router_root_path is None:
+        return None
+    return project.router_root_path / "outbox"
+
+
+def inbox_path_for_project(project: ProjectRule) -> Path | None:
+    if project.router_root_path is not None:
+        return project.router_root_path / "inbox"
+    return project.inbox_path
+
+
+def list_project_router_keys_for_artifacts(directory: Path) -> list[str]:
+    if not directory.exists():
+        return []
+    return sorted(path.name for path in directory.iterdir() if path.is_dir())
+
+
+def iter_source_dirs(kind: str, sources: set[str]) -> list[Path]:
+    if kind == "raw":
+        voice_dir = raw_dir_for(VOICE_SOURCE)
+        project_root = RAW_DIR / PROJECT_ROUTER_SOURCE
+    elif kind == "normalized":
+        voice_dir = normalized_dir_for(VOICE_SOURCE)
+        project_root = NORMALIZED_DIR / PROJECT_ROUTER_SOURCE
+    elif kind == "compiled":
+        voice_dir = compiled_dir_for(VOICE_SOURCE)
+        project_root = COMPILED_DIR / PROJECT_ROUTER_SOURCE
+    else:
+        raise SystemExit(f"Unknown artifact kind '{kind}'.")
+    output: list[Path] = []
+    if VOICE_SOURCE in sources:
+        output.append(voice_dir)
+    if PROJECT_ROUTER_SOURCE in sources:
+        output.extend(project_root / key for key in list_project_router_keys_for_artifacts(project_root))
+    return output
+
+
+def iter_raw_files_by_source(sources: set[str]) -> list[Path]:
+    output: list[Path] = []
+    for directory in iter_source_dirs("raw", sources):
+        output.extend(list_raw_files(directory))
+    return sorted(output)
+
+
+def iter_normalized_files_by_source(sources: set[str]) -> list[Path]:
+    output: list[Path] = []
+    for directory in iter_source_dirs("normalized", sources):
+        output.extend(list_markdown_files(directory))
+    return sorted(output)
+
+
+def iter_compiled_files_by_source(sources: set[str]) -> list[Path]:
+    output: list[Path] = []
+    for directory in iter_source_dirs("compiled", sources):
+        output.extend(list_markdown_files(directory))
+    return sorted(output)
+
+
+def review_queue_directories(sources: set[str]) -> list[Path]:
+    output: list[Path] = []
+    if VOICE_SOURCE in sources:
+        output.extend(review_dir_for(VOICE_SOURCE, status) for status in REVIEW_QUEUE_STATUSES)
+    if PROJECT_ROUTER_SOURCE in sources:
+        output.extend(review_dir_for(PROJECT_ROUTER_SOURCE, status) for status in ("parse_errors", "needs_review", "pending_project"))
+    return output
 
 
 def load_env_file(path: Path) -> None:
@@ -290,11 +464,13 @@ def load_registry(*, require_local: bool = False) -> tuple[dict[str, Any], dict[
     projects: dict[str, ProjectRule] = {}
     for key, raw in (config.get("projects") or {}).items():
         inbox_path_raw = raw.get("inbox_path")
+        router_root_path_raw = raw.get("router_root_path")
         projects[key] = ProjectRule(
             key=key,
             display_name=raw["display_name"],
             language=raw["language"],
             inbox_path=Path(inbox_path_raw) if inbox_path_raw else None,
+            router_root_path=Path(router_root_path_raw) if router_root_path_raw else None,
             note_type=raw["note_type"],
             auto_dispatch_threshold=float(raw.get("auto_dispatch_threshold", defaults.get("auto_dispatch_threshold", 0.9))),
             keywords=list(raw.get("keywords", [])),
@@ -362,6 +538,7 @@ def dump_value(value: Any) -> str:
 def write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
     ordered_keys = [
         "source",
+        "source_project",
         "source_note_id",
         "source_item_type",
         "source_endpoint",
@@ -410,6 +587,7 @@ def write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
         "routing_reason",
         "review_status",
         "requires_user_confirmation",
+        "content_hash",
         "canonical_path",
         "raw_payload_path",
         "dispatched_at",
@@ -446,7 +624,7 @@ def list_raw_files(path: Path) -> list[Path]:
 
 
 def remove_review_copies(note_name: str) -> None:
-    for review_dir in (AMBIGUOUS_DIR, NEEDS_REVIEW_DIR, PENDING_PROJECT_DIR):
+    for review_dir in review_queue_directories({VOICE_SOURCE, PROJECT_ROUTER_SOURCE}):
         review_copy = review_dir / note_name
         if review_copy.exists():
             review_copy.unlink()
@@ -471,20 +649,43 @@ def existing_artifact_path(directory: Path, note_id: str, suffix: str) -> Path |
     return matches[0] if matches else None
 
 
-def decision_packet_path(source_note_id: str) -> Path:
+def decision_packet_path_for_metadata(metadata: dict[str, Any]) -> Path:
+    source, source_project, note_id = note_identity(metadata)
+    return DECISIONS_DIR / f"{identity_slug(source, source_project, note_id)}.json"
+
+
+def decision_packet_paths_for_note_id(source_note_id: str) -> list[Path]:
     safe_note_id = require_valid_note_id(source_note_id)
-    return DECISIONS_DIR / f"{safe_note_id}.json"
+    return sorted(path for path in DECISIONS_DIR.glob("*.json") if path.is_file() and path.stem.endswith(f"--{safe_note_id}"))
 
 
-def load_decision_packet(source_note_id: str) -> dict[str, Any]:
-    path = decision_packet_path(source_note_id)
+def resolve_unique_decision_packet_path(source_note_id: str, *, sources: set[str] | None = None) -> Path:
+    matches = decision_packet_paths_for_note_id(source_note_id)
+    if sources is not None:
+        matches = [path for path in matches if normalize_source_name(str(load_decision_packet_by_path(path).get("source") or VOICE_SOURCE)) in sources]
+    if not matches:
+        raise SystemExit(f"No decision packet found for {source_note_id}.")
+    if len(matches) > 1:
+        rendered = ", ".join(str(path) for path in matches)
+        raise SystemExit(f"Multiple decision packets found for {source_note_id}. Narrow the source scope first: {rendered}")
+    return matches[0]
+
+
+def load_decision_packet_for_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    path = decision_packet_path_for_metadata(metadata)
     if not path.exists():
         return {"reviews": []}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def save_decision_packet(packet: dict[str, Any]) -> None:
-    path = decision_packet_path(str(packet["source_note_id"]))
+def load_decision_packet_by_path(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"reviews": []}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save_decision_packet_for_metadata(metadata: dict[str, Any], packet: dict[str, Any]) -> None:
+    path = decision_packet_path_for_metadata(metadata)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(packet, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
@@ -533,6 +734,8 @@ def extract_keywords(metadata: dict[str, Any], body: str, *, limit: int = 8) -> 
 
 
 def ensure_note_metadata_defaults(metadata: dict[str, Any]) -> dict[str, Any]:
+    metadata.setdefault("source", VOICE_SOURCE)
+    metadata.setdefault("source_project", None)
     metadata.setdefault("tags", [])
     metadata.setdefault("capture_kind", None)
     metadata.setdefault("intent", None)
@@ -551,6 +754,7 @@ def ensure_note_metadata_defaults(metadata: dict[str, Any]) -> dict[str, Any]:
     metadata.setdefault("related_note_ids", [])
     metadata.setdefault("candidate_projects", [])
     metadata.setdefault("dispatched_to", [])
+    metadata.setdefault("content_hash", None)
     return metadata
 
 
@@ -705,7 +909,7 @@ def build_decision_packet(
     reason: str,
 ) -> dict[str, Any]:
     source_note_id = str(metadata.get("source_note_id") or note_path.stem)
-    packet = load_decision_packet(source_note_id)
+    packet = load_decision_packet_for_metadata(metadata)
     candidates = candidate_scores(details)
     proposed_project = metadata.get("project")
     proposed_type = metadata.get("note_type")
@@ -713,7 +917,10 @@ def build_decision_packet(
     packet.update(
         {
             "source_note_id": source_note_id,
+            "source": metadata.get("source", VOICE_SOURCE),
+            "source_project": metadata.get("source_project"),
             "canonical_path": str(note_path),
+            "raw_payload_path": metadata.get("raw_payload_path"),
             "title": metadata.get("title"),
             "created_at": metadata.get("created_at"),
             "tags": metadata.get("tags", []),
@@ -786,15 +993,28 @@ def compiled_filename_from_metadata(metadata: dict[str, Any]) -> str:
 def load_raw_recording(path: Path) -> tuple[dict[str, Any], str]:
     if path.suffix == ".json":
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("source") == PROJECT_ROUTER_SOURCE:
+            return payload, "project-router-json"
         if "recording" in payload:
             return payload, "json"
         # tolerate direct recording payloads too
-        return {"source": "voicenotes", "source_endpoint": "recordings", "recording": payload}, "json"
+        return {"source": VOICE_SOURCE, "source_endpoint": "recordings", "recording": payload}, "json"
 
     metadata, body = read_note(path)
+    if metadata.get("packet_id") or metadata.get("source") == PROJECT_ROUTER_SOURCE:
+        return (
+            {
+                "source": PROJECT_ROUTER_SOURCE,
+                "source_project": metadata.get("source_project"),
+                "source_endpoint": "outbox",
+                "packet": metadata,
+                "body": body,
+            },
+            "project-router-markdown",
+        )
     return (
         {
-            "source": metadata.get("source", "voicenotes"),
+            "source": metadata.get("source", VOICE_SOURCE),
             "source_endpoint": "legacy-markdown-raw",
             "recording": {
                 "id": metadata.get("source_note_id"),
@@ -812,13 +1032,73 @@ def load_raw_recording(path: Path) -> tuple[dict[str, Any], str]:
 
 
 def normalized_note_from_raw(raw_path: Path, raw_payload: dict[str, Any], raw_format: str) -> tuple[Path, dict[str, Any], str]:
+    source = normalize_source_name(str(raw_payload.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+    if source == PROJECT_ROUTER_SOURCE:
+        packet = dict(raw_payload.get("packet") or {})
+        note_id = require_valid_note_id(packet.get("packet_id") or packet.get("source_note_id"), field="packet_id")
+        source_project = str(raw_payload.get("source_project") or packet.get("source_project") or "").strip()
+        if not source_project:
+            raise SystemExit(f"Raw project_router packet '{raw_path}' is missing source_project.")
+        title = packet.get("title") or f"Project Router {note_id}"
+        created_at = packet.get("created_at")
+        note_dir = normalized_dir_for(PROJECT_ROUTER_SOURCE, source_project)
+        normalized_path = existing_artifact_path(note_dir, note_id, ".md") or (note_dir / f"{normalize_timestamp(created_at)}--{note_id}.md")
+        body = str(raw_payload.get("body") or "")
+        metadata = {
+            "source": PROJECT_ROUTER_SOURCE,
+            "source_project": source_project,
+            "source_note_id": note_id,
+            "source_item_type": "outbox_packet",
+            "source_endpoint": "outbox",
+            "title": title,
+            "created_at": created_at,
+            "recorded_at": packet.get("recorded_at"),
+            "recording_type": None,
+            "duration": None,
+            "tags": packet.get("tags") or [],
+            "capture_kind": None,
+            "intent": None,
+            "destination": packet.get("target_project"),
+            "destination_reason": "",
+            "user_keywords": [],
+            "inferred_keywords": [],
+            "transcript_format": "markdown",
+            "summary_available": False,
+            "summary_source": None,
+            "audio_available": False,
+            "audio_local_path": None,
+            "classification_basis": [],
+            "derived_outputs": [],
+            "thread_id": None,
+            "continuation_of": packet.get("continuation_of"),
+            "related_note_ids": packet.get("related_note_ids") or [],
+            "status": "normalized",
+            "project": None,
+            "candidate_projects": [],
+            "confidence": 0.0,
+            "routing_reason": "",
+            "review_status": "pending",
+            "requires_user_confirmation": True,
+            "content_hash": raw_payload.get("content_hash"),
+            "canonical_path": str(normalized_path),
+            "raw_payload_path": str(raw_path),
+            "dispatched_to": [],
+            "packet_type": packet.get("packet_type"),
+            "supported_packet_types": packet.get("supported_packet_types"),
+            "native_packet_id": packet.get("packet_id"),
+        }
+        rendered_body = body if body.startswith("# ") else f"# {title}\n\n{body.strip()}\n"
+        return normalized_path, enrich_note_metadata(metadata, rendered_body), rendered_body
+
     recording = dict(raw_payload.get("recording") or {})
     note_id = require_valid_note_id(recording.get("id") or recording.get("uuid"))
     title = recording.get("title") or f"VoiceNotes {recording.get('id') or recording.get('uuid')}"
-    normalized_path = existing_artifact_path(NORMALIZED_DIR, note_id, ".md") or (NORMALIZED_DIR / normalized_filename_from_recording(recording))
+    note_dir = normalized_dir_for(VOICE_SOURCE)
+    normalized_path = existing_artifact_path(note_dir, note_id, ".md") or (note_dir / normalized_filename_from_recording(recording))
     transcript = recording.get("transcript")
     metadata = {
-        "source": raw_payload.get("source", "voicenotes"),
+        "source": raw_payload.get("source", VOICE_SOURCE),
+        "source_project": None,
         "source_note_id": note_id,
         "source_item_type": recording.get("type", "note"),
         "source_endpoint": raw_payload.get("source_endpoint", "recordings"),
@@ -851,6 +1131,7 @@ def normalized_note_from_raw(raw_path: Path, raw_payload: dict[str, Any], raw_fo
         "routing_reason": "",
         "review_status": "pending",
         "requires_user_confirmation": True,
+        "content_hash": None,
         "canonical_path": str(normalized_path),
         "raw_payload_path": str(raw_path),
         "dispatched_to": [],
@@ -1112,8 +1393,9 @@ def build_ambiguities(metadata: dict[str, Any], *, open_questions: list[str], fa
 
 
 def compiled_note_path(metadata: dict[str, Any]) -> Path:
-    note_id = require_valid_note_id(metadata.get("source_note_id"))
-    return existing_artifact_path(COMPILED_DIR, note_id, ".md") or (COMPILED_DIR / compiled_filename_from_metadata(metadata))
+    source, source_project, note_id = note_identity(metadata)
+    directory = compiled_dir_for(source, source_project)
+    return existing_artifact_path(directory, note_id, ".md") or (directory / compiled_filename_from_metadata(metadata))
 
 
 def format_bullet_section(title: str, values: list[str]) -> str:
@@ -1228,10 +1510,11 @@ def compile_note_artifact(metadata: dict[str, Any], body: str, note_path: Path) 
 def compile_command(args: argparse.Namespace) -> int:
     ensure_layout()
     note_filter = set(args.note_ids or [])
+    sources = parse_source_filter(getattr(args, "source", None))
     written = 0
     updated = 0
     skipped = 0
-    for note_path in list_markdown_files(NORMALIZED_DIR):
+    for note_path in iter_normalized_files_by_source(sources):
         metadata, body = read_note(note_path)
         metadata = ensure_note_metadata_defaults(metadata)
         source_note_id = str(metadata.get("source_note_id") or "")
@@ -1242,8 +1525,10 @@ def compile_command(args: argparse.Namespace) -> int:
             skipped += 1
             continue
         artifact_path, artifact_metadata, artifact_body = compile_note_artifact(metadata, body, note_path)
-        packet = load_decision_packet(source_note_id)
+        packet = load_decision_packet_for_metadata(metadata)
         packet.setdefault("source_note_id", source_note_id)
+        packet.setdefault("source", metadata.get("source", VOICE_SOURCE))
+        packet.setdefault("source_project", metadata.get("source_project"))
         packet.setdefault("canonical_path", str(note_path))
         packet.setdefault("title", metadata.get("title"))
         if artifact_path.exists():
@@ -1261,7 +1546,7 @@ def compile_command(args: argparse.Namespace) -> int:
                     "open_questions": artifact_metadata.get("open_questions", []),
                     "ambiguities": artifact_metadata.get("ambiguities", []),
                 }
-                save_decision_packet(packet)
+                save_decision_packet_for_metadata(metadata, packet)
                 skipped += 1
                 continue
             artifact_metadata["compiled_at"] = iso_now()
@@ -1276,7 +1561,7 @@ def compile_command(args: argparse.Namespace) -> int:
                 "open_questions": artifact_metadata.get("open_questions", []),
                 "ambiguities": artifact_metadata.get("ambiguities", []),
             }
-            save_decision_packet(packet)
+            save_decision_packet_for_metadata(metadata, packet)
             updated += 1
             continue
         write_note(artifact_path, artifact_metadata, artifact_body)
@@ -1290,9 +1575,21 @@ def compile_command(args: argparse.Namespace) -> int:
             "open_questions": artifact_metadata.get("open_questions", []),
             "ambiguities": artifact_metadata.get("ambiguities", []),
         }
-        save_decision_packet(packet)
+        save_decision_packet_for_metadata(metadata, packet)
         written += 1
-    print(json.dumps({"compiled_written": written, "compiled_updated": updated, "skipped": skipped, "note_ids": sorted(note_filter)}, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "compiled_written": written,
+                "compiled_updated": updated,
+                "skipped": skipped,
+                "note_ids": sorted(note_filter),
+                "sources": sorted(sources),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
@@ -1306,15 +1603,20 @@ def compiled_artifact_state(metadata: dict[str, Any], body: str) -> tuple[Path, 
     return path, is_fresh, compiled_metadata, current_signature
 
 
-def normalize_command(_: argparse.Namespace) -> int:
+def normalize_command(args: argparse.Namespace) -> int:
     ensure_layout()
+    sources = parse_source_filter(getattr(args, "source", None))
     written = 0
     updated = 0
     skipped = 0
-    for raw_file in list_raw_files(RAW_DIR):
+    for raw_file in iter_raw_files_by_source(sources):
         raw_payload, raw_format = load_raw_recording(raw_file)
-        recording = raw_payload.get("recording") or {}
-        note_id = recording.get("id") or recording.get("uuid")
+        if normalize_source_name(str(raw_payload.get("source") or VOICE_SOURCE)) == PROJECT_ROUTER_SOURCE:
+            packet = raw_payload.get("packet") or {}
+            note_id = packet.get("packet_id") or packet.get("source_note_id")
+        else:
+            recording = raw_payload.get("recording") or {}
+            note_id = recording.get("id") or recording.get("uuid")
         if not note_id:
             skipped += 1
             continue
@@ -1333,7 +1635,13 @@ def normalize_command(_: argparse.Namespace) -> int:
         write_note(normalized_path, metadata, body)
         written += 1
 
-    print(json.dumps({"normalized_written": written, "normalized_updated": updated, "skipped": skipped}, indent=2))
+    print(
+        json.dumps(
+            {"normalized_written": written, "normalized_updated": updated, "skipped": skipped, "sources": sorted(sources)},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
@@ -1426,8 +1734,9 @@ def route_note(body: str, metadata: dict[str, Any], defaults: dict[str, Any], pr
 def triage_command(args: argparse.Namespace) -> int:
     ensure_layout()
     defaults, projects = load_registry()
+    sources = parse_source_filter(getattr(args, "source", None))
     triaged = 0
-    for note_path in list_markdown_files(NORMALIZED_DIR):
+    for note_path in iter_normalized_files_by_source(sources):
         metadata, body = read_note(note_path)
         metadata = ensure_note_metadata_defaults(metadata)
         if metadata.get("status") == "dispatched":
@@ -1467,12 +1776,15 @@ def triage_command(args: argparse.Namespace) -> int:
             metadata.pop("note_type", None)
             write_note(note_path, metadata, body)
             remove_review_copies(note_path.name)
-            if route == "ambiguous":
-                target_dir = AMBIGUOUS_DIR
+            source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+            if source == PROJECT_ROUTER_SOURCE and route == "ambiguous":
+                target_dir = review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")
+            elif route == "ambiguous":
+                target_dir = review_dir_for(VOICE_SOURCE, "ambiguous")
             elif route == "pending_project":
-                target_dir = PENDING_PROJECT_DIR
+                target_dir = review_dir_for(source, "pending_project")
             else:
-                target_dir = NEEDS_REVIEW_DIR
+                target_dir = review_dir_for(source, "needs_review")
             write_note(target_dir / note_path.name, metadata, body)
         else:
             metadata["status"] = "classified"
@@ -1481,10 +1793,10 @@ def triage_command(args: argparse.Namespace) -> int:
             metadata["intent"] = classify_intent(metadata)
             write_note(note_path, metadata, body)
             remove_review_copies(note_path.name)
-        save_decision_packet(build_decision_packet(note_path, metadata, body, route=route, details=details, reason=reason))
+        save_decision_packet_for_metadata(metadata, build_decision_packet(note_path, metadata, body, route=route, details=details, reason=reason))
         triaged += 1
 
-    print(json.dumps({"triaged": triaged, "mode": "all" if args.all else "default"}, indent=2))
+    print(json.dumps({"triaged": triaged, "mode": "all" if args.all else "default", "sources": sorted(sources)}, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -1498,7 +1810,8 @@ def build_dispatch_note(
 ) -> tuple[str, str]:
     title = metadata.get("title") or compiled_metadata.get("title") or f"VoiceNotes {metadata.get('source_note_id')}"
     dispatch_metadata = {
-        "source": "voicenotes",
+        "source": metadata.get("source", VOICE_SOURCE),
+        "source_project": metadata.get("source_project"),
         "source_note_id": metadata.get("source_note_id"),
         "created_at": metadata.get("created_at"),
         "project": project.key,
@@ -1544,21 +1857,23 @@ def dispatch_filename(metadata: dict[str, Any], title: str) -> str:
 
 
 def resolve_dispatch_destination(project: ProjectRule, metadata: dict[str, Any]) -> tuple[Path | None, str | None]:
-    if project.inbox_path is None:
+    inbox_path = inbox_path_for_project(project)
+    if inbox_path is None:
         return None, f"no local inbox_path for project '{project.key}'"
 
     try:
-        ensure_safe_inbox_path(project.inbox_path, project_key=project.key, registry_path=REGISTRY_LOCAL_PATH)
+        ensure_safe_inbox_path(inbox_path, project_key=project.key, registry_path=REGISTRY_LOCAL_PATH)
     except SystemExit as exc:
         return None, str(exc)
 
     title = metadata.get("title") or f"VoiceNotes {metadata.get('source_note_id')}"
-    return project.inbox_path / dispatch_filename(metadata, title), None
+    return inbox_path / dispatch_filename(metadata, title), None
 
 
 def dispatch_command(args: argparse.Namespace) -> int:
     ensure_layout()
     _, projects = load_registry(require_local=True)
+    sources = parse_source_filter(getattr(args, "source", None))
     dispatched = 0
     skipped = 0
     candidates: list[dict[str, Any]] = []
@@ -1567,7 +1882,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
     if args.confirm_user_approval and not approved_note_ids:
         raise SystemExit("Real dispatch requires at least one --note-id after the user confirms those exact notes.")
 
-    for note_path in list_markdown_files(NORMALIZED_DIR):
+    for note_path in iter_normalized_files_by_source(sources):
         metadata, body = read_note(note_path)
         project_key = metadata.get("project")
         if metadata.get("status") != "classified" or not project_key:
@@ -1641,8 +1956,10 @@ def dispatch_command(args: argparse.Namespace) -> int:
         metadata["dispatched_to"] = [str(destination)]
         metadata["requires_user_confirmation"] = False
         write_note(note_path, metadata, body)
-        packet = load_decision_packet(source_note_id)
+        packet = load_decision_packet_for_metadata(metadata)
         packet.setdefault("source_note_id", source_note_id)
+        packet.setdefault("source", metadata.get("source", VOICE_SOURCE))
+        packet.setdefault("source_project", metadata.get("source_project"))
         packet.setdefault("canonical_path", str(note_path))
         packet.setdefault("title", metadata.get("title"))
         packet.setdefault("created_at", metadata.get("created_at"))
@@ -1651,7 +1968,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
             "dispatched_at": metadata["dispatched_at"],
             "compiled_path": str(compiled_path),
         }
-        save_decision_packet(packet)
+        save_decision_packet_for_metadata(metadata, packet)
         dispatched += 1
 
     summary = {
@@ -1661,14 +1978,16 @@ def dispatch_command(args: argparse.Namespace) -> int:
         "dry_run": args.dry_run,
         "confirmation_required": not args.dry_run and not args.confirm_user_approval,
         "approved_note_ids": sorted(approved_note_ids),
+        "sources": sorted(sources),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 
 
-def pending_project_notes() -> list[dict[str, Any]]:
+def pending_project_notes(*, sources: set[str] | None = None) -> list[dict[str, Any]]:
+    active_sources = sources or {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}
     items: list[dict[str, Any]] = []
-    for note_path in list_markdown_files(NORMALIZED_DIR):
+    for note_path in iter_normalized_files_by_source(active_sources):
         metadata, body = read_note(note_path)
         metadata = ensure_note_metadata_defaults(metadata)
         if metadata.get("status") != "pending_project":
@@ -1679,7 +1998,8 @@ def pending_project_notes() -> list[dict[str, Any]]:
         if not metadata.get("capture_kind"):
             metadata = enrich_note_metadata(metadata, body)
             write_note(note_path, metadata, body)
-        review_path = PENDING_PROJECT_DIR / note_path.name
+        source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+        review_path = review_dir_for(source, "pending_project") / note_path.name
         review_metadata, review_body = read_note(review_path) if review_path.exists() else ({}, "")
         if not review_path.exists() or review_metadata != metadata or review_body != body:
             write_note(review_path, metadata, body)
@@ -1749,7 +2069,8 @@ def cluster_relationship_suggestions(cluster: list[dict[str, Any]]) -> list[dict
 
 def discover_command(_: argparse.Namespace) -> int:
     ensure_layout()
-    items = pending_project_notes()
+    sources = parse_source_filter(getattr(_, "source", None))
+    items = pending_project_notes(sources=sources)
     ignored_items = [item for item in items if is_system_note(item["metadata"], item["body"])]
     candidate_items = [item for item in items if not is_system_note(item["metadata"], item["body"])]
     clusters = cluster_pending_notes(candidate_items)
@@ -1768,7 +2089,7 @@ def discover_command(_: argparse.Namespace) -> int:
                     "keywords": item["keywords"],
                     "normalized_path": str(item["note_path"]),
                     "review_path": str(item["review_path"]) if item["review_path"].exists() else None,
-                    "decision_packet_path": str(decision_packet_path(str(item["metadata"].get("source_note_id")))),
+                    "decision_packet_path": str(decision_packet_path_for_metadata(item["metadata"])),
                 }
             )
             continue
@@ -1792,7 +2113,7 @@ def discover_command(_: argparse.Namespace) -> int:
                         "keywords": item["keywords"],
                         "normalized_path": str(item["note_path"]),
                         "review_path": str(item["review_path"]) if item["review_path"].exists() else None,
-                        "decision_packet_path": str(decision_packet_path(str(item["metadata"].get("source_note_id")))),
+                        "decision_packet_path": str(decision_packet_path_for_metadata(item["metadata"])),
                     }
                     for item in sorted(cluster, key=note_sort_key)
                 ],
@@ -1801,6 +2122,7 @@ def discover_command(_: argparse.Namespace) -> int:
 
     report = {
         "generated_at": iso_now(),
+        "sources": sorted(sources),
         "pending_project_notes": len(items),
         "ignored_system_notes": [
             {
@@ -1821,18 +2143,23 @@ def discover_command(_: argparse.Namespace) -> int:
 
 def review_command(args: argparse.Namespace) -> int:
     ensure_layout()
+    sources = parse_source_filter(getattr(args, "source", None))
     packets = sorted(DECISIONS_DIR.glob("*.json"))
     if args.note_id:
-        packet_path = decision_packet_path(args.note_id)
-        packet = load_decision_packet(args.note_id)
+        packet_path = resolve_unique_decision_packet_path(args.note_id, sources=sources)
+        packet = load_decision_packet_by_path(packet_path)
         if not packet or "source_note_id" not in packet:
             raise SystemExit(f"No decision packet found for {args.note_id}.")
+        if normalize_source_name(str(packet.get("source") or VOICE_SOURCE)) not in sources:
+            raise SystemExit(f"Decision packet {args.note_id} exists outside the current --source filter.")
         print(json.dumps(build_review_entry(packet, packet_path), indent=2, ensure_ascii=False))
         return 0
 
     output = []
     for path in packets:
-        packet = json.loads(path.read_text(encoding="utf-8"))
+        packet = load_decision_packet_by_path(path)
+        if normalize_source_name(str(packet.get("source") or VOICE_SOURCE)) not in sources:
+            continue
         entry = build_review_entry(packet, path)
         if not args.all and entry.get("review_status") != "pending" and entry.get("action") not in {"compile_required", "recompile_required"}:
             continue
@@ -1907,15 +2234,26 @@ def build_review_entry(packet: dict[str, Any], packet_path: Path) -> dict[str, A
 
 
 def _raw_payload_path_from_packet(packet: dict[str, Any]) -> str | None:
-    canonical_path = packet.get("canonical_path")
-    if not canonical_path:
-        return None
-    normalized_path = Path(canonical_path)
-    note_id = packet.get("source_note_id")
-    if not note_id:
-        return None
-    prefix = normalized_path.stem.rsplit("--", 1)[0]
-    return str(RAW_DIR / f"{prefix}--{note_id}.json")
+    return packet.get("raw_payload_path")
+
+
+def find_normalized_note_paths(note_id: str, *, sources: set[str] | None = None) -> list[Path]:
+    matches: list[Path] = []
+    for path in iter_normalized_files_by_source(sources or {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}):
+        metadata, _ = read_note(path)
+        if str(metadata.get("source_note_id")) == note_id:
+            matches.append(path)
+    return matches
+
+
+def resolve_unique_normalized_note_path(note_id: str, *, sources: set[str] | None = None) -> Path:
+    matches = find_normalized_note_paths(note_id, sources=sources)
+    if not matches:
+        raise SystemExit(f"No normalized note found for {note_id}.")
+    if len(matches) > 1:
+        rendered = ", ".join(str(path) for path in matches)
+        raise SystemExit(f"Multiple normalized notes found for {note_id}. Narrow the source scope first: {rendered}")
+    return matches[0]
 
 
 def apply_note_annotations(metadata: dict[str, Any], args: argparse.Namespace, note_id: str) -> None:
@@ -1943,18 +2281,9 @@ def apply_note_annotations(metadata: dict[str, Any], args: argparse.Namespace, n
 def decide_command(args: argparse.Namespace) -> int:
     ensure_layout()
     defaults, projects = load_registry()
-    note_path = None
-    metadata = None
-    body = None
-    for candidate_path in list_markdown_files(NORMALIZED_DIR):
-        candidate_metadata, candidate_body = read_note(candidate_path)
-        if str(candidate_metadata.get("source_note_id")) == args.note_id:
-            note_path = candidate_path
-            metadata = candidate_metadata
-            body = candidate_body
-            break
-    if note_path is None or metadata is None or body is None:
-        raise SystemExit(f"No normalized note found for {args.note_id}.")
+    sources = parse_source_filter(getattr(args, "source", None))
+    note_path = resolve_unique_normalized_note_path(args.note_id, sources=sources)
+    metadata, body = read_note(note_path)
 
     metadata = ensure_note_metadata_defaults(metadata)
     apply_note_annotations(metadata, args, args.note_id)
@@ -1982,7 +2311,9 @@ def decide_command(args: argparse.Namespace) -> int:
         metadata["requires_user_confirmation"] = True
         metadata["intent"] = classify_intent(metadata)
         remove_review_copies(note_path.name)
-        write_note(AMBIGUOUS_DIR / note_path.name, metadata, body)
+        source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+        target_dir = review_dir_for(VOICE_SOURCE, "ambiguous") if source == VOICE_SOURCE else review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")
+        write_note(target_dir / note_path.name, metadata, body)
     elif decision == "pending-project":
         metadata["status"] = "pending_project"
         metadata["project"] = None
@@ -1992,7 +2323,7 @@ def decide_command(args: argparse.Namespace) -> int:
         metadata["requires_user_confirmation"] = True
         metadata["intent"] = classify_intent(metadata)
         remove_review_copies(note_path.name)
-        write_note(PENDING_PROJECT_DIR / note_path.name, metadata, body)
+        write_note(review_dir_for(normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE, "pending_project") / note_path.name, metadata, body)
     else:
         metadata["status"] = "needs_review"
         metadata["project"] = None
@@ -2002,13 +2333,15 @@ def decide_command(args: argparse.Namespace) -> int:
         metadata["requires_user_confirmation"] = True
         metadata["intent"] = classify_intent(metadata)
         remove_review_copies(note_path.name)
-        write_note(NEEDS_REVIEW_DIR / note_path.name, metadata, body)
+        write_note(review_dir_for(normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE, "needs_review") / note_path.name, metadata, body)
 
     write_note(note_path, metadata, body)
 
-    packet = load_decision_packet(args.note_id)
+    packet = load_decision_packet_for_metadata(metadata)
     packet.setdefault("reviews", [])
     packet.setdefault("source_note_id", args.note_id)
+    packet.setdefault("source", metadata.get("source", VOICE_SOURCE))
+    packet.setdefault("source_project", metadata.get("source_project"))
     packet.setdefault("canonical_path", str(note_path))
     packet.setdefault("title", metadata.get("title"))
     packet.setdefault("created_at", metadata.get("created_at"))
@@ -2027,7 +2360,7 @@ def decide_command(args: argparse.Namespace) -> int:
     )
     packet["final_decision"] = packet["reviews"][-1]
     packet["proposal"] = build_decision_packet(note_path, metadata, body, route=str(metadata.get("project") or metadata.get("status")), details={}, reason=str(metadata.get("routing_reason") or "")).get("proposal", {})
-    save_decision_packet(packet)
+    save_decision_packet_for_metadata(metadata, packet)
 
     print(
         json.dumps(
@@ -2045,6 +2378,473 @@ def decide_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def load_outbox_scan_state() -> dict[str, Any]:
+    if not OUTBOX_SCAN_STATE_PATH.exists():
+        return {"schema_version": "1", "scanned_packets": {}}
+    return json.loads(OUTBOX_SCAN_STATE_PATH.read_text(encoding="utf-8"))
+
+
+def save_outbox_scan_state(state: dict[str, Any]) -> None:
+    OUTBOX_SCAN_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OUTBOX_SCAN_STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def scan_state_entry(state: dict[str, Any], project_key: str, note_id: str) -> dict[str, Any] | None:
+    return ((state.get("scanned_packets") or {}).get(project_key) or {}).get(note_id)
+
+
+def update_scan_state(state: dict[str, Any], project_key: str, note_id: str, payload: dict[str, Any]) -> None:
+    packets = state.setdefault("scanned_packets", {})
+    project_packets = packets.setdefault(project_key, {})
+    project_packets[note_id] = payload
+
+
+def acquire_scan_lock() -> None:
+    try:
+        OUTBOX_SCAN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(OUTBOX_SCAN_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError as exc:
+        raise SystemExit(f"Another scan-outboxes command is already running ({OUTBOX_SCAN_LOCK_PATH}).") from exc
+
+
+def release_scan_lock() -> None:
+    if OUTBOX_SCAN_LOCK_PATH.exists():
+        OUTBOX_SCAN_LOCK_PATH.unlink()
+
+
+def relative_or_absolute(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def packet_content_hash(metadata: dict[str, Any], body: str) -> str:
+    payload = json.dumps({"frontmatter": metadata, "body": body}, sort_keys=True, ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def validate_router_contract(contract: dict[str, Any], *, expected_project_key: str | None = None, strict: bool = False) -> list[str]:
+    errors: list[str] = []
+    required = ("schema_version", "project_key", "default_language", "supported_packet_types")
+    for field in required:
+        if field not in contract:
+            errors.append(f"router-contract.json missing required field '{field}'")
+    allowed = set(required)
+    extras = sorted(key for key in contract if key not in allowed)
+    if strict and extras:
+        errors.append(f"router-contract.json contains unsupported fields: {', '.join(extras)}")
+    if "supported_packet_types" in contract and not isinstance(contract.get("supported_packet_types"), list):
+        errors.append("router-contract.json field 'supported_packet_types' must be a JSON array.")
+    if expected_project_key and contract.get("project_key") != expected_project_key:
+        errors.append(
+            f"router-contract.json project_key '{contract.get('project_key')}' does not match expected registry key '{expected_project_key}'."
+        )
+    return errors
+
+
+def validate_outbox_packet(
+    path: Path,
+    metadata: dict[str, Any],
+    body: str,
+    *,
+    expected_project_key: str,
+    strict: bool = False,
+) -> tuple[list[str], dict[str, Any]]:
+    errors: list[str] = []
+    required = (
+        "schema_version",
+        "packet_id",
+        "created_at",
+        "source_project",
+        "packet_type",
+        "title",
+        "language",
+        "status",
+    )
+    for field in required:
+        if field not in metadata or metadata.get(field) in (None, "", []):
+            errors.append(f"{path.name}: missing required frontmatter field '{field}'")
+    packet_id = None
+    if metadata.get("packet_id") not in (None, ""):
+        try:
+            packet_id = require_valid_note_id(metadata.get("packet_id"), field="packet_id")
+        except SystemExit as exc:
+            errors.append(f"{path.name}: {exc}")
+    created_at = metadata.get("created_at")
+    if created_at and not parse_note_datetime(str(created_at)):
+        errors.append(f"{path.name}: created_at must be an ISO-8601 datetime.")
+    if metadata.get("source_project") and str(metadata.get("source_project")) != expected_project_key:
+        errors.append(
+            f"{path.name}: source_project '{metadata.get('source_project')}' does not match expected project '{expected_project_key}'."
+        )
+    if packet_id and path.name != f"{normalize_timestamp(str(created_at))}--{packet_id}.md":
+        errors.append(f"{path.name}: filename must match '{normalize_timestamp(str(created_at))}--{packet_id}.md'.")
+    if strict and metadata.get("source_note_id"):
+        errors.append(f"{path.name}: authored outbox packets must not define source_note_id directly.")
+    content_hash = packet_content_hash(metadata, body)
+    normalized = {
+        "source": PROJECT_ROUTER_SOURCE,
+        "source_project": expected_project_key,
+        "source_note_id": packet_id,
+        "content_hash": content_hash,
+    }
+    return errors, normalized
+
+
+def parse_outbox_packet(path: Path, *, expected_project_key: str, strict: bool = False) -> tuple[dict[str, Any], str, list[str], dict[str, Any]]:
+    metadata, body = read_note(path)
+    errors, normalized = validate_outbox_packet(path, metadata, body, expected_project_key=expected_project_key, strict=strict)
+    return metadata, body, errors, normalized
+
+
+def build_project_router_raw_payload(
+    *,
+    project_key: str,
+    source_path: Path,
+    metadata: dict[str, Any],
+    body: str,
+    normalized: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "source": PROJECT_ROUTER_SOURCE,
+        "source_project": project_key,
+        "source_endpoint": "outbox",
+        "source_item_type": "outbox_packet",
+        "source_path": str(source_path),
+        "content_hash": normalized["content_hash"],
+        "packet": dict(metadata),
+        "body": body,
+        "scanned_at": iso_now(),
+    }
+
+
+def parse_error_note_path(project_key: str, note_id: str) -> Path:
+    return review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors") / f"{normalize_timestamp(iso_now())}--{slugify(project_key)}--{note_id}.md"
+
+
+def write_parse_error_note(
+    *,
+    project_key: str,
+    source_path: Path,
+    note_id: str,
+    errors: list[str],
+    metadata: dict[str, Any] | None = None,
+) -> Path:
+    path = parse_error_note_path(project_key, note_id)
+    note_metadata = {
+        "source": PROJECT_ROUTER_SOURCE,
+        "source_project": project_key,
+        "source_note_id": note_id,
+        "source_item_type": "outbox_packet",
+        "source_endpoint": "outbox",
+        "title": f"Parse error for {project_key}/{note_id}",
+        "created_at": iso_now(),
+        "status": "parse_error",
+        "review_status": "pending",
+        "routing_reason": "; ".join(errors),
+        "canonical_path": str(path),
+        "raw_payload_path": str(source_path),
+        "content_hash": packet_content_hash(metadata or {}, "\n".join(errors)),
+    }
+    body = "## Errors\n\n" + "\n".join(f"- {error}" for error in errors) + f"\n\n## Source path\n\n- {source_path}\n"
+    write_note(path, note_metadata, body)
+    return path
+
+
+def project_contract_path(router_root: Path) -> Path:
+    return router_root / "router-contract.json"
+
+
+def outbox_packet_paths(router_root: Path) -> list[Path]:
+    outbox_dir = router_root / "outbox"
+    if not outbox_dir.exists():
+        return []
+    return sorted(path for path in outbox_dir.iterdir() if path.is_file() and path.suffix == ".md")
+
+
+def resolve_doctor_target(args: argparse.Namespace) -> tuple[Path, str, dict[str, Any] | None]:
+    if getattr(args, "router_root", None):
+        router_root = Path(args.router_root).resolve()
+        contract = json.loads(project_contract_path(router_root).read_text(encoding="utf-8"))
+        return router_root, str(contract.get("project_key") or ""), None
+    defaults, projects = load_registry(require_local=True)
+    if getattr(args, "project", None):
+        project = projects.get(args.project)
+        if not project or project.router_root_path is None:
+            raise SystemExit(f"Project '{args.project}' is missing router_root_path in projects/registry.local.json.")
+        return project.router_root_path, project.key, defaults
+    raise SystemExit("doctor requires either --router-root or --project.")
+
+
+def doctor_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    router_root, expected_project_key, _ = resolve_doctor_target(args)
+    contract_path = project_contract_path(router_root)
+    if not contract_path.exists():
+        raise SystemExit(f"Missing router contract: {contract_path}")
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    errors = validate_router_contract(contract, expected_project_key=expected_project_key or None, strict=args.strict)
+    warnings: list[str] = []
+    required_dirs = [
+        router_root / "inbox",
+        router_root / "outbox",
+        router_root / "conformance",
+    ]
+    for path in required_dirs:
+        if not path.exists():
+            errors.append(f"Missing required router directory: {path}")
+    for fixture_name in ("valid-packet.example.md", "invalid-packet.example.md"):
+        fixture = router_root / "conformance" / fixture_name
+        if not fixture.exists():
+            errors.append(f"Missing conformance fixture: {fixture}")
+    packet_ids: set[str] = set()
+    packets_report: list[dict[str, Any]] = []
+    packet_candidates = [Path(args.packet).resolve()] if getattr(args, "packet", None) else outbox_packet_paths(router_root)
+    for candidate in packet_candidates:
+        if not candidate.exists():
+            errors.append(f"Packet path does not exist: {candidate}")
+    for path in packet_candidates:
+        if not path.exists():
+            continue
+        metadata, body, packet_errors, normalized = parse_outbox_packet(
+            path,
+            expected_project_key=str(contract.get("project_key") or expected_project_key),
+            strict=args.strict,
+        )
+        packet_id = normalized.get("source_note_id")
+        if packet_id in packet_ids:
+            packet_errors.append(f"{path.name}: duplicate packet_id '{packet_id}' in outbox.")
+        if packet_id:
+            packet_ids.add(packet_id)
+        packets_report.append(
+            {
+                "path": str(path),
+                "packet_id": packet_id,
+                "status": "ok" if not packet_errors else "invalid",
+                "errors": packet_errors,
+            }
+        )
+        errors.extend(packet_errors)
+    report = {
+        "status": "ok" if not errors else "error",
+        "project_key": contract.get("project_key"),
+        "router_root": str(router_root),
+        "strict": args.strict,
+        "errors": errors,
+        "warnings": warnings,
+        "packets": packets_report,
+    }
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+    return 0 if not errors else 1
+
+
+def configured_scan_projects(projects: dict[str, ProjectRule], *, include_self: bool) -> list[tuple[str, Path]]:
+    targets = [(project.key, project.router_root_path) for project in projects.values() if project.router_root_path is not None]
+    if include_self and project_contract_path(LOCAL_ROUTER_DIR).exists():
+        contract = json.loads(project_contract_path(LOCAL_ROUTER_DIR).read_text(encoding="utf-8"))
+        self_key = str(contract.get("project_key") or "self")
+        if all(key != self_key for key, _ in targets):
+            targets.append((self_key, LOCAL_ROUTER_DIR))
+    return [(key, path) for key, path in targets if path is not None]
+
+
+def scan_outboxes_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    _, projects = load_registry(require_local=True)
+    acquire_scan_lock()
+    try:
+        state = load_outbox_scan_state()
+        ingested = 0
+        unchanged = 0
+        invalid = 0
+        content_changed = 0
+        scanned_packets: list[dict[str, Any]] = []
+        for project_key, router_root in configured_scan_projects(projects, include_self=args.include_self):
+            contract = json.loads(project_contract_path(router_root).read_text(encoding="utf-8"))
+            contract_errors = validate_router_contract(contract, expected_project_key=project_key, strict=args.strict)
+            if contract_errors:
+                invalid += 1
+                write_parse_error_note(project_key=project_key, source_path=project_contract_path(router_root), note_id="router-contract", errors=contract_errors)
+                continue
+            for packet_path in outbox_packet_paths(router_root):
+                metadata, body, errors, normalized = parse_outbox_packet(packet_path, expected_project_key=project_key, strict=args.strict)
+                note_id = normalized.get("source_note_id") or slugify(packet_path.stem) or "invalid-packet"
+                entry = scan_state_entry(state, project_key, note_id)
+                if errors:
+                    invalid += 1
+                    parse_error_path = write_parse_error_note(project_key=project_key, source_path=packet_path, note_id=note_id, errors=errors, metadata=metadata)
+                    update_scan_state(
+                        state,
+                        project_key,
+                        note_id,
+                        {
+                            "source_path": str(packet_path),
+                            "content_hash": normalized.get("content_hash"),
+                            "first_seen_at": (entry or {}).get("first_seen_at") or iso_now(),
+                            "last_seen_at": iso_now(),
+                            "status": "invalid",
+                            "raw_path": None,
+                            "error_code": "INVALID_PACKET",
+                            "error_detail": "; ".join(errors),
+                            "parse_error_path": str(parse_error_path),
+                        },
+                    )
+                    scanned_packets.append({"project_key": project_key, "packet": str(packet_path), "status": "invalid", "errors": errors})
+                    continue
+                status = "ingested"
+                if entry and entry.get("content_hash") == normalized.get("content_hash"):
+                    unchanged += 1
+                    update_scan_state(
+                        state,
+                        project_key,
+                        note_id,
+                        {
+                            **entry,
+                            "source_path": str(packet_path),
+                            "last_seen_at": iso_now(),
+                            "status": "unchanged",
+                        },
+                    )
+                    scanned_packets.append({"project_key": project_key, "packet": str(packet_path), "status": "unchanged"})
+                    continue
+                if entry and entry.get("content_hash") != normalized.get("content_hash"):
+                    status = "content_changed"
+                    content_changed += 1
+                else:
+                    ingested += 1
+                payload = build_project_router_raw_payload(project_key=project_key, source_path=packet_path, metadata=metadata, body=body, normalized=normalized)
+                raw_dir = raw_dir_for(PROJECT_ROUTER_SOURCE, project_key)
+                raw_path = existing_artifact_path(raw_dir, note_id, ".json") or (raw_dir / f"{normalize_timestamp(str(metadata.get('created_at')))}--{note_id}.json")
+                raw_dir.mkdir(parents=True, exist_ok=True)
+                raw_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                update_scan_state(
+                    state,
+                    project_key,
+                    note_id,
+                    {
+                        "source_path": str(packet_path),
+                        "content_hash": normalized.get("content_hash"),
+                        "first_seen_at": (entry or {}).get("first_seen_at") or iso_now(),
+                        "last_seen_at": iso_now(),
+                        "status": status,
+                        "raw_path": str(raw_path),
+                        "error_code": None,
+                        "error_detail": None,
+                    },
+                )
+                scanned_packets.append({"project_key": project_key, "packet": str(packet_path), "status": status, "raw_path": str(raw_path)})
+        save_outbox_scan_state(state)
+        print(
+            json.dumps(
+                {
+                    "ingested": ingested,
+                    "content_changed": content_changed,
+                    "unchanged": unchanged,
+                    "invalid": invalid,
+                    "include_self": args.include_self,
+                    "packets": scanned_packets,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+    finally:
+        release_scan_lock()
+
+
+def migrate_note_references(path: Path, replacements: dict[str, str]) -> None:
+    metadata, body = read_note(path)
+    changed = False
+    for key in ("canonical_path", "raw_payload_path", "compiled_from_path", "compiled_path"):
+        value = metadata.get(key)
+        if value in replacements:
+            metadata[key] = replacements[value]
+            changed = True
+    if changed:
+        write_note(path, metadata, body)
+
+
+def migrate_decision_packet(path: Path, replacements: dict[str, str]) -> None:
+    packet = json.loads(path.read_text(encoding="utf-8"))
+    changed = False
+    for key in ("canonical_path", "raw_payload_path"):
+        value = packet.get(key)
+        if value in replacements:
+            packet[key] = replacements[value]
+            changed = True
+    compiled = packet.get("compiled")
+    if isinstance(compiled, dict) and compiled.get("path") in replacements:
+        compiled["path"] = replacements[compiled["path"]]
+        changed = True
+    dispatch = packet.get("dispatch")
+    if isinstance(dispatch, dict) and dispatch.get("compiled_path") in replacements:
+        dispatch["compiled_path"] = replacements[dispatch["compiled_path"]]
+        changed = True
+    if changed:
+        path.write_text(json.dumps(packet, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def migrate_source_layout_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    operations: list[tuple[Path, Path]] = []
+    legacy_map = {
+        RAW_DIR: raw_dir_for(VOICE_SOURCE),
+        NORMALIZED_DIR: normalized_dir_for(VOICE_SOURCE),
+        COMPILED_DIR: compiled_dir_for(VOICE_SOURCE),
+        REVIEW_DIR / "ambiguous": review_dir_for(VOICE_SOURCE, "ambiguous"),
+        REVIEW_DIR / "needs_review": review_dir_for(VOICE_SOURCE, "needs_review"),
+        REVIEW_DIR / "pending_project": review_dir_for(VOICE_SOURCE, "pending_project"),
+    }
+    for src_dir, dest_dir in legacy_map.items():
+        if not src_dir.exists():
+            continue
+        for item in src_dir.iterdir():
+            if item.is_file() and item.name != ".gitkeep":
+                operations.append((item, dest_dir / item.name))
+    replacements: dict[str, str] = {str(src): str(dest) for src, dest in operations}
+    if args.dry_run or not args.confirm:
+        print(
+            json.dumps(
+                {
+                    "dry_run": True,
+                    "operations": [{"from": str(src), "to": str(dest)} for src, dest in operations],
+                    "confirm_required": not args.confirm,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+    for src, dest in operations:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dest))
+    for note_path in iter_normalized_files_by_source({VOICE_SOURCE, PROJECT_ROUTER_SOURCE}) + iter_compiled_files_by_source({VOICE_SOURCE, PROJECT_ROUTER_SOURCE}):
+        migrate_note_references(note_path, replacements)
+    for packet_path in sorted(DECISIONS_DIR.glob("*.json")):
+        migrate_decision_packet(packet_path, replacements)
+    if DISCOVERY_REPORT_PATH.exists():
+        report = json.loads(DISCOVERY_REPORT_PATH.read_text(encoding="utf-8"))
+        payload = json.dumps(report)
+        for old, new in replacements.items():
+            payload = payload.replace(old, new)
+        DISCOVERY_REPORT_PATH.write_text(json.dumps(json.loads(payload), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "dry_run": False,
+                "migrated": len(operations),
+                "operations": [{"from": str(src), "to": str(dest)} for src, dest in operations],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def count_markdown(path: Path) -> int:
     return len(list_markdown_files(path))
 
@@ -2053,21 +2853,52 @@ def count_raw(path: Path) -> int:
     return len(list_raw_files(path))
 
 
-def status_command(_: argparse.Namespace) -> int:
+def status_command(args: argparse.Namespace) -> int:
     ensure_layout()
+    sources = parse_source_filter(getattr(args, "source", None))
+    voicenotes_raw = count_raw(raw_dir_for(VOICE_SOURCE)) if VOICE_SOURCE in sources else 0
+    voicenotes_normalized = count_markdown(normalized_dir_for(VOICE_SOURCE)) if VOICE_SOURCE in sources else 0
+    voicenotes_compiled = count_markdown(compiled_dir_for(VOICE_SOURCE)) if VOICE_SOURCE in sources else 0
+    project_router_raw = sum(count_raw(path) for path in iter_source_dirs("raw", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
+    project_router_normalized = sum(count_markdown(path) for path in iter_source_dirs("normalized", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
+    project_router_compiled = sum(count_markdown(path) for path in iter_source_dirs("compiled", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     summary = {
-        "raw": count_raw(RAW_DIR),
-        "normalized": count_markdown(NORMALIZED_DIR),
-        "compiled": count_markdown(COMPILED_DIR),
-        "review_ambiguous": count_markdown(AMBIGUOUS_DIR),
-        "review_pending_project": count_markdown(PENDING_PROJECT_DIR),
-        "review_needs_review": count_markdown(NEEDS_REVIEW_DIR),
+        "sources": sorted(sources),
+        "raw": {
+            "voicenotes": voicenotes_raw,
+            "project_router": project_router_raw,
+        },
+        "normalized": {
+            "voicenotes": voicenotes_normalized,
+            "project_router": project_router_normalized,
+        },
+        "compiled": {
+            "voicenotes": voicenotes_compiled,
+            "project_router": project_router_compiled,
+        },
+        "review": {
+            "voicenotes": {
+                "ambiguous": count_markdown(review_dir_for(VOICE_SOURCE, "ambiguous")) if VOICE_SOURCE in sources else 0,
+                "pending_project": count_markdown(review_dir_for(VOICE_SOURCE, "pending_project")) if VOICE_SOURCE in sources else 0,
+                "needs_review": count_markdown(review_dir_for(VOICE_SOURCE, "needs_review")) if VOICE_SOURCE in sources else 0,
+            },
+            "project_router": {
+                "parse_errors": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors")) if PROJECT_ROUTER_SOURCE in sources else 0,
+                "pending_project": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "pending_project")) if PROJECT_ROUTER_SOURCE in sources else 0,
+                "needs_review": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")) if PROJECT_ROUTER_SOURCE in sources else 0,
+            },
+        },
         "dispatched": sum(count_markdown(path) for path in DISPATCHED_DIR.glob("*") if path.is_dir()),
         "processed": count_markdown(PROCESSED_DIR),
         "decision_packets": len(list(DECISIONS_DIR.glob("*.json"))),
+        "scan_state_path": str(OUTBOX_SCAN_STATE_PATH),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
+
+
+def add_source_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--source", choices=("all", VOICE_SOURCE, PROJECT_ROUTER_SOURCE), default="all", help="Filter work to one source or use all sources.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2075,17 +2906,21 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     normalize = subparsers.add_parser("normalize", help="Copy raw notes into canonical normalized notes.")
+    add_source_argument(normalize)
     normalize.set_defaults(func=normalize_command)
 
     triage = subparsers.add_parser("triage", help="Classify normalized notes conservatively.")
+    add_source_argument(triage)
     triage.add_argument("--all", action="store_true", help="Reserved flag for future filtering.")
     triage.set_defaults(func=triage_command)
 
     compile_parser = subparsers.add_parser("compile", help="Generate project-ready compiled note packages from canonical notes.")
+    add_source_argument(compile_parser)
     compile_parser.add_argument("--note-id", dest="note_ids", action="append", help="Compile only the selected source_note_id values.")
     compile_parser.set_defaults(func=compile_command)
 
     dispatch = subparsers.add_parser("dispatch", help="Preview or manually write classified notes to downstream project inboxes.")
+    add_source_argument(dispatch)
     dispatch.add_argument("--dry-run", action="store_true", help="Show planned writes without touching downstream projects.")
     dispatch.add_argument("--note-id", dest="note_ids", action="append", help="Explicit source_note_id allowlist for real dispatch.")
     dispatch.add_argument(
@@ -2096,14 +2931,17 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch.set_defaults(func=dispatch_command)
 
     review = subparsers.add_parser("review", help="List or inspect decision packets.")
+    add_source_argument(review)
     review.add_argument("--all", action="store_true", help="Include already reviewed packets.")
     review.add_argument("--note-id", help="Show the full decision packet for one source_note_id.")
     review.set_defaults(func=review_command)
 
     discover = subparsers.add_parser("discover", help="Analyze pending-project notes and suggest emerging buckets.")
+    add_source_argument(discover)
     discover.set_defaults(func=discover_command)
 
     decide = subparsers.add_parser("decide", help="Record the user's review decision for one note.")
+    add_source_argument(decide)
     decide.add_argument("--note-id", required=True, help="source_note_id to review.")
     decide.add_argument("--decision", required=True, choices=("approve", "reject", "needs-review", "ambiguous", "pending-project"))
     decide.add_argument("--final-project", help="Override the final project when approving.")
@@ -2115,7 +2953,25 @@ def build_parser() -> argparse.ArgumentParser:
     decide.add_argument("--notes", help="Optional reviewer note.")
     decide.set_defaults(func=decide_command)
 
+    scan_outboxes = subparsers.add_parser("scan-outboxes", help="Read downstream project outboxes without mutating them.")
+    scan_outboxes.add_argument("--include-self", action="store_true", help="Also scan this repository's local project-router/outbox if configured.")
+    scan_outboxes.add_argument("--strict", action="store_true", help="Treat protocol warnings as hard failures while scanning.")
+    scan_outboxes.set_defaults(func=scan_outboxes_command)
+
+    doctor = subparsers.add_parser("doctor", help="Validate a project-router contract and outbox surface.")
+    doctor.add_argument("--router-root", help="Direct path to a project-router root for local validation.")
+    doctor.add_argument("--project", help="Project key from the central registry for validation.")
+    doctor.add_argument("--packet", help="Reserved flag for validating a single packet path.")
+    doctor.add_argument("--strict", action="store_true", help="Treat warnings as errors.")
+    doctor.set_defaults(func=doctor_command)
+
+    migrate = subparsers.add_parser("migrate-source-layout", help="Move legacy flat data folders into source-aware storage.")
+    migrate.add_argument("--dry-run", action="store_true", help="Show the planned moves without mutating files.")
+    migrate.add_argument("--confirm", action="store_true", help="Apply the migration.")
+    migrate.set_defaults(func=migrate_source_layout_command)
+
     status = subparsers.add_parser("status", help="Show queue counts.")
+    add_source_argument(status)
     status.set_defaults(func=status_command)
 
     return parser

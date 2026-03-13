@@ -79,9 +79,12 @@ def main() -> int:
         ".claude/skills/project-router-triage-review/SKILL.md",
         "projects/registry.shared.json",
         "projects/registry.example.json",
+        "project-router/router-contract.json",
+        "project-router/conformance/valid-packet.example.md",
         ".env.local",
-        "data/raw",
-        "state/sync_state.json",
+        "data/raw/voicenotes",
+        "data/raw/project_router",
+        "state/project_router/outbox_scan_state.json",
     ]
     for path in required_paths:
         if classify_path(path, rules) is None:

@@ -5,7 +5,7 @@ English | [Português (Portugal)](README.pt-PT.md)
 <!-- repository-mode:begin -->
 Project Router Template is the shared starter upstream for Project Router for VoiceNotes, a capture-triage workflow that works in both Codex and Claude Code.
 
-The starter keeps the common pipeline, safety rules, governance tooling, and neutral routing examples in Git. Each user keeps local secrets, local inbox paths, and live note artifacts outside Git. Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived copy when you want to promote it into a private operational repository with tracked upstream-sync metadata.
+The starter keeps the common pipeline, safety rules, governance tooling, and neutral routing examples in Git. Each user keeps local secrets, local router paths, and live note artifacts outside Git. Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived copy when you want to promote it into a private operational repository with tracked upstream-sync metadata.
 <!-- repository-mode:end -->
 
 ## New To GitHub Templates
@@ -63,14 +63,23 @@ The template is the shared upstream. The private repo is the real operational ho
 ```text
 data/
   raw/
+    voicenotes/
+    project_router/
   normalized/
+    voicenotes/
+    project_router/
   compiled/
+    voicenotes/
+    project_router/
   review/
-    ambiguous/
-    needs_review/
-    pending_project/
+    voicenotes/
+    project_router/
   dispatched/
   processed/
+project-router/
+  inbox/
+  outbox/
+  conformance/
 projects/
   registry.shared.json
   registry.example.json
@@ -125,7 +134,7 @@ Bootstrap behavior:
 - creates `.env.local` from `.env.example` only if missing
 - creates `projects/registry.local.json` only if missing, unless `--force`
 - reads `projects/registry.shared.json` for the project keys to configure
-- respects `VN_INBOX_<PROJECT_KEY>` environment variables before prompting
+- respects `VN_ROUTER_ROOT_<PROJECT_KEY>` environment variables before prompting
 - allows blank input so a project can stay inactive on that machine
 
 Keep these files out of Git:
@@ -140,24 +149,37 @@ Keep these files out of Git:
 The routing registry is split into three files:
 
 - `projects/registry.shared.json`: committed metadata, keywords, thresholds, and note types
-- `projects/registry.local.json`: gitignored local inbox paths and local-only overrides
+- `projects/registry.local.json`: gitignored local `router_root_path` values and local-only overrides
 - `projects/registry.example.json`: starter template for the local overlay
 
-The starter ships neutral example projects such as `home_renovation` and `weekly_meal_prep`. Real inbox paths still live only in `projects/registry.local.json`.
+The starter ships neutral example projects such as `home_renovation` and `weekly_meal_prep`. Real project-router roots still live only in `projects/registry.local.json`.
 
 Classification can run from the shared registry alone. Real dispatch requires the local overlay.
+
+## Local Project-Router Contract
+
+Each participating repository should expose:
+
+- `project-router/router-contract.json`
+- `project-router/inbox/`
+- `project-router/outbox/`
+- `project-router/conformance/`
+
+The central router reads downstream `outbox/` folders in read-only mode via `scan-outboxes`. It never moves or rewrites files in downstream repositories during scan or review.
 
 ## Workflow
 
 ```bash
 python3 scripts/bootstrap_local.py
-python3 scripts/project_router_client.py sync --output-dir ./data/raw
-python3 scripts/project_router.py normalize
-python3 scripts/project_router.py triage
-python3 scripts/project_router.py compile
-python3 scripts/project_router.py review
+python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes
+python3 scripts/project_router.py normalize --source voicenotes
+python3 scripts/project_router.py triage --source voicenotes
+python3 scripts/project_router.py compile --source voicenotes
+python3 scripts/project_router.py review --source voicenotes
 python3 scripts/project_router.py dispatch --dry-run
 python3 scripts/project_router.py discover
+python3 scripts/project_router.py scan-outboxes
+python3 scripts/project_router.py doctor --project home_renovation
 ```
 
 Real dispatch always requires note-specific approval:
@@ -169,10 +191,17 @@ python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_
 Dispatch behavior is intentionally fail-closed:
 
 - missing `projects/registry.local.json` blocks dispatch
-- missing `inbox_path` for a candidate project skips that candidate with an explicit reason
-- invalid local `inbox_path` blocks that candidate
+- missing `router_root_path` or derived inbox for a candidate project skips that candidate with an explicit reason
+- invalid local derived inbox path blocks that candidate
 - missing or stale compiled packages block that candidate
 - approval must name the exact `source_note_id` values being dispatched
+
+Outbox scanning is intentionally read-only:
+
+- `scan-outboxes` never writes into downstream repositories
+- invalid packets stay in the downstream `project-router/outbox/`
+- parse errors are recorded locally under `data/review/project_router/parse_errors/`
+- ingest status is tracked locally in `state/project_router/outbox_scan_state.json`
 
 ## Agent Surfaces
 

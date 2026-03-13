@@ -151,13 +151,15 @@ A classificação pode correr apenas com o registry partilhado. O dispatch real 
 
 ```bash
 python3 scripts/bootstrap_local.py
-python3 scripts/project_router_client.py sync --output-dir ./data/raw
-python3 scripts/project_router.py normalize
-python3 scripts/project_router.py triage
-python3 scripts/project_router.py compile
-python3 scripts/project_router.py review
+python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes
+python3 scripts/project_router.py normalize --source voicenotes
+python3 scripts/project_router.py triage --source voicenotes
+python3 scripts/project_router.py compile --source voicenotes
+python3 scripts/project_router.py review --source voicenotes
 python3 scripts/project_router.py dispatch --dry-run
 python3 scripts/project_router.py discover
+python3 scripts/project_router.py scan-outboxes
+python3 scripts/project_router.py doctor --project home_renovation
 ```
 
 O dispatch real exige sempre aprovação explícita por nota:
@@ -169,8 +171,8 @@ python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_
 O comportamento do dispatch é fail-closed:
 
 - sem `projects/registry.local.json`, o dispatch é bloqueado
-- sem `inbox_path` para um projeto candidato, esse candidato é saltado com uma razão explícita
-- um `inbox_path` local inválido bloqueia esse candidato
+- sem `router_root_path` para um projeto candidato, esse candidato é saltado com uma razão explícita
+- um inbox derivado de `router_root_path` mas inválido bloqueia esse candidato
 - packages compilados em falta ou stale bloqueiam esse candidato
 - a aprovação tem de nomear exatamente os `source_note_id` a despachar
 

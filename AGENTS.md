@@ -20,10 +20,11 @@
 - Never auto-dispatch a note, even when the routing confidence is high.
 - Always ask the user for explicit confirmation before writing any note into a downstream project inbox.
 - Treat confirmation as note-specific by `source_note_id`. A batch dispatch must name the exact approved `source_note_id` values.
-- Send uncertain notes to `data/review/ambiguous/`, `data/review/needs_review/`, or `data/review/pending_project/` when no current project/rule exists yet.
+- Send uncertain notes to the source-aware review queues under `data/review/voicenotes/` or `data/review/project_router/` when no current project/rule exists yet.
 - Treat downstream project writes as derived exports. The canonical note always remains in this repository.
 - Never dispatch a normalized note directly. Compile a project-ready package first and dispatch from that compiled artifact.
 - Compiled packages must be fresh before dispatch.
+- Treat downstream project-router outboxes as read-only during scan and review.
 
 ## Project Boundaries
 - Treat the managed `Repository Mode` block above as authoritative. In template mode this repository is the shared starter upstream; in private-derived mode it becomes the operational private home while upstream updates arrive through reviewed sync PRs.
@@ -33,6 +34,7 @@
 - Keep Codex-specific adaptations in `.codex/skills/`.
 - Keep Claude-specific adaptations in `.claude/skills/`.
 - Keep machine-specific routing paths in `projects/registry.local.json`, which must stay out of Git.
+- Use `router_root_path` as the standard local path for downstream project-router integrations.
 - Keep stateful note artifacts under `data/`.
 - Keep machine-local checkpoints under `state/`, out of Git.
 - Keep automation and processing code under `src/` or `scripts/`.
@@ -49,6 +51,8 @@
 - Prefer `python3 scripts/bootstrap_private_repo.py` when promoting a fresh template copy into a private operational repository.
 - Prefer `python3 scripts/bootstrap_local.py` when setting up a new machine or validating starter hygiene.
 - Prefer the repository entrypoint `python3 scripts/project_router_client.py ...` for direct VoiceNotes API access in project-facing docs and workflows.
+- Prefer `python3 scripts/project_router.py scan-outboxes` when pulling project-router packets from downstream repositories.
+- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `project-router/` surface.
 - Prefer `python3 scripts/project_router.py discover` when the `pending_project` queue starts to accumulate notes.
 - Prefer `python3 scripts/project_router.py compile` before any real dispatch so downstream projects receive a richer brief than the raw transcript.
 - Use stable note IDs and collision-resistant filenames.
@@ -58,18 +62,20 @@
 - Fail closed when machine-local config is missing or still uses placeholder paths.
 - Validate with focused commands first, then broader checks if the repository grows more tooling later.
 - Preserve note relationship metadata (`thread_id`, `continuation_of`, `related_note_ids`) when reviewing or dispatching related captures.
-- Treat `data/review/...` as queue views. Canonical metadata changes should land in `data/normalized/`, not only in review copies.
+- Treat `data/review/...` as queue views. Canonical metadata changes should land in source-aware `data/normalized/...`, not only in review copies.
 
 ## Current Commands
 - `python3 scripts/bootstrap_private_repo.py`
 - `python3 scripts/bootstrap_local.py`
-- `python3 scripts/project_router_client.py sync --output-dir ./data/raw`
+- `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
 - `python3 scripts/project_router.py status`
 - `python3 scripts/project_router.py normalize`
 - `python3 scripts/project_router.py triage`
 - `python3 scripts/project_router.py compile`
 - `python3 scripts/project_router.py review`
 - `python3 scripts/project_router.py discover`
+- `python3 scripts/project_router.py scan-outboxes`
+- `python3 scripts/project_router.py doctor`
 - `python3 scripts/project_router.py dispatch --dry-run`
 - `python3 scripts/check_agent_surface_parity.py`
 - `python3 scripts/check_repo_ownership.py`

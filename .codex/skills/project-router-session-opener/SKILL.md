@@ -28,7 +28,7 @@ Use this skill at the start of a Project Router session for VoiceNotes captures.
    - `.env.local`
    - `projects/registry.local.json`
 3. If `.env.local` exists, fetch new notes from VoiceNotes as part of the default opener:
-   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw`
+   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`
