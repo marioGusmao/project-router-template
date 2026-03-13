@@ -2,9 +2,11 @@
 
 English | [Português (Portugal)](README.pt-PT.md)
 
+<!-- repository-mode:begin -->
 Project Router Template is the shared starter upstream for a VoiceNotes triage workflow that works in both Codex and Claude Code.
 
-The starter keeps the common pipeline, safety rules, governance tooling, and neutral routing examples in Git. Each user keeps local secrets, local inbox paths, and live note artifacts outside Git. A private daily repo can then add branded projects, personal skills, and personal operational rules on top of this base.
+The starter keeps the common pipeline, safety rules, governance tooling, and neutral routing examples in Git. Each user keeps local secrets, local inbox paths, and live note artifacts outside Git. Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived copy when you want to promote it into a private operational repository with tracked upstream-sync metadata.
+<!-- repository-mode:end -->
 
 ## New To GitHub Templates
 
@@ -27,7 +29,8 @@ In this case, the recommended setup is:
 4. Create your own repository from it.
 5. Set your new repository to `Private` unless you explicitly want to share your derived version.
 6. Clone your new repository to your machine.
-7. Run `python3 scripts/bootstrap_local.py` in your copy.
+7. Run `python3 scripts/bootstrap_private_repo.py` in your copy.
+8. Run `python3 scripts/bootstrap_local.py` in your copy.
 
 Important differences from a fork:
 
@@ -75,6 +78,7 @@ projects/
 repo-governance/
   ownership.manifest.json
 scripts/
+  bootstrap_private_repo.py
   bootstrap_local.py
   check_agent_surface_parity.py
   check_repo_ownership.py
@@ -94,6 +98,21 @@ template.meta.json
 ```
 
 ## Local Configuration
+
+If you created a derived private repository, promote it first:
+
+```bash
+python3 scripts/bootstrap_private_repo.py
+```
+
+The promotion bootstrap:
+
+- switches `README.md`, `README.pt-PT.md`, `AGENTS.md`, and `CLAUDE.md` to private-repo posture using managed blocks
+- creates `private.meta.json` for private-repo metadata
+- creates `template-base.json` so `.github/workflows/template-upstream-sync.yml` can resolve the upstream template
+- keeps the runtime safety rules and pipeline commands unchanged
+
+See [docs/private-derived-bootstrap.md](docs/private-derived-bootstrap.md) for the full promotion contract.
 
 Run the bootstrap on a new machine:
 
@@ -229,6 +248,13 @@ The workflow expects:
 
 - repository variable `TEMPLATE_UPSTREAM_REPO` or a populated `template-base.json`
 - optional secret `TEMPLATE_UPSTREAM_TOKEN` when the template repo is private
+
+For a fresh derived repository, the recommended setup is:
+
+```bash
+python3 scripts/bootstrap_private_repo.py
+python3 scripts/bootstrap_local.py
+```
 
 ## Safety Guarantees
 

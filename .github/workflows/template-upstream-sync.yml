@@ -111,16 +111,25 @@ jobs:
             src
             scripts
             tests
+            docs
+            .agents
             .codex/skills
             .claude/skills
+            .github/ISSUE_TEMPLATE
+            .github/pull_request_template.md
             .github/workflows/template-release.yml
             .github/workflows/template-upstream-sync.yml
+            .github/workflows/template-ci.yml
+            .gitignore
             README.md
+            README.pt-PT.md
+            CONTRIBUTING.md
             AGENTS.md
             CLAUDE.md
             parity.manifest.json
             repo-governance
             projects/registry.example.json
+            .env.example
             VERSION
             CHANGELOG.md
             template.meta.json

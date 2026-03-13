@@ -1,0 +1,54 @@
+# Private Derived Repo Bootstrap
+
+Use this flow after creating a new repository from the public template and before adding private routing packs or branded operational wording.
+
+## Goal
+
+Promote a fresh derived copy into a private operational repository without weakening the neutral upstream template.
+
+## Command
+
+```bash
+python3 scripts/bootstrap_private_repo.py
+```
+
+Optional flags:
+
+- `--template-repo OWNER/REPO` to override the upstream template slug
+- `--private-repo-name my-private-repo` to override the derived repo name stored in metadata
+- `--template-commit <sha>` to pin a specific template commit in `template-base.json`
+- `--force` to allow promotion even when the current `origin` still points at the template upstream
+
+## What It Changes
+
+- rewrites the managed `repository-mode` block in `README.md`
+- rewrites the managed `repository-mode` block in `README.pt-PT.md`
+- rewrites the managed `repository-mode` block in `AGENTS.md`
+- rewrites the managed `repository-mode` block in `CLAUDE.md`
+- creates or updates `private.meta.json`
+- creates or updates `template-base.json`
+
+The script does not touch:
+
+- `.env.local`
+- `projects/registry.local.json`
+- `data/`
+- `state/`
+- downstream repositories
+
+## Generated Metadata
+
+`private.meta.json` records that the repository is now the private operational home and keeps the promotion timestamp plus sync workflow references.
+
+`template-base.json` records the template upstream slug, version, tag, commit, and last sync timestamp so `.github/workflows/template-upstream-sync.yml` can resolve the upstream release source.
+
+## Recommended Follow-Up
+
+```bash
+python3 scripts/bootstrap_local.py
+python3 -m pytest tests/test_voice_notes.py -v
+python3 scripts/check_agent_surface_parity.py
+python3 scripts/check_repo_ownership.py
+```
+
+After that, customize `projects/registry.shared.json`, private docs, and private skills according to the ownership manifest.

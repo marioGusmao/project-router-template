@@ -5,6 +5,7 @@
     "voicenotes-triage-review"
   ],
   "required_commands": [
+    "python3 scripts/bootstrap_private_repo.py",
     "python3 scripts/voicenotes_client.py sync --output-dir ./data/raw",
     "python3 scripts/voice_notes.py normalize",
     "python3 scripts/voice_notes.py triage",

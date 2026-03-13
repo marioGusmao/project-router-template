@@ -8,6 +8,13 @@
 - Write project-facing repository files in English.
 - Preserve the downstream project's language conventions when generating notes for that project.
 
+<!-- repository-mode:begin -->
+## Repository Mode
+- Current mode: shared starter upstream.
+- Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived repository when you want to promote it into a private operational repo with tracked upstream-sync metadata.
+- Keep the template neutral; keep branded routing packs and private wording in the derived repository under the ownership rules.
+<!-- repository-mode:end -->
+
 ## Safety Rules
 - Never delete or overwrite the canonical source note from Voicenotes.
 - Never auto-dispatch a note, even when the routing confidence is high.
@@ -19,7 +26,7 @@
 - Compiled packages must be fresh before dispatch.
 
 ## Project Boundaries
-- Treat this repository as the shared starter upstream. Private downstream repos may preserve their own branded `projects/registry.shared.json`, private docs, and private wording under the ownership rules.
+- Treat the managed `Repository Mode` block above as authoritative. In template mode this repository is the shared starter upstream; in private-derived mode it becomes the operational private home while upstream updates arrive through reviewed sync PRs.
 - Keep shareable routing defaults in `projects/registry.shared.json`.
 - Keep the local overlay template in `projects/registry.example.json`.
 - Keep shared neutral agent workflow references in `.agents/skills/`.
@@ -39,6 +46,7 @@
 - Prefer the local skill `voicenotes-direct-sync` for direct Voicenotes access.
 - Prefer the local skill `mg-start-session-opener-voicenotes` at the beginning of a session.
 - Prefer the local skill `voicenotes-triage-review` for routing analysis and user-facing review.
+- Prefer `python3 scripts/bootstrap_private_repo.py` when promoting a fresh template copy into a private operational repository.
 - Prefer `python3 scripts/bootstrap_local.py` when setting up a new machine or validating starter hygiene.
 - Prefer the repository entrypoint `python3 scripts/voicenotes_client.py ...` for direct VoiceNotes API access in project-facing docs and workflows.
 - Prefer `python3 scripts/voice_notes.py discover` when the `pending_project` queue starts to accumulate notes.
@@ -53,6 +61,7 @@
 - Treat `data/review/...` as queue views. Canonical metadata changes should land in `data/normalized/`, not only in review copies.
 
 ## Current Commands
+- `python3 scripts/bootstrap_private_repo.py`
 - `python3 scripts/bootstrap_local.py`
 - `python3 scripts/voicenotes_client.py sync --output-dir ./data/raw`
 - `python3 scripts/voice_notes.py status`

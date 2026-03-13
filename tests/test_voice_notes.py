@@ -20,6 +20,15 @@ def load_sync_module():
     return module
 
 
+def load_bootstrap_private_module():
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / "bootstrap_private_repo.py"
+    spec = importlib.util.spec_from_file_location("bootstrap_private_repo_test", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def prepare_repo(root: Path) -> None:
     for path in (
         root / "data" / "raw",
@@ -1870,6 +1879,114 @@ class SyncClientTests(unittest.TestCase):
             self.assertEqual(payload["recording"]["created_at"], "2026-03-12T16:00:00.000000Z")
             self.assertEqual(summary["written"], 0)
             self.assertEqual(summary["updated"], 1)
+
+
+class BootstrapPrivateRepoTests(unittest.TestCase):
+    def test_bootstrap_private_repo_writes_metadata_and_updates_managed_blocks(self) -> None:
+        module = load_bootstrap_private_module()
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir(parents=True, exist_ok=True)
+            (root / "README.md").write_text(
+                "# Demo\n\n<!-- repository-mode:begin -->\nTemplate mode.\n<!-- repository-mode:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "README.pt-PT.md").write_text(
+                "# Demo PT\n\n<!-- repository-mode:begin -->\nModo template.\n<!-- repository-mode:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "AGENTS.md").write_text(
+                "# AGENTS\n\n<!-- repository-mode:begin -->\n## Repository Mode\n- Current mode: shared starter upstream.\n<!-- repository-mode:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "CLAUDE.md").write_text(
+                "# CLAUDE\n\n<!-- repository-mode:begin -->\n## Repository Mode\n\n- Current role: shared starter upstream.\n<!-- repository-mode:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "template.meta.json").write_text(
+                json.dumps(
+                    {
+                        "template_name": "project-router-template",
+                        "template_repo": "marioGusmao/project-router-template",
+                        "version": "0.1.0",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(module, "ROOT", root),
+                mock.patch.object(module, "README_PATH", root / "README.md"),
+                mock.patch.object(module, "README_PT_PATH", root / "README.pt-PT.md"),
+                mock.patch.object(module, "AGENTS_PATH", root / "AGENTS.md"),
+                mock.patch.object(module, "CLAUDE_PATH", root / "CLAUDE.md"),
+                mock.patch.object(module, "TEMPLATE_META_PATH", root / "template.meta.json"),
+                mock.patch.object(module, "TEMPLATE_BASE_PATH", root / "template-base.json"),
+                mock.patch.object(module, "PRIVATE_META_PATH", root / "private.meta.json"),
+                mock.patch.object(module, "iso_now", return_value="2026-03-13T18:30:00Z"),
+                mock.patch.object(module, "git_output", return_value="abc123def"),
+            ):
+                exit_code = module.main(["--private-repo-name", "project-router-private"])
+
+            self.assertEqual(exit_code, 0)
+            private_meta = json.loads((root / "private.meta.json").read_text(encoding="utf-8"))
+            template_base = json.loads((root / "template-base.json").read_text(encoding="utf-8"))
+            self.assertEqual(private_meta["repo_role"], "private-derived")
+            self.assertEqual(private_meta["private_repo_name"], "project-router-private")
+            self.assertEqual(private_meta["template_repo"], "marioGusmao/project-router-template")
+            self.assertEqual(template_base["template_base_tag"], "v0.1.0")
+            self.assertEqual(template_base["template_base_commit"], "abc123def")
+            self.assertIn("private operational VoiceNotes triage repo", (root / "README.md").read_text(encoding="utf-8"))
+            self.assertIn("repositório operacional privado", (root / "README.pt-PT.md").read_text(encoding="utf-8"))
+            self.assertIn("Current mode: private derived repository.", (root / "AGENTS.md").read_text(encoding="utf-8"))
+            self.assertIn("Current role: private derived repository.", (root / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_bootstrap_private_repo_refuses_template_upstream_without_force(self) -> None:
+        module = load_bootstrap_private_module()
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "# Demo\n\n<!-- repository-mode:begin -->\nTemplate mode.\n<!-- repository-mode:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "README.pt-PT.md").write_text(
+                "# Demo PT\n\n<!-- repository-mode:begin -->\nModo template.\n<!-- repository-mode:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "AGENTS.md").write_text(
+                "# AGENTS\n\n<!-- repository-mode:begin -->\n## Repository Mode\n- Current mode: shared starter upstream.\n<!-- repository-mode:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "CLAUDE.md").write_text(
+                "# CLAUDE\n\n<!-- repository-mode:begin -->\n## Repository Mode\n\n- Current role: shared starter upstream.\n<!-- repository-mode:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "template.meta.json").write_text(
+                json.dumps(
+                    {
+                        "template_name": "project-router-template",
+                        "template_repo": "marioGusmao/project-router-template",
+                        "version": "0.1.0",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(module, "ROOT", root),
+                mock.patch.object(module, "README_PATH", root / "README.md"),
+                mock.patch.object(module, "README_PT_PATH", root / "README.pt-PT.md"),
+                mock.patch.object(module, "AGENTS_PATH", root / "AGENTS.md"),
+                mock.patch.object(module, "CLAUDE_PATH", root / "CLAUDE.md"),
+                mock.patch.object(module, "TEMPLATE_META_PATH", root / "template.meta.json"),
+                mock.patch.object(module, "TEMPLATE_BASE_PATH", root / "template-base.json"),
+                mock.patch.object(module, "PRIVATE_META_PATH", root / "private.meta.json"),
+                mock.patch.object(module, "current_origin_repo_slug", return_value="marioGusmao/project-router-template"),
+            ):
+                with self.assertRaises(SystemExit) as ctx:
+                    module.main([])
+
+            self.assertIn("Current origin remote still points to the template upstream", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -12,9 +12,20 @@ This repository is designed to be shareable on GitHub:
 - local files contain secrets, machine-specific inbox paths, and runtime artifacts
 - Codex and Claude should follow the same operational contract even when their project surfaces differ
 
+<!-- repository-mode:begin -->
+## Repository Mode
+
+- Current role: shared starter upstream.
+- Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived repository when you want to promote it into a private operational repo with tracked upstream-sync metadata.
+- Keep the template neutral; keep branded routing packs and private wording in the derived repository under the ownership rules.
+<!-- repository-mode:end -->
+
 ## Commands
 
 ```bash
+# Promote a fresh derived copy into a private operational repository
+python3 scripts/bootstrap_private_repo.py
+
 # Bootstrap local-only config
 python3 scripts/bootstrap_local.py
 
@@ -85,7 +96,7 @@ Classification can run from the shared registry alone. Real dispatch requires th
 
 **Template/private split:**
 
-- This repository is the shared starter upstream.
+- The managed `Repository Mode` block above is authoritative for the current repo role.
 - Private downstream repos may keep their own branded `projects/registry.shared.json`, private skills, and private docs.
 - The sync boundary is enforced through `repo-governance/ownership.manifest.json`.
 

@@ -2,9 +2,11 @@
 
 [English](README.md) | Português (Portugal)
 
+<!-- repository-mode:begin -->
 Project Router Template é o template base partilhável para um fluxo de triagem de VoiceNotes que funciona tanto com Codex como com Claude Code.
 
-O template mantém no Git o pipeline comum, as regras de segurança, as ferramentas de validação e exemplos neutros de routing. Cada utilizador guarda fora do Git os seus segredos locais, caminhos locais e dados reais de notas. Depois disso, cada pessoa pode criar o seu próprio repositório privado derivado deste template e personalizá-lo.
+O template mantém no Git o pipeline comum, as regras de segurança, as ferramentas de validação e exemplos neutros de routing. Cada utilizador guarda fora do Git os seus segredos locais, caminhos locais e dados reais de notas. Usa `python3 scripts/bootstrap_private_repo.py` numa cópia derivada nova quando quiseres promovê-la a repositório operacional privado com metadata rastreável de sync com o upstream.
+<!-- repository-mode:end -->
 
 ## Novo No GitHub Templates
 
@@ -27,7 +29,8 @@ Neste caso, a configuração recomendada é:
 4. Cria o teu próprio repositório a partir deste template.
 5. Define o teu novo repositório como `Private`, a menos que queiras mesmo partilhar a tua versão derivada.
 6. Faz clone do teu novo repositório para a tua máquina.
-7. Corre `python3 scripts/bootstrap_local.py` na tua cópia.
+7. Corre `python3 scripts/bootstrap_private_repo.py` na tua cópia.
+8. Corre `python3 scripts/bootstrap_local.py` na tua cópia.
 
 Diferenças importantes em relação a um fork:
 
@@ -75,6 +78,7 @@ projects/
 repo-governance/
   ownership.manifest.json
 scripts/
+  bootstrap_private_repo.py
   bootstrap_local.py
   check_agent_surface_parity.py
   check_repo_ownership.py
@@ -94,6 +98,21 @@ template.meta.json
 ```
 
 ## Configuração Local
+
+Se criaste um repositório privado derivado, promove-o primeiro:
+
+```bash
+python3 scripts/bootstrap_private_repo.py
+```
+
+O bootstrap de promoção:
+
+- muda `README.md`, `README.pt-PT.md`, `AGENTS.md` e `CLAUDE.md` para postura de repositório privado através de blocos geridos
+- cria `private.meta.json` para metadata do repositório privado
+- cria `template-base.json` para que `.github/workflows/template-upstream-sync.yml` consiga resolver o upstream template
+- mantém inalteradas as regras de segurança e os comandos do pipeline
+
+Vê [docs/private-derived-bootstrap.md](docs/private-derived-bootstrap.md) para o contrato completo desta promoção.
 
 Num computador novo, começa por correr:
 
@@ -229,6 +248,13 @@ O workflow espera:
 
 - a variável de repositório `TEMPLATE_UPSTREAM_REPO` ou um `template-base.json` preenchido
 - opcionalmente o secret `TEMPLATE_UPSTREAM_TOKEN` quando o template upstream for privado
+
+Num repositório derivado novo, a sequência recomendada é:
+
+```bash
+python3 scripts/bootstrap_private_repo.py
+python3 scripts/bootstrap_local.py
+```
 
 ## Garantias De Segurança
 
