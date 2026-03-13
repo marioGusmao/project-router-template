@@ -449,7 +449,9 @@ def merge_registry_configs(shared: dict[str, Any], local: dict[str, Any]) -> dic
 
 def load_registry(*, require_local: bool = False) -> tuple[dict[str, Any], dict[str, ProjectRule]]:
     if require_local and not REGISTRY_LOCAL_PATH.exists():
-        raise SystemExit("projects/registry.local.json is required for dispatch. Copy the example and set real local inbox paths first.")
+        raise SystemExit(
+            "projects/registry.local.json is required for dispatch. Copy the example and set real local router_root_path values first."
+        )
 
     if REGISTRY_SHARED_PATH.exists():
         shared_config = read_registry_config(REGISTRY_SHARED_PATH)
@@ -1859,7 +1861,7 @@ def dispatch_filename(metadata: dict[str, Any], title: str) -> str:
 def resolve_dispatch_destination(project: ProjectRule, metadata: dict[str, Any]) -> tuple[Path | None, str | None]:
     inbox_path = inbox_path_for_project(project)
     if inbox_path is None:
-        return None, f"no local inbox_path for project '{project.key}'"
+        return None, f"no local router_root_path or inbox_path for project '{project.key}'"
 
     try:
         ensure_safe_inbox_path(inbox_path, project_key=project.key, registry_path=REGISTRY_LOCAL_PATH)
@@ -2662,11 +2664,33 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
         content_changed = 0
         scanned_packets: list[dict[str, Any]] = []
         for project_key, router_root in configured_scan_projects(projects, include_self=args.include_self):
-            contract = json.loads(project_contract_path(router_root).read_text(encoding="utf-8"))
+            contract_path = project_contract_path(router_root)
+            if not contract_path.exists():
+                errors = [f"Missing project-router contract at {contract_path}"]
+                invalid += 1
+                write_parse_error_note(project_key=project_key, source_path=contract_path, note_id="router-contract", errors=errors)
+                scanned_packets.append(
+                    {
+                        "project_key": project_key,
+                        "packet": str(contract_path),
+                        "status": "invalid",
+                        "errors": errors,
+                    }
+                )
+                continue
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
             contract_errors = validate_router_contract(contract, expected_project_key=project_key, strict=args.strict)
             if contract_errors:
                 invalid += 1
-                write_parse_error_note(project_key=project_key, source_path=project_contract_path(router_root), note_id="router-contract", errors=contract_errors)
+                write_parse_error_note(project_key=project_key, source_path=contract_path, note_id="router-contract", errors=contract_errors)
+                scanned_packets.append(
+                    {
+                        "project_key": project_key,
+                        "packet": str(contract_path),
+                        "status": "invalid",
+                        "errors": contract_errors,
+                    }
+                )
                 continue
             for packet_path in outbox_packet_paths(router_root):
                 metadata, body, errors, normalized = parse_outbox_packet(packet_path, expected_project_key=project_key, strict=args.strict)

@@ -516,6 +516,40 @@ class ProjectRouterFlowTests(unittest.TestCase):
             raw_path = root / "data" / "raw" / "project_router" / "project_router_template" / "20260313T100000Z--self_pkt.json"
             self.assertTrue(raw_path.exists())
 
+    def test_scan_outboxes_skips_projects_without_router_contract(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            shared = {
+                "defaults": {"auto_dispatch_threshold": 0.9, "min_keyword_hits": 2},
+                "projects": {
+                    "home_renovation": {
+                        "display_name": "Home Renovation",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "auto_dispatch_threshold": 0.9,
+                        "keywords": ["renovation"],
+                    }
+                },
+            }
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            router_root.mkdir(parents=True, exist_ok=True)
+            (root / "projects" / "registry.local.json").write_text(
+                json.dumps({"projects": {"home_renovation": {"router_root_path": str(router_root)}}}, indent=2),
+                encoding="utf-8",
+            )
+
+            with patch_cli_paths(root), mock.patch("builtins.print") as print_mock:
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+
+            payload = parse_print_json(print_mock)
+            self.assertEqual(payload["invalid"], 1)
+            self.assertEqual(payload["packets"][0]["status"], "invalid")
+            self.assertIn("Missing project-router contract", payload["packets"][0]["errors"][0])
+            parse_errors = list((root / "data" / "review" / "project_router" / "parse_errors").glob("*--home-renovation--router-contract.md"))
+            self.assertEqual(len(parse_errors), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

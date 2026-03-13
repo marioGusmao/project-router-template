@@ -9,7 +9,7 @@ Project Router Template — intake and classification layer for VoiceNotes captu
 This repository is designed to be shareable on GitHub:
 
 - committed files contain the common workflow, routing rules, and agent guidance
-- local files contain secrets, machine-specific inbox paths, and runtime artifacts
+- local files contain secrets, machine-specific router roots, and runtime artifacts
 - Codex and Claude should follow the same operational contract even when their project surfaces differ
 
 <!-- repository-mode:begin -->
@@ -94,7 +94,7 @@ Each stage reads from the previous stage's source-aware output directory:
 - `projects/registry.local.json` (gitignored): machine-local `router_root_path` values and optional local overrides
 - `projects/registry.example.json` (committed): starter template for the local overlay
 
-Classification can run from the shared registry alone. Real dispatch requires the local overlay with real absolute `router_root_path` values.
+Classification can run from the shared registry alone. Real dispatch requires the local overlay with real absolute `router_root_path` values or explicit legacy `inbox_path` overrides.
 
 **Project-router protocol:**
 

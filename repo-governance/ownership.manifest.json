@@ -147,6 +147,11 @@
       "sync_policy": "review_required"
     },
     {
+      "pattern": ".claude/settings.local.json",
+      "ownership": "shared_review",
+      "sync_policy": "review_required"
+    },
+    {
       "pattern": "projects/registry.shared.json",
       "ownership": "private_owned",
       "sync_policy": "blocked"

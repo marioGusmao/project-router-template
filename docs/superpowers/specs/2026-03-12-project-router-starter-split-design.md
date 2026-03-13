@@ -1,5 +1,7 @@
 # Project Router Split: Template + Private + Parity
 
+> Historical note: this design document predates the 2026-03-13 source-aware reset. References here to `inbox_path`, `VN_INBOX_*`, and flat `data/` storage describe the earlier transition plan and are superseded by the current `router_root_path` plus source-aware layout implemented in the repository.
+
 ## Context
 
 Project Router for VoiceNotes is used by 3 people, each with their own projects and downstream destinations. The current repo mixes shared workflow logic with personal project config. This plan splits it into a reusable GitHub template and a private daily repo, with executable parity between Codex and Claude surfaces, automated versioning, and upstream sync.

@@ -2,15 +2,16 @@
 
 ## Queue Intent
 
-- `data/raw/`: notes synced from VoiceNotes
-- `data/normalized/`: canonical local notes ready for analysis
-- `data/compiled/`: project-ready compiled briefs derived from canonical notes
-- `data/review/ambiguous/`: multiple plausible destinations
-- `data/review/needs_review/`: insufficient confidence or vague content
-- `data/review/pending_project/`: notes that do not fit any configured project yet
+- `data/raw/voicenotes/` and `data/raw/project_router/`: source-aware raw inputs
+- `data/normalized/voicenotes/` and `data/normalized/project_router/`: canonical local notes ready for analysis
+- `data/compiled/voicenotes/` and `data/compiled/project_router/`: project-ready compiled briefs derived from canonical notes
+- `data/review/voicenotes/ambiguous/`: multiple plausible destinations for VoiceNotes captures
+- `data/review/*/needs_review/`: insufficient confidence or vague content
+- `data/review/*/pending_project/`: notes that do not fit any configured project yet
+- `data/review/project_router/parse_errors/`: invalid downstream project-router packets recorded locally
 - `data/dispatched/`: mirror of notes already written to downstream inboxes
 
-The canonical source remains in `data/normalized/`. Review queues are views over that canonical note. The compiled package is a parallel artifact and must be fresh relative to the canonical note before any dispatch.
+The canonical source remains in `data/normalized/...`. Review queues are views over that canonical note. The compiled package is a parallel artifact and must be fresh relative to the canonical note before any dispatch.
 
 ## Confirmation Policy
 

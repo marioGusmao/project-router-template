@@ -63,14 +63,23 @@ O template é o upstream partilhado. O repositório privado é a casa operaciona
 ```text
 data/
   raw/
+    voicenotes/
+    project_router/
   normalized/
+    voicenotes/
+    project_router/
   compiled/
+    voicenotes/
+    project_router/
   review/
-    ambiguous/
-    needs_review/
-    pending_project/
+    voicenotes/
+    project_router/
   dispatched/
   processed/
+project-router/
+  inbox/
+  outbox/
+  conformance/
 projects/
   registry.shared.json
   registry.example.json
@@ -125,7 +134,7 @@ Comportamento do bootstrap:
 - cria `.env.local` a partir de `.env.example` apenas se ainda não existir
 - cria `projects/registry.local.json` apenas se ainda não existir, exceto com `--force`
 - lê `projects/registry.shared.json` para descobrir as chaves de projeto
-- respeita variáveis `VN_INBOX_<PROJECT_KEY>` antes de pedir input
+- respeita variáveis `VN_ROUTER_ROOT_<PROJECT_KEY>` antes de pedir input
 - permite deixar um projeto inativo nessa máquina
 
 Mantém estes ficheiros fora do Git:
@@ -140,10 +149,10 @@ Mantém estes ficheiros fora do Git:
 O registry de routing está dividido em três ficheiros:
 
 - `projects/registry.shared.json`: metadata comitada, keywords, thresholds e note types
-- `projects/registry.local.json`: caminhos locais de inbox e overrides locais, fora do Git
+- `projects/registry.local.json`: valores locais de `router_root_path` e overrides locais, fora do Git
 - `projects/registry.example.json`: template inicial para o overlay local
 
-O template inclui projetos de exemplo neutros, como `home_renovation` e `weekly_meal_prep`. Os caminhos reais de inbox existem apenas em `projects/registry.local.json`.
+O template inclui projetos de exemplo neutros, como `home_renovation` e `weekly_meal_prep`. Os `router_root_path` reais existem apenas em `projects/registry.local.json`.
 
 A classificação pode correr apenas com o registry partilhado. O dispatch real exige o overlay local.
 
