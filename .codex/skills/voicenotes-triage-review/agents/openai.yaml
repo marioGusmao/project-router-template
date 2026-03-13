@@ -1,4 +1,0 @@
-interface:
-  display_name: "Voicenotes Triage Review"
-  short_description: "Review routing before any dispatch"
-  default_prompt: "Use $voicenotes-triage-review to analyze these Voicenotes notes and ask for my confirmation before dispatching them anywhere."

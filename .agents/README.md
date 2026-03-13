@@ -1,6 +1,6 @@
 # Agent References
 
-This directory is the canonical neutral reference layer for shared agent workflows in the VoiceNotes starter.
+This directory is the canonical neutral reference layer for shared agent workflows in the Project Router starter.
 
 Use it this way:
 
@@ -13,7 +13,7 @@ The goal is not byte-for-byte identity. The goal is behavioral parity:
 - same safety boundaries
 - same pipeline order
 - same dispatch approval contract
-- same repository entrypoints such as `python3 scripts/voicenotes_client.py`
+- same repository entrypoints such as `python3 scripts/project_router_client.py`
 - same promotion path for derived private repositories via `python3 scripts/bootstrap_private_repo.py`
 
 When updating a shared workflow:

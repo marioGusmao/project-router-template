@@ -69,14 +69,14 @@ def main() -> int:
             errors.append(f"Unknown ownership class in rule {rule!r}")
 
     required_paths = [
-        "src/voice_notes/cli.py",
-        "scripts/voicenotes_client.py",
+        "src/project_router/cli.py",
+        "scripts/project_router_client.py",
         "README.md",
         "AGENTS.md",
         "CLAUDE.md",
-        ".agents/skills/voicenotes-triage-review/SKILL.md",
-        ".codex/skills/voicenotes-triage-review/SKILL.md",
-        ".claude/skills/voicenotes-triage-review/SKILL.md",
+        ".agents/skills/project-router-triage-review/SKILL.md",
+        ".codex/skills/project-router-triage-review/SKILL.md",
+        ".claude/skills/project-router-triage-review/SKILL.md",
         "projects/registry.shared.json",
         "projects/registry.example.json",
         ".env.local",

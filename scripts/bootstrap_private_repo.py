@@ -179,7 +179,7 @@ def build_template_base(
 
 def private_readme_block(template_name: str, template_repo: str) -> str:
     return (
-        f"This repository is a private operational VoiceNotes triage repo derived from the shared `{template_name}` "
+        f"This repository is a private operational Project Router repo for VoiceNotes derived from the shared `{template_name}` "
         f"upstream.\n\n"
         f"The upstream relationship is tracked in `private.meta.json` and `template-base.json`, and updates from "
         f"`{template_repo}` should arrive through reviewed `{SYNC_BRANCH}` pull requests rather than manual copy-paste."
@@ -188,7 +188,7 @@ def private_readme_block(template_name: str, template_repo: str) -> str:
 
 def private_readme_pt_block(template_name: str, template_repo: str) -> str:
     return (
-        f"Este repositório é um repositório operacional privado de triagem VoiceNotes derivado do upstream "
+        f"Este repositório é um repositório operacional privado do Project Router for VoiceNotes derivado do upstream "
         f"partilhado `{template_name}`.\n\n"
         f"A relação com o upstream fica registada em `private.meta.json` e `template-base.json`, e as atualizações de "
         f"`{template_repo}` devem entrar por pull requests revistos na branch `{SYNC_BRANCH}`, não por copy-paste manual."
@@ -283,7 +283,7 @@ def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
         "next_steps": [
             "Review the tracked docs and metadata changes.",
             "Run python3 scripts/bootstrap_local.py for machine-local config.",
-            "Run python3 -m pytest tests/test_voice_notes.py -v.",
+            "Run python3 -m pytest tests/test_project_router.py -v.",
             "Run python3 scripts/check_agent_surface_parity.py.",
             "Run python3 scripts/check_repo_ownership.py.",
         ],

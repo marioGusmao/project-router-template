@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Project Router Template — intake and classification layer for Voicenotes captures before routing to downstream project inboxes. Pure Python, zero external package dependencies, file-based storage.
+Project Router Template — intake and classification layer for VoiceNotes captures before routing to downstream project inboxes. Pure Python, zero external package dependencies, file-based storage.
 
 This repository is designed to be shareable on GitHub:
 
@@ -30,25 +30,25 @@ python3 scripts/bootstrap_private_repo.py
 python3 scripts/bootstrap_local.py
 
 # Run the CLI
-python3 scripts/voice_notes.py <command>
+python3 scripts/project_router.py <command>
 
 # Pipeline commands (in order)
-python3 scripts/voice_notes.py normalize      # raw JSON → markdown
-python3 scripts/voice_notes.py triage         # classify and route
-python3 scripts/voice_notes.py compile        # generate project-ready briefs
-python3 scripts/voice_notes.py review         # inspect decision packets
-python3 scripts/voice_notes.py dispatch --dry-run  # preview dispatch targets
-python3 scripts/voice_notes.py discover       # cluster pending_project notes
-python3 scripts/voice_notes.py status         # queue counts
+python3 scripts/project_router.py normalize      # raw JSON → markdown
+python3 scripts/project_router.py triage         # classify and route
+python3 scripts/project_router.py compile        # generate project-ready briefs
+python3 scripts/project_router.py review         # inspect decision packets
+python3 scripts/project_router.py dispatch --dry-run  # preview dispatch targets
+python3 scripts/project_router.py discover       # cluster pending_project notes
+python3 scripts/project_router.py status         # queue counts
 
 # Record user decisions
-python3 scripts/voice_notes.py decide --note-id vn_123 --decision approve
+python3 scripts/project_router.py decide --note-id vn_123 --decision approve
 
 # Real dispatch (requires explicit approval)
-python3 scripts/voice_notes.py dispatch --confirm-user-approval --note-id vn_123
+python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123
 
-# Sync from Voicenotes API
-python3 scripts/voicenotes_client.py sync --output-dir ./data/raw
+# Sync from the VoiceNotes API
+python3 scripts/project_router_client.py sync --output-dir ./data/raw
 
 # Governance checks
 python3 scripts/check_agent_surface_parity.py
@@ -59,22 +59,22 @@ python3 scripts/check_repo_ownership.py
 
 ```bash
 # Run all tests
-python3 -m pytest tests/test_voice_notes.py -v
+python3 -m pytest tests/test_project_router.py -v
 
 # Run a single test
-python3 -m pytest tests/test_voice_notes.py -v -k "test_name_here"
+python3 -m pytest tests/test_project_router.py -v -k "test_name_here"
 
 # Alternative (unittest)
-python3 -m unittest tests.test_voice_notes -v
+python3 -m unittest tests.test_project_router -v
 ```
 
 No linter or formatter is configured. No build step required.
 
 ## Architecture
 
-**Entry point:** `scripts/voice_notes.py` → `src/voice_notes/cli.py::main(argv)` using argparse subcommands.
+**Entry point:** `scripts/project_router.py` → `src/project_router/cli.py::main(argv)` using argparse subcommands.
 
-**Single-module CLI:** All logic lives in `src/voice_notes/cli.py` (~2000 lines). No external dependencies — stdlib only.
+**Single-module CLI:** All logic lives in `src/project_router/cli.py` (~2000 lines). No external dependencies — stdlib only.
 
 **Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`
 
@@ -108,22 +108,22 @@ Classification can run from the shared registry alone. Real dispatch requires th
 - The Codex and Claude surfaces should adapt `.agents/skills/`, not diverge from it.
 - All surfaces must keep the same safety boundaries and workflow semantics.
 
-**Tests:** Single file `tests/test_voice_notes.py` using `unittest` + `tempfile.TemporaryDirectory` for isolation. Tests mock CLI module-level path constants to point at temp dirs via `prepare_repo()`.
+**Tests:** Single file `tests/test_project_router.py` using `unittest` + `tempfile.TemporaryDirectory` for isolation. Tests mock CLI module-level path constants to point at temp dirs via `prepare_repo()`.
 
 ## Session Defaults
 
 At the beginning of a session:
 
-1. Run `python3 scripts/voice_notes.py status`
+1. Run `python3 scripts/project_router.py status`
 2. If the machine is new, run `python3 scripts/bootstrap_local.py`
 3. Confirm `.env.local` and `projects/registry.local.json` exist
 4. If `.env.local` exists, use:
-   - `python3 scripts/voicenotes_client.py sync --output-dir ./data/raw`
-   - `python3 scripts/voice_notes.py normalize`
-   - `python3 scripts/voice_notes.py triage`
-   - `python3 scripts/voice_notes.py compile`
-5. Run `python3 scripts/voice_notes.py review`
-6. If `pending_project` is non-zero, run `python3 scripts/voice_notes.py discover`
+   - `python3 scripts/project_router_client.py sync --output-dir ./data/raw`
+   - `python3 scripts/project_router.py normalize`
+   - `python3 scripts/project_router.py triage`
+   - `python3 scripts/project_router.py compile`
+5. Run `python3 scripts/project_router.py review`
+6. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`
 7. Stop there and ask the user what to approve, reject, or refine
 
 If `.env.local` is missing, skip `sync` and explain that the local VoiceNotes token is not configured on this machine.
@@ -159,9 +159,9 @@ These are critical — never violate:
 
 Repository-local Claude workflow references live under `.claude/skills/`:
 
-- `mg-start-session-opener-voicenotes`
-- `voicenotes-direct-sync`
-- `voicenotes-triage-review`
+- `project-router-session-opener`
+- `project-router-direct-sync`
+- `project-router-triage-review`
 
 Treat `.agents/skills/` as the canonical neutral reference for shared workflow rules.
 Keep the Claude skills aligned with both `.agents/skills/` and the Codex skill surface under `.codex/skills/`, but do not assume byte-for-byte identity is required.

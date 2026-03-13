@@ -3,7 +3,7 @@
 [English](README.md) | Português (Portugal)
 
 <!-- repository-mode:begin -->
-Project Router Template é o template base partilhável para um fluxo de triagem de VoiceNotes que funciona tanto com Codex como com Claude Code.
+Project Router Template é o template base partilhável do Project Router for VoiceNotes, um fluxo de triagem de capturas que funciona tanto com Codex como com Claude Code.
 
 O template mantém no Git o pipeline comum, as regras de segurança, as ferramentas de validação e exemplos neutros de routing. Cada utilizador guarda fora do Git os seus segredos locais, caminhos locais e dados reais de notas. Usa `python3 scripts/bootstrap_private_repo.py` numa cópia derivada nova quando quiseres promovê-la a repositório operacional privado com metadata rastreável de sync com o upstream.
 <!-- repository-mode:end -->
@@ -14,7 +14,7 @@ Um template repository do GitHub é um projeto base que podes copiar para criare
 
 Neste projeto, o template serve para te dar:
 
-- o workflow e os scripts de VoiceNotes
+- o workflow e os scripts do Project Router
 - as regras de segurança e os checks de validação
 - exemplos neutros de routing
 - um ponto de partida público e limpo, sem notas privadas, tokens ou caminhos locais
@@ -82,10 +82,10 @@ scripts/
   bootstrap_local.py
   check_agent_surface_parity.py
   check_repo_ownership.py
-  voice_notes.py
-  voicenotes_client.py
+  project_router.py
+  project_router_client.py
 src/
-  voice_notes/
+  project_router/
     cli.py
     sync_client.py
 .agents/skills/
@@ -151,19 +151,19 @@ A classificação pode correr apenas com o registry partilhado. O dispatch real 
 
 ```bash
 python3 scripts/bootstrap_local.py
-python3 scripts/voicenotes_client.py sync --output-dir ./data/raw
-python3 scripts/voice_notes.py normalize
-python3 scripts/voice_notes.py triage
-python3 scripts/voice_notes.py compile
-python3 scripts/voice_notes.py review
-python3 scripts/voice_notes.py dispatch --dry-run
-python3 scripts/voice_notes.py discover
+python3 scripts/project_router_client.py sync --output-dir ./data/raw
+python3 scripts/project_router.py normalize
+python3 scripts/project_router.py triage
+python3 scripts/project_router.py compile
+python3 scripts/project_router.py review
+python3 scripts/project_router.py dispatch --dry-run
+python3 scripts/project_router.py discover
 ```
 
 O dispatch real exige sempre aprovação explícita por nota:
 
 ```bash
-python3 scripts/voice_notes.py dispatch --confirm-user-approval --note-id vn_123 --note-id vn_456
+python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123 --note-id vn_456
 ```
 
 O comportamento do dispatch é fail-closed:
@@ -199,7 +199,7 @@ O validador verifica:
 
 - se os skill IDs obrigatórios existem nas três superfícies
 - se todas as superfícies documentam as mesmas regras críticas de segurança
-- se todas usam `python3 scripts/voicenotes_client.py`
+- se todas usam `python3 scripts/project_router_client.py`
 - se a documentação partilhada não referencia caminhos internos `.codex/...`
 
 ## Governance E Sync

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Router Direct Sync"
+  short_description: "Sync VoiceNotes into Project Router flows"
+  default_prompt: "Use $project-router-direct-sync to sync or search my VoiceNotes notes through Project Router from Codex."

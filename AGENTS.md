@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project
-- This repository is the central triage hub for Voicenotes captures before they are dispatched to other local projects.
+- This repository is the central triage hub for VoiceNotes captures before they are dispatched to other local projects.
 - Primary responsibilities: ingest notes, preserve canonical raw JSON copies, classify conservatively, queue ambiguous or not-yet-placeable notes for review, and dispatch approved notes to downstream project inboxes.
 
 ## Language
@@ -16,7 +16,7 @@
 <!-- repository-mode:end -->
 
 ## Safety Rules
-- Never delete or overwrite the canonical source note from Voicenotes.
+- Never delete or overwrite the canonical source note captured from VoiceNotes.
 - Never auto-dispatch a note, even when the routing confidence is high.
 - Always ask the user for explicit confirmation before writing any note into a downstream project inbox.
 - Treat confirmation as note-specific by `source_note_id`. A batch dispatch must name the exact approved `source_note_id` values.
@@ -43,14 +43,14 @@
 ## Workflow Defaults
 - Treat `.agents/skills/` as the canonical neutral reference layer for shared workflow rules.
 - Keep `.codex/skills/` aligned with `.agents/skills/`, adding only Codex-specific notes when needed.
-- Prefer the local skill `voicenotes-direct-sync` for direct Voicenotes access.
-- Prefer the local skill `mg-start-session-opener-voicenotes` at the beginning of a session.
-- Prefer the local skill `voicenotes-triage-review` for routing analysis and user-facing review.
+- Prefer the local skill `project-router-direct-sync` for direct access to the VoiceNotes service.
+- Prefer the local skill `project-router-session-opener` at the beginning of a session.
+- Prefer the local skill `project-router-triage-review` for routing analysis and user-facing review.
 - Prefer `python3 scripts/bootstrap_private_repo.py` when promoting a fresh template copy into a private operational repository.
 - Prefer `python3 scripts/bootstrap_local.py` when setting up a new machine or validating starter hygiene.
-- Prefer the repository entrypoint `python3 scripts/voicenotes_client.py ...` for direct VoiceNotes API access in project-facing docs and workflows.
-- Prefer `python3 scripts/voice_notes.py discover` when the `pending_project` queue starts to accumulate notes.
-- Prefer `python3 scripts/voice_notes.py compile` before any real dispatch so downstream projects receive a richer brief than the raw transcript.
+- Prefer the repository entrypoint `python3 scripts/project_router_client.py ...` for direct VoiceNotes API access in project-facing docs and workflows.
+- Prefer `python3 scripts/project_router.py discover` when the `pending_project` queue starts to accumulate notes.
+- Prefer `python3 scripts/project_router.py compile` before any real dispatch so downstream projects receive a richer brief than the raw transcript.
 - Use stable note IDs and collision-resistant filenames.
 - Make the pipeline idempotent: repeated runs must not duplicate normalized notes or dispatch records.
 - Keep the note model layered: `capture_kind`, `intent`, and `destination` must remain distinct fields.
@@ -63,13 +63,13 @@
 ## Current Commands
 - `python3 scripts/bootstrap_private_repo.py`
 - `python3 scripts/bootstrap_local.py`
-- `python3 scripts/voicenotes_client.py sync --output-dir ./data/raw`
-- `python3 scripts/voice_notes.py status`
-- `python3 scripts/voice_notes.py normalize`
-- `python3 scripts/voice_notes.py triage`
-- `python3 scripts/voice_notes.py compile`
-- `python3 scripts/voice_notes.py review`
-- `python3 scripts/voice_notes.py discover`
-- `python3 scripts/voice_notes.py dispatch --dry-run`
+- `python3 scripts/project_router_client.py sync --output-dir ./data/raw`
+- `python3 scripts/project_router.py status`
+- `python3 scripts/project_router.py normalize`
+- `python3 scripts/project_router.py triage`
+- `python3 scripts/project_router.py compile`
+- `python3 scripts/project_router.py review`
+- `python3 scripts/project_router.py discover`
+- `python3 scripts/project_router.py dispatch --dry-run`
 - `python3 scripts/check_agent_surface_parity.py`
 - `python3 scripts/check_repo_ownership.py`

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Voicenotes Direct Sync"
-  short_description: "Sync Voicenotes into local triage flows"
-  default_prompt: "Use $voicenotes-direct-sync to sync or search my Voicenotes notes directly from Codex."

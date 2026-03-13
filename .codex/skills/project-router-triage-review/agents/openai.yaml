@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Router Triage Review"
+  short_description: "Review routing before any dispatch"
+  default_prompt: "Use $project-router-triage-review to analyze these VoiceNotes notes inside Project Router and ask for my confirmation before dispatching them anywhere."

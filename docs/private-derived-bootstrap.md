@@ -46,7 +46,7 @@ The script does not touch:
 
 ```bash
 python3 scripts/bootstrap_local.py
-python3 -m pytest tests/test_voice_notes.py -v
+python3 -m pytest tests/test_project_router.py -v
 python3 scripts/check_agent_surface_parity.py
 python3 scripts/check_repo_ownership.py
 ```

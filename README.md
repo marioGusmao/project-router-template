@@ -3,7 +3,7 @@
 English | [Português (Portugal)](README.pt-PT.md)
 
 <!-- repository-mode:begin -->
-Project Router Template is the shared starter upstream for a VoiceNotes triage workflow that works in both Codex and Claude Code.
+Project Router Template is the shared starter upstream for Project Router for VoiceNotes, a capture-triage workflow that works in both Codex and Claude Code.
 
 The starter keeps the common pipeline, safety rules, governance tooling, and neutral routing examples in Git. Each user keeps local secrets, local inbox paths, and live note artifacts outside Git. Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived copy when you want to promote it into a private operational repository with tracked upstream-sync metadata.
 <!-- repository-mode:end -->
@@ -14,7 +14,7 @@ A GitHub template repository is a starter project you can copy into your own rep
 
 For this project, the template is useful because it gives you:
 
-- the VoiceNotes workflow and scripts
+- the Project Router workflow and scripts
 - the safety rules and validation checks
 - neutral example routing
 - a clean public starting point without your private notes, tokens, or local paths
@@ -82,10 +82,10 @@ scripts/
   bootstrap_local.py
   check_agent_surface_parity.py
   check_repo_ownership.py
-  voice_notes.py
-  voicenotes_client.py
+  project_router.py
+  project_router_client.py
 src/
-  voice_notes/
+  project_router/
     cli.py
     sync_client.py
 .agents/skills/
@@ -151,19 +151,19 @@ Classification can run from the shared registry alone. Real dispatch requires th
 
 ```bash
 python3 scripts/bootstrap_local.py
-python3 scripts/voicenotes_client.py sync --output-dir ./data/raw
-python3 scripts/voice_notes.py normalize
-python3 scripts/voice_notes.py triage
-python3 scripts/voice_notes.py compile
-python3 scripts/voice_notes.py review
-python3 scripts/voice_notes.py dispatch --dry-run
-python3 scripts/voice_notes.py discover
+python3 scripts/project_router_client.py sync --output-dir ./data/raw
+python3 scripts/project_router.py normalize
+python3 scripts/project_router.py triage
+python3 scripts/project_router.py compile
+python3 scripts/project_router.py review
+python3 scripts/project_router.py dispatch --dry-run
+python3 scripts/project_router.py discover
 ```
 
 Real dispatch always requires note-specific approval:
 
 ```bash
-python3 scripts/voice_notes.py dispatch --confirm-user-approval --note-id vn_123 --note-id vn_456
+python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123 --note-id vn_456
 ```
 
 Dispatch behavior is intentionally fail-closed:
@@ -199,7 +199,7 @@ The validator checks:
 
 - required skill IDs exist on all three surfaces
 - all surfaces document the same critical safety rules
-- all surfaces use `python3 scripts/voicenotes_client.py`
+- all surfaces use `python3 scripts/project_router_client.py`
 - shared docs do not reference internal `.codex/...` client paths
 
 ## Ownership and Sync Governance

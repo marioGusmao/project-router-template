@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate shared agent surface parity for the VoiceNotes starter."""
+"""Validate shared agent surface parity for the Project Router starter."""
 
 from __future__ import annotations
 

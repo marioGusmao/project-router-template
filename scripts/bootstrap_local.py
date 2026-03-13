@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bootstrap local-only VoiceNotes configuration without touching committed files."""
+"""Bootstrap local-only Project Router configuration for VoiceNotes without touching committed files."""
 
 from __future__ import annotations
 
@@ -98,8 +98,8 @@ def main() -> int:
         "registry_local": registry_status,
         "configured_projects": sorted((registry_payload or {}).get("projects", {}).keys()),
         "next_steps": [
-            "python3 scripts/voice_notes.py status",
-            "python3 scripts/voicenotes_client.py sync --output-dir ./data/raw",
+            "python3 scripts/project_router.py status",
+            "python3 scripts/project_router_client.py sync --output-dir ./data/raw",
         ],
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))

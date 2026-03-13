@@ -33,7 +33,7 @@ Include any relevant output from:
 ```bash
 python3 scripts/check_agent_surface_parity.py --pre-publish
 python3 scripts/check_repo_ownership.py
-python3 -m pytest tests/test_voice_notes.py -q
+python3 -m pytest tests/test_project_router.py -q
 ```
 
 ## Notes
