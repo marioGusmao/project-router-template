@@ -39,7 +39,7 @@ If you only want to use the workflow, create a repository from the template. You
 
 ## Repository Model
 
-- `VoiceNotes-template`: private GitHub template repo, neutral and shareable
+- `VoiceNotes-template`: public GitHub template repo, neutral and shareable
 - `VoiceNotes-private`: private daily repo derived from the template, free to keep branded routing packs and personal workflow wording
 
 The template is the shared upstream. The private repo is the real operational home.
