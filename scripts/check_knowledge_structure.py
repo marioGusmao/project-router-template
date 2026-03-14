@@ -62,8 +62,20 @@ DERIVED_REQUIRED_FILES = [
     "Knowledge/local/README.md",
     "Knowledge/local/Roadmap.md",
     "Knowledge/local/ADR/README.md",
+    "Knowledge/local/TLDR/README.md",
     "Knowledge/local/notes/README.md",
 ]
+
+DERIVED_METADATA_FILES = [
+    "private.meta.json",
+    "template-base.json",
+]
+
+PRIVATE_MODE_MARKERS = {
+    "README.md": "private operational Project Router repo",
+    "AGENTS.md": "Current mode: private derived repository.",
+    "CLAUDE.md": "Current role: private derived repository.",
+}
 
 ADR_ID_RE = re.compile(r"^(\d{3})-.*\.md$")
 
@@ -102,6 +114,14 @@ def classify_path(path: str, rules: list[dict[str, str]]) -> dict[str, str] | No
     return None
 
 
+def repo_declares_private_derived() -> bool:
+    for rel, marker in PRIVATE_MODE_MARKERS.items():
+        path = ROOT / rel
+        if path.exists() and marker in path.read_text(encoding="utf-8"):
+            return True
+    return False
+
+
 def main() -> int:
     args = parse_args()
     errors: list[str] = []
@@ -135,8 +155,11 @@ def main() -> int:
                 if adr_id >= 100:
                     errors.append(f"ADR ID out of range (>=100): {entry.name}")
 
-    # 4. Local scaffold (only when private.meta.json exists)
-    if (ROOT / "private.meta.json").exists():
+    # 4. Private-derived metadata + local scaffold
+    if (ROOT / "private.meta.json").exists() or repo_declares_private_derived():
+        for rel in DERIVED_METADATA_FILES:
+            if not (ROOT / rel).exists():
+                errors.append(f"Private-derived metadata missing: {rel}")
         for rel in DERIVED_REQUIRED_FILES:
             if not (ROOT / rel).exists():
                 errors.append(f"Local scaffold missing: {rel}")

@@ -84,7 +84,7 @@ No linter or formatter is configured. No build step required.
 
 **Entry point:** `scripts/project_router.py` → `src/project_router/cli.py::main(argv)` using argparse subcommands.
 
-**Single-module CLI:** All logic lives in `src/project_router/cli.py` (~2000 lines). No external dependencies — stdlib only.
+**Single-module CLI:** All logic lives in `src/project_router/cli.py`. No external dependencies — stdlib only.
 
 **Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`, plus read-only downstream intake via `scan-outboxes`
 

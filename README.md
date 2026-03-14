@@ -9,37 +9,13 @@ The upstream relationship is tracked in `private.meta.json` and `template-base.j
 <!-- repository-mode:end -->
 
 <!-- template-onboarding:begin -->
-## New To GitHub Templates
+## Private Repo First Steps
 
-A GitHub template repository is a starter project you can copy into your own repository.
+If this is a private-derived operational copy:
 
-For this project, the template is useful because it gives you:
-
-- the Project Router workflow and scripts
-- the safety rules and validation checks
-- neutral example routing
-- a clean public starting point without your private notes, tokens, or local paths
-
-Use a template when you want your own copy of the project to customize safely.
-
-In this case, the recommended setup is:
-
-1. Open this repository on GitHub.
-2. Click `Use this template`.
-3. Choose `Create a new repository`.
-4. Create your own repository from it.
-5. Set your new repository to `Private` unless you explicitly want to share your derived version.
-6. Clone your new repository to your machine.
-7. Run `python3 scripts/bootstrap_private_repo.py` in your copy.
-8. Run `python3 scripts/bootstrap_local.py` in your copy.
-
-Important differences from a fork:
-
-- a template gives you your own clean starting repository
-- your repository can stay private even if this template is public
-- your local `.env.local`, `data/`, and `state/` stay only on your machine
-
-If you only want to use the workflow, create a repository from the template. You do not need to contribute back to this upstream repository.
+1. Run `python3 scripts/bootstrap_local.py`.
+2. Run `python3 scripts/project_router.py context`.
+3. Review `Knowledge/local/Roadmap.md` and adapt it to your project.
 <!-- template-onboarding:end -->
 
 ## Repository Model

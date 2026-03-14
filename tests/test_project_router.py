@@ -793,7 +793,9 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
             shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
             shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
+            shutil.rmtree(root / "Knowledge" / "local")
             (root / "private.meta.json").write_text(json.dumps({"repo_role": "private-derived"}), encoding="utf-8")
+            (root / "template-base.json").write_text(json.dumps({"template_repo": "test/repo"}), encoding="utf-8")
 
             result = subprocess.run(
                 ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
@@ -801,6 +803,28 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("Knowledge/local/README.md", result.stderr)
+            self.assertIn("Knowledge/local/TLDR/README.md", result.stderr)
+
+    def test_strict_validator_requires_private_metadata_when_repo_declares_private_mode(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "repo-governance").mkdir()
+            shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
+            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
+            shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
+            (root / "README.md").write_text(
+                "This repository is a private operational Project Router repo for VoiceNotes.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Private-derived metadata missing: private.meta.json", result.stderr)
+            self.assertIn("Private-derived metadata missing: template-base.json", result.stderr)
 
     def test_sync_manifest_alignment_validator(self) -> None:
         result = subprocess.run(

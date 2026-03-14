@@ -6,7 +6,7 @@ For a live project briefing in the terminal, run `python3 scripts/project_router
 
 | Topic | Location | Notes |
 |-------|----------|-------|
-| Pipeline code | `src/project_router/cli.py` | Single-module CLI, ~2000 lines, all pipeline stages |
+| Pipeline code | `src/project_router/cli.py` | Single-module CLI containing all pipeline stages |
 | CLI entry point | `scripts/project_router.py` | Thin wrapper that calls `cli.main(argv)` |
 | Sync client | `scripts/project_router_client.py` | Fetches from VoiceNotes API; requires `.env.local` |
 | Project registry (shared) | `projects/registry.shared.json` | Committed: project metadata, keywords, thresholds |

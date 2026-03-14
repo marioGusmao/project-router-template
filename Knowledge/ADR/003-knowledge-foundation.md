@@ -11,7 +11,7 @@ New humans and AI agents need to onboard quickly. Before this decision:
 - Architectural decisions were undocumented -- rationale lived in commit messages or was lost entirely.
 - Scripts lacked "why and when" context -- only raw command signatures were documented.
 - There was no structured glossary, so terms like "capture_kind" vs "intent" vs "destination" were easy to confuse.
-- The pipeline flow required reading ~2000 lines of `cli.py` to understand.
+- The pipeline flow required reading the full `cli.py` module to understand.
 
 ## Decision
 

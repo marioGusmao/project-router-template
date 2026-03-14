@@ -9,37 +9,13 @@ A relação com o upstream fica registada em `private.meta.json` e `template-bas
 <!-- repository-mode:end -->
 
 <!-- template-onboarding:begin -->
-## Novo No GitHub Templates
+## Primeiros Passos No Repositório Privado
 
-Um template repository do GitHub é um projeto base que podes copiar para criares o teu próprio repositório.
+Se esta cópia já é um repositório operacional privado derivado:
 
-Neste projeto, o template serve para te dar:
-
-- o workflow e os scripts do Project Router
-- as regras de segurança e os checks de validação
-- exemplos neutros de routing
-- um ponto de partida público e limpo, sem notas privadas, tokens ou caminhos locais
-
-Usa um template quando queres a tua própria cópia do projeto para a personalizares com segurança.
-
-Neste caso, a configuração recomendada é:
-
-1. Abre este repositório no GitHub.
-2. Clica em `Use this template`.
-3. Escolhe `Create a new repository`.
-4. Cria o teu próprio repositório a partir deste template.
-5. Define o teu novo repositório como `Private`, a menos que queiras mesmo partilhar a tua versão derivada.
-6. Faz clone do teu novo repositório para a tua máquina.
-7. Corre `python3 scripts/bootstrap_private_repo.py` na tua cópia.
-8. Corre `python3 scripts/bootstrap_local.py` na tua cópia.
-
-Diferenças importantes em relação a um fork:
-
-- um template dá-te um repositório novo e limpo
-- o teu repositório pode ser privado mesmo que este template seja público
-- os teus ficheiros locais `.env.local`, `data/` e `state/` ficam só na tua máquina
-
-Se só queres usar o workflow, cria um repositório a partir do template. Não precisas de contribuir de volta para este repositório upstream.
+1. Corre `python3 scripts/bootstrap_local.py`.
+2. Corre `python3 scripts/project_router.py context`.
+3. Revê `Knowledge/local/Roadmap.md` e adapta-o ao teu projeto.
 <!-- template-onboarding:end -->
 
 ## Modelo Do Repositório
