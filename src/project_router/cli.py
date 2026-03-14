@@ -2964,6 +2964,8 @@ def context_command(args: argparse.Namespace) -> int:
         for sub in sorted(stage_dir.iterdir()):
             if not sub.is_dir():
                 continue
+            if sources and sub.name not in sources:
+                continue
             n = len([f for f in sub.rglob("*") if f.is_file()])
             if n:
                 details.append(f"{sub.name}={n}")
@@ -2977,7 +2979,7 @@ def context_command(args: argparse.Namespace) -> int:
     if scripts_dir.exists():
         sections.append("## Available Scripts")
         sections.append("")
-        docstring_re = re.compile(r'^"""(.*?)"""', re.DOTALL)
+        docstring_re = re.compile(r'^"""(.*?)"""', re.DOTALL | re.MULTILINE)
         for script in sorted(scripts_dir.glob("*.py")):
             try:
                 text = script.read_text(encoding="utf-8")
@@ -3048,8 +3050,9 @@ def context_command(args: argparse.Namespace) -> int:
                     continue
                 if in_decision and line.strip().startswith("## "):
                     break
-                if in_decision and re.match(r"^\d+\.\s", line.strip()):
-                    invariants.append(line.strip())
+                stripped_line = line.strip().lstrip("#").strip()
+                if in_decision and re.match(r"^\d+\.\s", stripped_line):
+                    invariants.append(stripped_line)
             if invariants:
                 sections.append("## Safety Invariants")
                 sections.append("")
