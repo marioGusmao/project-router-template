@@ -1,3 +1,8 @@
+---
+name: project-router-session-opener
+description: Start a Project Router session for VoiceNotes captures by checking local config, fetching new notes from VoiceNotes when local auth is available, updating the local triage queues, and surfacing the exact items that need review.
+---
+
 # Project Router Session Opener
 
 Use this workflow at the start of a Project Router session for VoiceNotes captures.

@@ -1,3 +1,8 @@
+---
+name: project-router-direct-sync
+description: Sync, search, retrieve, and create VoiceNotes notes directly from the repository using the OpenClaw-compatible API token, without requiring OpenClaw.
+---
+
 # Project Router Direct Sync
 
 Use this workflow to interact with VoiceNotes directly from the repository without depending on OpenClaw.
