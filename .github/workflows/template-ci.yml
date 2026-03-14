@@ -67,3 +67,13 @@ jobs:
           if errors:
               raise SystemExit("\n".join(errors))
           PY
+
+  knowledge-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check knowledge structure
+        run: python3 scripts/check_knowledge_structure.py --strict

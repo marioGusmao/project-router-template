@@ -15,9 +15,10 @@ This repository is designed to be shareable on GitHub:
 <!-- repository-mode:begin -->
 ## Repository Mode
 
-- Current role: shared starter upstream.
-- Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived repository when you want to promote it into a private operational repo with tracked upstream-sync metadata.
-- Keep the template neutral; keep branded routing packs and private wording in the derived repository under the ownership rules.
+- Current role: private derived repository.
+- This copy is the operational home for private routing packs, branded wording, and day-to-day note handling.
+- Keep the upstream relationship to `project-router-template` in `private.meta.json` and `template-base.json`.
+- Expect shared updates from `marioGusmao/project-router-template` to arrive via reviewed `chore/template-sync` pull requests.
 <!-- repository-mode:end -->
 
 ## Commands
@@ -55,6 +56,8 @@ python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes
 # Governance checks
 python3 scripts/check_agent_surface_parity.py
 python3 scripts/check_repo_ownership.py
+python3 scripts/check_knowledge_structure.py
+python3 scripts/project_router.py context
 ```
 
 ### Testing
@@ -117,6 +120,10 @@ Classification can run from the shared registry alone. Real dispatch requires th
 - All surfaces must keep the same safety boundaries and workflow semantics.
 
 **Tests:** Single file `tests/test_project_router.py` using `unittest` + `tempfile.TemporaryDirectory` for isolation. Tests mock CLI module-level path constants to point at temp dirs via `prepare_repo()`.
+
+## Knowledge Foundation
+
+Run `python3 scripts/project_router.py context` for a live project briefing, or read `Knowledge/ContextPack.md` for orientation. Architecture decisions are recorded in `Knowledge/ADR/`. Scripts are documented with "why/when" context in `Knowledge/ScriptsReference.md`.
 
 ## Session Defaults
 

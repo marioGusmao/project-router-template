@@ -18,6 +18,10 @@ The goal is not byte-for-byte identity. The goal is behavioral parity:
 - same contract validation command `python3 scripts/project_router.py doctor`
 - same promotion path for derived private repositories via `python3 scripts/bootstrap_private_repo.py`
 
+## Knowledge Foundation
+
+The `Knowledge/` directory provides onboarding docs and architectural decision records. See `Knowledge/ContextPack.md` for a routing guide to the codebase, or run `python3 scripts/project_router.py context` for a live project briefing. Validate Knowledge structure with `python3 scripts/check_knowledge_structure.py`.
+
 When updating a shared workflow:
 
 1. Update `.agents/skills/` first.

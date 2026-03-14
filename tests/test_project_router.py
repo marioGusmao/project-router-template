@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -549,6 +550,105 @@ class ProjectRouterFlowTests(unittest.TestCase):
             self.assertIn("Missing project-router contract", payload["packets"][0]["errors"][0])
             parse_errors = list((root / "data" / "review" / "project_router" / "parse_errors").glob("*--home-renovation--router-contract.md"))
             self.assertEqual(len(parse_errors), 1)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class KnowledgeGovernanceTests(unittest.TestCase):
+    def test_knowledge_ownership_classification(self) -> None:
+        script = str(REPO_ROOT / "scripts" / "check_repo_ownership.py")
+        cases = [
+            ("Knowledge/local/README.md", 1),
+            ("Knowledge/local/ADR/100-custom.md", 1),
+            ("Knowledge/TLDR.md", 0),
+            ("Knowledge/ADR/001-stdlib-only.md", 0),
+        ]
+        for path, expected_exit in cases:
+            result = subprocess.run(
+                ["python3", script, "--mode", "template-sync", "--path", path],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(
+                result.returncode, expected_exit,
+                f"Expected exit {expected_exit} for {path}, got {result.returncode}: {result.stderr}",
+            )
+
+    def test_knowledge_local_not_in_sync_paths(self) -> None:
+        workflow = (REPO_ROOT / ".github" / "workflows" / "template-upstream-sync.yml").read_text(encoding="utf-8")
+        in_paths = False
+        for line in workflow.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("paths=("):
+                in_paths = True
+                continue
+            if in_paths and stripped == ")":
+                break
+            if in_paths and not stripped.startswith("#"):
+                self.assertNotIn("Knowledge/local", stripped, "Knowledge/local must not appear in sync paths")
+
+    def test_bootstrap_seeds_knowledge_local(self) -> None:
+        import shutil
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            # Copy the bootstrap script so ROOT resolves to the temp dir
+            scripts_dir = root / "scripts"
+            scripts_dir.mkdir()
+            shutil.copy2(REPO_ROOT / "scripts" / "bootstrap_private_repo.py", scripts_dir / "bootstrap_private_repo.py")
+            # Create minimal required files for bootstrap
+            (root / "template.meta.json").write_text(
+                json.dumps({"version": "0.2.0", "template_name": "project-router-template", "template_repo": "test/repo"}),
+                encoding="utf-8",
+            )
+            for doc_name in ("README.md", "README.pt-PT.md", "AGENTS.md", "CLAUDE.md"):
+                (root / doc_name).write_text(
+                    "<!-- repository-mode:begin -->\nTemplate mode.\n<!-- repository-mode:end -->\n",
+                    encoding="utf-8",
+                )
+            result = subprocess.run(
+                ["python3", str(scripts_dir / "bootstrap_private_repo.py"), "--force"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result.returncode, 0, f"Bootstrap failed: {result.stderr}")
+            self.assertTrue((root / "Knowledge" / "local" / "README.md").exists())
+            self.assertTrue((root / "Knowledge" / "local" / "ADR").is_dir())
+            self.assertTrue((root / "Knowledge" / "local" / "Roadmap.md").exists())
+            # Verify idempotent: re-run should not overwrite
+            mtime_readme = (root / "Knowledge" / "local" / "README.md").stat().st_mtime
+            mtime_roadmap = (root / "Knowledge" / "local" / "Roadmap.md").stat().st_mtime
+            result2 = subprocess.run(
+                ["python3", str(scripts_dir / "bootstrap_private_repo.py"), "--force"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result2.returncode, 0)
+            self.assertEqual((root / "Knowledge" / "local" / "README.md").stat().st_mtime, mtime_readme)
+            self.assertEqual((root / "Knowledge" / "local" / "Roadmap.md").stat().st_mtime, mtime_roadmap)
+
+    def test_knowledge_structure_validator(self) -> None:
+        result = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "check_knowledge_structure.py")],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"Validator failed: {result.stderr}")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "ok")
+
+    def test_rsync_directory_fix_in_sync_workflow(self) -> None:
+        workflow = (REPO_ROOT / ".github" / "workflows" / "template-upstream-sync.yml").read_text(encoding="utf-8")
+        self.assertIn('[ -d "$upstream/$path" ]', workflow, "rsync block must detect directories")
+        self.assertIn('"$upstream/$path/"', workflow, "rsync must use trailing slash for directory source")
+        self.assertIn('"$path/"', workflow, "rsync must use trailing slash for directory destination")
+
+    def test_context_subcommand(self) -> None:
+        result = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "project_router.py"), "context"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"Context command failed: {result.stderr}")
+        output = result.stdout
+        self.assertTrue(output.startswith("# "), "Context output must start with a Markdown heading")
+        self.assertIn("Registered Projects", output)
+        self.assertIn("Available Scripts", output)
 
 
 if __name__ == "__main__":

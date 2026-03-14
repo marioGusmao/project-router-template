@@ -15,14 +15,17 @@
     "python3 scripts/project_router.py discover",
     "python3 scripts/project_router.py status",
     "python3 scripts/project_router.py scan-outboxes",
-    "python3 scripts/project_router.py doctor"
+    "python3 scripts/project_router.py doctor",
+    "python3 scripts/check_knowledge_structure.py",
+    "python3 scripts/project_router.py context"
   ],
   "required_phrases": [
     "Never auto-dispatch",
     "Treat confirmation as note-specific",
     "Never dispatch a normalized note directly",
     "Compiled packages must be fresh",
-    "python3 scripts/project_router_client.py"
+    "python3 scripts/project_router_client.py",
+    "Knowledge/ContextPack"
   ],
   "forbidden_path_fragments": [
     ".codex/skills/project-router-direct-sync/scripts/project_router_client.py",

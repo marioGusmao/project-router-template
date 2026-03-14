@@ -1,0 +1,47 @@
+# Scripts Reference
+
+Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This reference focuses on **why and when** to use each script.
+
+## Setup
+
+| Script | Purpose | Prerequisites |
+|--------|---------|---------------|
+| `scripts/bootstrap_private_repo.py` | Promote a fresh derived copy into a private operational repository with tracked upstream-sync metadata | Run in a freshly cloned/derived repo, not in the template itself |
+| `scripts/bootstrap_local.py` | Create local-only config files (`.env.local`, `projects/registry.local.json`) | Run once per machine |
+
+## Sync
+
+| Script | Purpose | Prerequisites |
+|--------|---------|---------------|
+| `scripts/project_router_client.py sync` | Fetch new captures from the VoiceNotes API into `data/raw/voicenotes/` | `.env.local` with VoiceNotes API token |
+
+## Pipeline
+
+| Script | Stage | Purpose | Prerequisites |
+|--------|-------|---------|---------------|
+| `scripts/project_router.py normalize` | normalize | Convert raw JSON to markdown with frontmatter | Raw files in `data/raw/{source}/` |
+| `scripts/project_router.py triage` | triage | Classify notes by destination, intent, capture_kind | Normalized files in `data/normalized/{source}/` |
+| `scripts/project_router.py compile` | compile | Generate enriched project-ready briefs | Triaged files (frontmatter has destination) |
+| `scripts/project_router.py review` | review | Copy notes into status-based queue directories for inspection | Compiled or triaged notes exist |
+| `scripts/project_router.py decide` | decide | Record user decision (approve/reject/defer) for a specific note | Note has been reviewed; requires `--note-id` and `--decision` |
+| `scripts/project_router.py dispatch` | dispatch | Write compiled packages to downstream project inboxes | Compiled + approved notes; `registry.local.json` with valid paths; requires `--confirm-user-approval` and `--note-id` |
+| `scripts/project_router.py discover` | discover | Cluster `pending_project` notes to identify potential new destinations | Notes in pending_project queue |
+| `scripts/project_router.py status` | status | Show current queue counts across all stages | None |
+| `scripts/project_router.py scan-outboxes` | scan-outboxes | Read-only ingestion of downstream project outbox directories | `registry.local.json` with valid `router_root_path` values |
+| `scripts/project_router.py doctor` | doctor | Validate a downstream project's protocol compliance | `--project` flag; downstream project has `project-router/` directory |
+| `scripts/project_router.py context` | context | Generate a live project briefing from current state | None |
+
+## Governance
+
+| Script | Purpose | Prerequisites |
+|--------|---------|---------------|
+| `scripts/check_agent_surface_parity.py` | Verify alignment between .agents/skills/, .claude/skills/, and .codex/skills/ | None; use `--pre-publish` before publishing template changes |
+| `scripts/check_repo_ownership.py` | Validate ownership.manifest.json against actual repo files | None; run before publishing |
+| `scripts/check_knowledge_structure.py` | Validate Knowledge/ directory structure and required files | None |
+
+## Testing
+
+| Script | Purpose | Prerequisites |
+|--------|---------|---------------|
+| `python3 -m pytest tests/test_project_router.py -v` | Run all tests | None (uses unittest + tempfile isolation) |
+| `python3 -m pytest tests/test_project_router.py -v -k "test_name"` | Run a single test | None |

@@ -20,6 +20,8 @@ Use this skill at the start of a Project Router session for VoiceNotes captures.
 - When reporting session results, always include note lists with clickable paths, not only aggregate counts.
 - For every listed note, include `source_note_id`, title, a short summary, and at least one path the user can open.
 
+If the repository is unfamiliar, run `python3 scripts/project_router.py context` for a live project briefing, or read `Knowledge/ContextPack.md` for orientation.
+
 ## Session Opening Flow
 
 1. Confirm the repository state with:

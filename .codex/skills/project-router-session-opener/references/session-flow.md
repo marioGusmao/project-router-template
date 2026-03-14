@@ -3,6 +3,7 @@
 ## Purpose
 
 This skill exists to make the beginning of a VoiceNotes session predictable and safe.
+For a broader orientation, see `Knowledge/ContextPack.md`.
 
 ## Safe Session Opener Sequence
 

@@ -2921,6 +2921,169 @@ def status_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def context_command(args: argparse.Namespace) -> int:
+    """Generate a compact Markdown briefing from repo state."""
+    sections: list[str] = ["# Project Router Context", ""]
+
+    # --- Project purpose ---
+    tldr_path = ROOT / "Knowledge" / "TLDR.md"
+    if tldr_path.exists():
+        for line in tldr_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                sections.append(f"**Purpose:** {stripped}")
+                sections.append("")
+                break
+
+    # --- Registered projects ---
+    if REGISTRY_SHARED_PATH.exists():
+        try:
+            registry = json.loads(REGISTRY_SHARED_PATH.read_text(encoding="utf-8"))
+            projects_map = registry.get("projects", {}) if isinstance(registry, dict) else {}
+            keys = sorted(projects_map.keys()) if isinstance(projects_map, dict) else []
+            sections.append(f"## Registered Projects ({len(keys)})")
+            sections.append("")
+            for k in keys:
+                sections.append(f"- {k}")
+            sections.append("")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # --- Pipeline state ---
+    source_filter = getattr(args, "source", None)
+    sources = parse_source_filter(source_filter)
+    stages = {"raw": RAW_DIR, "normalized": NORMALIZED_DIR, "compiled": COMPILED_DIR,
+              "review": REVIEW_DIR, "dispatched": DISPATCHED_DIR}
+    sections.append("## Pipeline State")
+    sections.append("")
+    for stage_name, stage_dir in stages.items():
+        if not stage_dir.exists():
+            continue
+        total = 0
+        details: list[str] = []
+        for sub in sorted(stage_dir.iterdir()):
+            if not sub.is_dir():
+                continue
+            n = len([f for f in sub.rglob("*") if f.is_file()])
+            if n:
+                details.append(f"{sub.name}={n}")
+                total += n
+        if total:
+            sections.append(f"- **{stage_name}** ({total}): {', '.join(details)}")
+    sections.append("")
+
+    # --- Available scripts ---
+    scripts_dir = ROOT / "scripts"
+    if scripts_dir.exists():
+        sections.append("## Available Scripts")
+        sections.append("")
+        docstring_re = re.compile(r'^"""(.*?)"""', re.DOTALL)
+        for script in sorted(scripts_dir.glob("*.py")):
+            try:
+                text = script.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            m = docstring_re.search(text)
+            if m:
+                first_line = m.group(1).strip().splitlines()[0]
+                sections.append(f"- `{script.name}`: {first_line}")
+            else:
+                sections.append(f"- `{script.name}`")
+        sections.append("")
+
+    # --- Available skills ---
+    seen_skills: dict[str, str] = {}
+    for pattern in [".agents/skills/*/SKILL.md", ".claude/skills/*/SKILL.md", ".codex/skills/*/SKILL.md"]:
+        for skill_path in sorted(ROOT.glob(pattern)):
+            skill_name = skill_path.parent.name
+            if skill_name in seen_skills:
+                continue
+            try:
+                for line in skill_path.read_text(encoding="utf-8").splitlines():
+                    if line.startswith("# "):
+                        seen_skills[skill_name] = line[2:].strip()
+                        break
+                else:
+                    seen_skills[skill_name] = skill_name
+            except OSError:
+                seen_skills[skill_name] = skill_name
+    if seen_skills:
+        sections.append("## Available Skills")
+        sections.append("")
+        for name, heading in sorted(seen_skills.items()):
+            sections.append(f"- **{name}**: {heading}")
+        sections.append("")
+
+    # --- ADR index ---
+    adr_dir = ROOT / "Knowledge" / "ADR"
+    if adr_dir.exists():
+        adr_files = sorted(adr_dir.glob("[0-9]*.md"))
+        if adr_files:
+            sections.append("## ADR Index")
+            sections.append("")
+            for adr in adr_files:
+                status = "unknown"
+                try:
+                    for line in adr.read_text(encoding="utf-8").splitlines():
+                        stripped = line.strip().strip("*").strip()
+                        if stripped.lower().startswith("status:"):
+                            status = stripped.split(":", 1)[1].strip().strip("*").strip()
+                            break
+                except OSError:
+                    pass
+                stem = adr.stem
+                sections.append(f"- {stem}: {status}")
+            sections.append("")
+
+    # --- Safety invariants ---
+    adr005 = ROOT / "Knowledge" / "ADR" / "005-safety-invariants.md"
+    if adr005.exists():
+        try:
+            text = adr005.read_text(encoding="utf-8")
+            in_decision = False
+            invariants: list[str] = []
+            for line in text.splitlines():
+                if line.strip().startswith("## Decision"):
+                    in_decision = True
+                    continue
+                if in_decision and line.strip().startswith("## "):
+                    break
+                if in_decision and re.match(r"^\d+\.\s", line.strip()):
+                    invariants.append(line.strip())
+            if invariants:
+                sections.append("## Safety Invariants")
+                sections.append("")
+                for inv in invariants:
+                    sections.append(f"- {inv}")
+                sections.append("")
+        except OSError:
+            pass
+
+    # --- Where to find what ---
+    context_pack = ROOT / "Knowledge" / "ContextPack.md"
+    if context_pack.exists():
+        try:
+            table_lines = [line for line in context_pack.read_text(encoding="utf-8").splitlines() if line.startswith("|")]
+            if table_lines:
+                sections.append("## Where to Find What")
+                sections.append("")
+                sections.extend(table_lines)
+                sections.append("")
+        except OSError:
+            pass
+
+    output = "\n".join(sections).rstrip() + "\n"
+
+    if getattr(args, "write", False):
+        out_path = ROOT / "Knowledge" / "ContextPack.md"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(output, encoding="utf-8")
+        print(f"Written to {out_path}")
+    else:
+        print(output, end="")
+    return 0
+
+
 def add_source_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source", choices=("all", VOICE_SOURCE, PROJECT_ROUTER_SOURCE), default="all", help="Filter work to one source or use all sources.")
 
@@ -2997,6 +3160,11 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="Show queue counts.")
     add_source_argument(status)
     status.set_defaults(func=status_command)
+
+    context = subparsers.add_parser("context", help="Generate a live project briefing from repo state.")
+    add_source_argument(context)
+    context.add_argument("--write", action="store_true", help="Write output to Knowledge/ContextPack.md.")
+    context.set_defaults(func=context_command)
 
     return parser
 

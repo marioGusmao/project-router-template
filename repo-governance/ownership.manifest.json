@@ -27,6 +27,26 @@
       "sync_policy": "template_sync"
     },
     {
+      "pattern": "Knowledge/local/**",
+      "ownership": "private_owned",
+      "sync_policy": "blocked"
+    },
+    {
+      "pattern": "Knowledge/ADR/*.md",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
+      "pattern": "Knowledge/*.md",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
+      "pattern": "Knowledge/**",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
       "pattern": ".release-please-config.json",
       "ownership": "template_owned",
       "sync_policy": "template_sync"

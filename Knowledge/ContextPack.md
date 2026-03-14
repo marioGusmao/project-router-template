@@ -1,0 +1,30 @@
+# Context Pack
+
+> For a live, always-accurate project briefing, run `python3 scripts/project_router.py context`.
+
+This is a static routing document for GitHub browsing -- a "where to find what" table for the project-router-template codebase.
+
+| Topic | Location | Notes |
+|-------|----------|-------|
+| Pipeline code | `src/project_router/cli.py` | Single-module CLI, ~2000 lines, all pipeline stages |
+| CLI entry point | `scripts/project_router.py` | Thin wrapper that calls `cli.main(argv)` |
+| Sync client | `scripts/project_router_client.py` | Fetches from VoiceNotes API; requires `.env.local` |
+| Project registry (shared) | `projects/registry.shared.json` | Committed: project metadata, keywords, thresholds |
+| Project registry (local) | `projects/registry.local.json` | Gitignored: machine-local paths and overrides |
+| Project registry (example) | `projects/registry.example.json` | Committed: starter template for the local overlay |
+| Safety rules | `CLAUDE.md`, `AGENTS.md` | Critical invariants for dispatch, raw preservation, approval |
+| Agent skills (canonical) | `.agents/skills/` | Neutral reference layer for shared workflow rules |
+| Agent skills (Claude) | `.claude/skills/` | Claude-facing adaptations |
+| Agent skills (Codex) | `.codex/skills/` | Codex-facing adaptations |
+| Governance (ownership) | `repo-governance/ownership.manifest.json` | Template/private sync boundary |
+| Governance (parity) | `parity.manifest.json` | Agent surface parity tracking |
+| Tests | `tests/test_project_router.py` | unittest + tempfile isolation |
+| ADRs | `Knowledge/ADR/` | Architecture Decision Records (000--099 template) |
+| Glossary | `Knowledge/Glossary.md` | ~25 terms across 6 categories |
+| Pipeline map | `Knowledge/PipelineMap.md` | Concrete note trace through all stages |
+| Scripts reference | `Knowledge/ScriptsReference.md` | Scripts grouped by purpose with prerequisites |
+| Roadmap | `Knowledge/Roadmap.md` | Template milestones |
+| Template promotion | `scripts/bootstrap_private_repo.py` | Promotes a derived copy into private operational repo |
+| Local config bootstrap | `scripts/bootstrap_local.py` | Creates `.env.local` and `registry.local.json` |
+| Design specs | `docs/superpowers/specs/` | Detailed implementation designs |
+| Changelog | `CHANGELOG.md` | Version history |

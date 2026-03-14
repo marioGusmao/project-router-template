@@ -10,9 +10,10 @@
 
 <!-- repository-mode:begin -->
 ## Repository Mode
-- Current mode: shared starter upstream.
-- Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived repository when you want to promote it into a private operational repo with tracked upstream-sync metadata.
-- Keep the template neutral; keep branded routing packs and private wording in the derived repository under the ownership rules.
+- Current mode: private derived repository.
+- Treat this repository as the operational home for private routing packs, branded docs, and project wording.
+- Keep the upstream link to `project-router-template` via `private.meta.json` and `template-base.json`.
+- Pull shared updates from `marioGusmao/project-router-template` through reviewed `chore/template-sync` pull requests, not by rewriting private-owned or local-only files by hand.
 <!-- repository-mode:end -->
 
 ## Safety Rules
@@ -41,6 +42,11 @@
 - Keep template/private sync guardrails in `repo-governance/ownership.manifest.json`.
 - Do not edit downstream repositories unless the task explicitly requires it.
 - If a downstream repository must be edited, read its local `AGENTS.md` first and follow its conventions.
+
+## Knowledge Foundation
+- Run `python3 scripts/project_router.py context` for a live project briefing, or read `Knowledge/ContextPack.md` for orientation.
+- Architecture decisions are recorded in `Knowledge/ADR/`.
+- Scripts are documented with "why/when" context in `Knowledge/ScriptsReference.md`.
 
 ## Workflow Defaults
 - Treat `.agents/skills/` as the canonical neutral reference layer for shared workflow rules.
@@ -81,3 +87,5 @@
 - `python3 scripts/project_router.py dispatch --dry-run`
 - `python3 scripts/check_agent_surface_parity.py`
 - `python3 scripts/check_repo_ownership.py`
+- `python3 scripts/check_knowledge_structure.py`
+- `python3 scripts/project_router.py context`

@@ -3,9 +3,9 @@
 English | [Português (Portugal)](README.pt-PT.md)
 
 <!-- repository-mode:begin -->
-Project Router Template is the shared starter upstream for Project Router for VoiceNotes, a capture-triage workflow that works in both Codex and Claude Code.
+This repository is a private operational Project Router repo for VoiceNotes derived from the shared `project-router-template` upstream.
 
-The starter keeps the common pipeline, safety rules, governance tooling, and neutral routing examples in Git. Each user keeps local secrets, local router paths, and live note artifacts outside Git. Use `python3 scripts/bootstrap_private_repo.py` in a fresh derived copy when you want to promote it into a private operational repository with tracked upstream-sync metadata.
+The upstream relationship is tracked in `private.meta.json` and `template-base.json`, and updates from `marioGusmao/project-router-template` should arrive through reviewed `chore/template-sync` pull requests rather than manual copy-paste.
 <!-- repository-mode:end -->
 
 ## New To GitHub Templates
@@ -76,6 +76,9 @@ data/
     project_router/
   dispatched/
   processed/
+Knowledge/
+  ADR/
+  local/
 project-router/
   inbox/
   outbox/
@@ -105,6 +108,10 @@ VERSION
 CHANGELOG.md
 template.meta.json
 ```
+
+## Knowledge
+
+The `Knowledge/` directory provides onboarding docs, architectural decision records, and a glossary. Read `Knowledge/ContextPack.md` for a routing guide to the codebase, or run `python3 scripts/project_router.py context` for a live project briefing.
 
 ## Local Configuration
 
@@ -301,11 +308,12 @@ Before publishing the template:
 
 1. Run `python3 scripts/check_agent_surface_parity.py --pre-publish`
 2. Run `python3 scripts/check_repo_ownership.py`
-3. Confirm `projects/registry.shared.json` contains only neutral examples
-4. Confirm `.env.local`, `projects/registry.local.json`, `data/`, and `state/` are not tracked
-5. Confirm `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` still describe the same workflow contract
-6. Enable GitHub Template Repository on the upstream repo
-7. Enable branch protection and required checks for tests, parity, ownership, and release automation
+3. Run `python3 scripts/check_knowledge_structure.py --strict`
+4. Confirm `projects/registry.shared.json` contains only neutral examples
+5. Confirm `.env.local`, `projects/registry.local.json`, `data/`, and `state/` are not tracked
+6. Confirm `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` still describe the same workflow contract
+7. Enable GitHub Template Repository on the upstream repo
+8. Enable branch protection and required checks for tests, parity, ownership, and release automation
 
 ## Contributing
 

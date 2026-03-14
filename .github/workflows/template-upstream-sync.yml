@@ -135,11 +135,24 @@ jobs:
             template.meta.json
             .release-please-config.json
             .release-please-manifest.json
+            # Knowledge — never sync Knowledge/local (private_owned derived content)
+            Knowledge/TLDR.md
+            Knowledge/ContextPack.md
+            Knowledge/Glossary.md
+            Knowledge/PipelineMap.md
+            Knowledge/Roadmap.md
+            Knowledge/ScriptsReference.md
+            Knowledge/README.md
+            Knowledge/ADR
           )
           for path in "${paths[@]}"; do
             if [ -e "$upstream/$path" ]; then
               mkdir -p "$(dirname "$path")"
-              rsync -a --delete "$upstream/$path" "$path"
+              if [ -d "$upstream/$path" ]; then
+                rsync -a --delete "$upstream/$path/" "$path/"
+              else
+                rsync -a --delete "$upstream/$path" "$path"
+              fi
             fi
           done
 

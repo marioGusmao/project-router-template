@@ -265,27 +265,65 @@ def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
         ),
     )
 
+    # Seed Knowledge/local/ scaffold (always non-destructive, regardless of --force)
+    seeded_files: list[str] = []
+
+    knowledge_local_dir = ROOT / "Knowledge" / "local"
+    knowledge_local_dir.mkdir(parents=True, exist_ok=True)
+
+    knowledge_local_readme = knowledge_local_dir / "README.md"
+    if not knowledge_local_readme.exists():
+        knowledge_local_readme.write_text(
+            "# Private Knowledge\n\nThis directory is for your private knowledge content.\n\n"
+            "- Your ADRs go in `ADR/` starting at 100+\n"
+            "- Your project roadmap goes in `Roadmap.md`\n"
+            "- Operational notes go in `notes/`\n"
+            "- This directory is `private_owned` and never synced from the template\n",
+            encoding="utf-8",
+        )
+        seeded_files.append(str(knowledge_local_readme.relative_to(ROOT)))
+
+    knowledge_local_adr_dir = knowledge_local_dir / "ADR"
+    knowledge_local_adr_dir.mkdir(parents=True, exist_ok=True)
+
+    knowledge_local_roadmap = knowledge_local_dir / "Roadmap.md"
+    if not knowledge_local_roadmap.exists():
+        knowledge_local_roadmap.write_text(
+            "# Project Roadmap\n\n## Current Focus\n\n<!-- Add your current project priorities here -->\n\n"
+            "## Planned\n\n<!-- Add planned work here -->\n\n"
+            "## Completed\n\n<!-- Move completed items here -->\n",
+            encoding="utf-8",
+        )
+        seeded_files.append(str(knowledge_local_roadmap.relative_to(ROOT)))
+
+    knowledge_local_notes_dir = knowledge_local_dir / "notes"
+    knowledge_local_notes_dir.mkdir(parents=True, exist_ok=True)
+
+    files_updated = [
+        str(path.relative_to(ROOT))
+        for path in (
+            README_PATH,
+            README_PT_PATH,
+            AGENTS_PATH,
+            CLAUDE_PATH,
+            PRIVATE_META_PATH,
+            TEMPLATE_BASE_PATH,
+        )
+    ]
+    files_updated.extend(seeded_files)
+
     return {
         "private_repo_name": private_repo_name,
         "template_repo": template_repo,
         "template_version": template_meta.get("version"),
-        "files_updated": [
-            str(path.relative_to(ROOT))
-            for path in (
-                README_PATH,
-                README_PT_PATH,
-                AGENTS_PATH,
-                CLAUDE_PATH,
-                PRIVATE_META_PATH,
-                TEMPLATE_BASE_PATH,
-            )
-        ],
+        "files_updated": files_updated,
         "next_steps": [
             "Review the tracked docs and metadata changes.",
             "Run python3 scripts/bootstrap_local.py for machine-local config.",
             "Run python3 -m pytest tests/test_project_router.py -v.",
             "Run python3 scripts/check_agent_surface_parity.py.",
             "Run python3 scripts/check_repo_ownership.py.",
+            "Customize Knowledge/local/Roadmap.md for your project roadmap.",
         ],
     }
 

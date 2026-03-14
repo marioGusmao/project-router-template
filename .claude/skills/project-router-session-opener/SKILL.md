@@ -13,6 +13,8 @@ Use this workflow at the start of a Project Router session for VoiceNotes captur
 - Compiled packages must be fresh before dispatch.
 - When reporting session results, always include note lists with clickable paths, not only aggregate counts.
 
+If the repository is unfamiliar, run `python3 scripts/project_router.py context` for a live project briefing, or read `Knowledge/ContextPack.md` for orientation.
+
 ## Session Opening Flow
 
 1. Run `python3 scripts/project_router.py status`.
