@@ -61,6 +61,7 @@ python3 scripts/check_agent_surface_parity.py
 python3 scripts/check_repo_ownership.py
 python3 scripts/check_sync_manifest_alignment.py
 python3 scripts/check_knowledge_structure.py
+python3 scripts/check_adr_related_links.py
 python3 scripts/project_router.py context
 ```
 

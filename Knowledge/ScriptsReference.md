@@ -40,6 +40,7 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/check_repo_ownership.py` | Validate ownership.manifest.json against actual repo files | None; run before publishing |
 | `scripts/check_knowledge_structure.py` | Validate Knowledge/ directory structure and required files | None |
 | `scripts/check_sync_manifest_alignment.py` | Validate that the upstream-sync workflow only targets paths allowed by the ownership manifest | None |
+| `scripts/check_adr_related_links.py` | Validate that `## Related` sections in ADR files point to real files; catches self-references and malformed entries | None; use `--mode block` in CI |
 
 ## Testing
 

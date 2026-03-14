@@ -44,6 +44,8 @@ All synced Knowledge files are `template_owned`. A `context` CLI subcommand gene
 - Derived repos extend in `local/` without merge conflicts.
 - Maintaining knowledge docs adds a small overhead when pipeline changes occur.
 - The `context` command provides always-accurate live briefings, complementing the static docs.
+- ADR cross-references are validated by `check_adr_related_links.py`, catching broken links and self-references.
+- The private scaffold seed includes `Knowledge/Templates/local/TLDR/README.md`, seeding an optional project-specific TLDR directory in derived repos.
 
 ## Related
 

@@ -18,6 +18,7 @@ For a live project briefing in the terminal, run `python3 scripts/project_router
 | Agent skills (Codex) | `.codex/skills/` | Codex-facing adaptations |
 | Governance (ownership) | `repo-governance/ownership.manifest.json` | Template/private sync boundary |
 | Governance (parity) | `parity.manifest.json` | Agent surface parity tracking |
+| Governance (validators) | `scripts/check_*.py` | Knowledge structure, ADR links, sync alignment, ownership, parity |
 | Tests | `tests/test_project_router.py` | unittest + tempfile isolation |
 | ADRs | `Knowledge/ADR/` | Architecture Decision Records (000--099 template) |
 | Glossary | `Knowledge/Glossary.md` | ~25 terms across 6 categories |

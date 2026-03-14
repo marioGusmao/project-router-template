@@ -94,8 +94,11 @@ repo-governance/
 scripts/
   bootstrap_private_repo.py
   bootstrap_local.py
+  check_adr_related_links.py
   check_agent_surface_parity.py
+  check_knowledge_structure.py
   check_repo_ownership.py
+  check_sync_manifest_alignment.py
   project_router.py
   project_router_client.py
 src/
@@ -295,11 +298,12 @@ Antes de publicar o template:
 2. Corre `python3 scripts/check_repo_ownership.py`
 3. Corre `python3 scripts/check_sync_manifest_alignment.py`
 4. Corre `python3 scripts/check_knowledge_structure.py --strict`
-5. Confirma que `projects/registry.shared.json` só tem exemplos neutros
-6. Confirma que `.env.local`, `projects/registry.local.json`, `data/` e `state/` não estão tracked
-7. Confirma que `.agents/skills/`, `.codex/skills/` e `.claude/skills/` continuam alinhados
-8. Ativa o modo GitHub Template Repository no upstream
-9. Ativa branch protection e required checks para testes, parity, ownership e release automation
+5. Corre `python3 scripts/check_adr_related_links.py --mode block`
+6. Confirma que `projects/registry.shared.json` só tem exemplos neutros
+7. Confirma que `.env.local`, `projects/registry.local.json`, `data/` e `state/` não estão tracked
+8. Confirma que `.agents/skills/`, `.codex/skills/` e `.claude/skills/` continuam alinhados
+9. Ativa o modo GitHub Template Repository no upstream
+10. Ativa branch protection e required checks para testes, parity, ownership e release automation
 
 ## Contribuir
 

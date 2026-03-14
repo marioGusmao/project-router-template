@@ -78,6 +78,16 @@ jobs:
               raise SystemExit("\n".join(errors))
           PY
 
+  adr-related-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check ADR related links
+        run: python3 scripts/check_adr_related_links.py --mode block
+
   knowledge-structure:
     runs-on: ubuntu-latest
     steps:

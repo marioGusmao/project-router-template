@@ -26,6 +26,7 @@ Your derived content goes in `Knowledge/local/` after bootstrap:
 2. **Template ADRs use numbers 000--099.** Your project-specific ADRs go in `Knowledge/local/ADR/` starting at 100.
 3. **Your private roadmap** goes in `Knowledge/local/Roadmap.md`.
 4. **Operational notes** (scratch, session logs, etc.) go in `Knowledge/local/notes/`.
+5. **Project-specific TLDRs** go in `Knowledge/local/TLDR/` (optional scaffold, seeded from `Knowledge/Templates/local/TLDR/README.md`).
 
 ## Quick Start
 

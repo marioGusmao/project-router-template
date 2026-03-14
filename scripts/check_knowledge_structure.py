@@ -33,6 +33,7 @@ TEMPLATE_REQUIRED_FILES = [
     "Knowledge/Templates/local/Roadmap.md",
     "Knowledge/Templates/local/ADR/README.md",
     "Knowledge/Templates/local/notes/README.md",
+    "Knowledge/Templates/local/TLDR/README.md",
 ]
 
 EXPECTED_SYNCED = {
@@ -54,6 +55,7 @@ EXPECTED_SYNCED = {
     "Knowledge/Templates/local/Roadmap.md",
     "Knowledge/Templates/local/ADR/README.md",
     "Knowledge/Templates/local/notes/README.md",
+    "Knowledge/Templates/local/TLDR/README.md",
 }
 
 DERIVED_REQUIRED_FILES = [

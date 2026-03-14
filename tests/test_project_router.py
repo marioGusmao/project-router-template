@@ -629,6 +629,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
                 "Knowledge/local/Roadmap.md",
                 "Knowledge/local/ADR/README.md",
                 "Knowledge/local/notes/README.md",
+                "Knowledge/local/TLDR/README.md",
             ):
                 self.assertTrue((root / rel).exists(), f"Missing seeded scaffold file: {rel}")
             for rel in (
@@ -644,6 +645,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
                 "Roadmap.md",
                 "ADR/README.md",
                 "notes/README.md",
+                "TLDR/README.md",
             ):
                 source = (REPO_ROOT / "Knowledge" / "Templates" / "local" / rel).read_bytes()
                 target = (root / "Knowledge" / "local" / rel).read_bytes()
@@ -683,6 +685,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             self.assertIn("Roadmap.md", preview_payload["missing"])
             self.assertIn("ADR/README.md", preview_payload["missing"])
             self.assertIn("notes/README.md", preview_payload["missing"])
+            self.assertIn("TLDR/README.md", preview_payload["missing"])
 
             apply_missing = subprocess.run(
                 ["python3", str(scripts_dir / "refresh_knowledge_local.py"), "--apply-missing"],
@@ -695,6 +698,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             self.assertTrue((local_root / "Roadmap.md").exists())
             self.assertTrue((local_root / "ADR" / "README.md").exists())
             self.assertTrue((local_root / "notes" / "README.md").exists())
+            self.assertTrue((local_root / "TLDR" / "README.md").exists())
 
     def test_knowledge_structure_validator(self) -> None:
         result = subprocess.run(
@@ -831,6 +835,151 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("Knowledge/local", result.stderr)
+
+
+class TestCheckAdrRelatedLinks(unittest.TestCase):
+    """Tests for scripts/check_adr_related_links.py."""
+
+    SCRIPT = str(REPO_ROOT / "scripts" / "check_adr_related_links.py")
+
+    def _make_adr_tree(self, root: Path, adrs: dict[str, str]) -> None:
+        """Create ADR files in root/Knowledge/ADR/ from a {filename: content} dict."""
+        adr_dir = root / "Knowledge" / "ADR"
+        adr_dir.mkdir(parents=True, exist_ok=True)
+        for name, content in adrs.items():
+            (adr_dir / name).write_text(content, encoding="utf-8")
+
+    def _make_local_adr_tree(self, root: Path, adrs: dict[str, str]) -> None:
+        """Create ADR files in root/Knowledge/local/ADR/."""
+        adr_dir = root / "Knowledge" / "local" / "ADR"
+        adr_dir.mkdir(parents=True, exist_ok=True)
+        for name, content in adrs.items():
+            (adr_dir / name).write_text(content, encoding="utf-8")
+
+    def _setup_script(self, root: Path) -> None:
+        """Copy the validator script into the temp repo."""
+        scripts_dir = root / "scripts"
+        scripts_dir.mkdir(exist_ok=True)
+        shutil.copy2(REPO_ROOT / "scripts" / "check_adr_related_links.py", scripts_dir / "check_adr_related_links.py")
+
+    def _run(self, root: Path, mode: str = "warn") -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["python3", str(root / "scripts" / "check_adr_related_links.py"), "--mode", mode],
+            capture_output=True, text=True, cwd=str(root),
+        )
+
+    def test_valid_template_to_template_ref(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n\n## Related\n\n- ADR-002: Second\n",
+                "002-second.md": "# ADR-002\n\n## Related\n\n- ADR-001: First\n",
+            })
+            result = self._run(root, "block")
+            self.assertEqual(result.returncode, 0, f"Unexpected failure: {result.stderr}")
+
+    def test_valid_template_to_local_ref(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n\n## Related\n\n- ADR-100: Local decision\n",
+            })
+            self._make_local_adr_tree(root, {
+                "100-local.md": "# ADR-100\n\n## Related\n\n- ADR-001: First\n",
+            })
+            result = self._run(root, "block")
+            self.assertEqual(result.returncode, 0, f"Unexpected failure: {result.stderr}")
+
+    def test_valid_local_to_template_ref(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n",
+            })
+            self._make_local_adr_tree(root, {
+                "100-local.md": "# ADR-100\n\n## Related\n\n- ADR-001: First\n",
+            })
+            result = self._run(root, "block")
+            self.assertEqual(result.returncode, 0, f"Unexpected failure: {result.stderr}")
+
+    def test_missing_target_errors(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n\n## Related\n\n- ADR-999: Does not exist\n",
+            })
+            result = self._run(root, "block")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("nonexistent target ADR-999", result.stderr)
+
+    def test_missing_target_warn_mode_exits_zero(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n\n## Related\n\n- ADR-999: Does not exist\n",
+            })
+            result = self._run(root, "warn")
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("nonexistent target ADR-999", result.stderr)
+
+    def test_self_reference_errors(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n\n## Related\n\n- ADR-001: Self\n",
+            })
+            result = self._run(root, "block")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("self-reference ADR-001", result.stderr)
+
+    def test_no_related_section_is_fine(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n\n## Context\n\nSome context.\n",
+            })
+            result = self._run(root, "block")
+            self.assertEqual(result.returncode, 0, f"Unexpected failure: {result.stderr}")
+
+    def test_malformed_reference_warns(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n\n## Related\n\n- Adr 2: Bad format\n",
+            })
+            result = self._run(root, "block")
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("WARNING", result.stderr)
+            self.assertIn("malformed", result.stderr)
+
+    def test_mixed_valid_and_malformed_reference_still_warns(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            self._setup_script(root)
+            self._make_adr_tree(root, {
+                "001-first.md": "# ADR-001\n\n## Related\n\n- ADR-002: Good and Adr 3: Bad\n",
+                "002-second.md": "# ADR-002\n",
+            })
+            result = self._run(root, "block")
+            self.assertEqual(result.returncode, 0, f"Unexpected failure: {result.stderr}")
+            self.assertIn("WARNING", result.stderr)
+            self.assertIn("malformed ADR reference 'Adr 3'", result.stderr)
+
+    def test_real_repo_passes(self) -> None:
+        """The actual repo's ADRs should pass in block mode."""
+        result = subprocess.run(
+            ["python3", self.SCRIPT, "--mode", "block"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"Real repo failed: {result.stderr}")
 
 
 if __name__ == "__main__":
