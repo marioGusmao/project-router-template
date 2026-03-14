@@ -560,6 +560,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
     def test_knowledge_ownership_classification(self) -> None:
         script = str(REPO_ROOT / "scripts" / "check_repo_ownership.py")
         cases = [
+            ("Knowledge/local", 1),
             ("Knowledge/local/README.md", 1),
             ("Knowledge/local/ADR/100-custom.md", 1),
             ("Knowledge/TLDR.md", 0),
@@ -596,6 +597,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             scripts_dir = root / "scripts"
             scripts_dir.mkdir()
             shutil.copy2(REPO_ROOT / "scripts" / "bootstrap_private_repo.py", scripts_dir / "bootstrap_private_repo.py")
+            shutil.copy2(REPO_ROOT / "scripts" / "knowledge_local_scaffold.py", scripts_dir / "knowledge_local_scaffold.py")
             shutil.copytree(REPO_ROOT / "Knowledge" / "Templates", root / "Knowledge" / "Templates")
             # Create minimal required files for bootstrap
             (root / "template.meta.json").write_text(
@@ -625,8 +627,8 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             for rel in (
                 "Knowledge/local/README.md",
                 "Knowledge/local/Roadmap.md",
-                "Knowledge/local/ADR/.gitkeep",
-                "Knowledge/local/notes/.gitkeep",
+                "Knowledge/local/ADR/README.md",
+                "Knowledge/local/notes/README.md",
             ):
                 self.assertTrue((root / rel).exists(), f"Missing seeded scaffold file: {rel}")
             for rel in (
@@ -640,8 +642,8 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             for rel in (
                 "README.md",
                 "Roadmap.md",
-                "ADR/.gitkeep",
-                "notes/.gitkeep",
+                "ADR/README.md",
+                "notes/README.md",
             ):
                 source = (REPO_ROOT / "Knowledge" / "Templates" / "local" / rel).read_bytes()
                 target = (root / "Knowledge" / "local" / rel).read_bytes()
@@ -656,6 +658,43 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             self.assertEqual(result2.returncode, 0)
             self.assertEqual((root / "Knowledge" / "local" / "README.md").stat().st_mtime, mtime_readme)
             self.assertEqual((root / "Knowledge" / "local" / "Roadmap.md").stat().st_mtime, mtime_roadmap)
+
+    def test_refresh_knowledge_local_preview_and_apply_missing(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            scripts_dir = root / "scripts"
+            scripts_dir.mkdir()
+            shutil.copy2(REPO_ROOT / "scripts" / "knowledge_local_scaffold.py", scripts_dir / "knowledge_local_scaffold.py")
+            shutil.copy2(REPO_ROOT / "scripts" / "refresh_knowledge_local.py", scripts_dir / "refresh_knowledge_local.py")
+            shutil.copytree(REPO_ROOT / "Knowledge" / "Templates", root / "Knowledge" / "Templates")
+
+            local_root = root / "Knowledge" / "local"
+            (local_root / "README.md").parent.mkdir(parents=True, exist_ok=True)
+            (local_root / "README.md").write_text("# Customized local README\n", encoding="utf-8")
+
+            preview = subprocess.run(
+                ["python3", str(scripts_dir / "refresh_knowledge_local.py")],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(preview.returncode, 0, f"Refresh preview failed: {preview.stderr}")
+            preview_payload = json.loads(preview.stdout)
+            self.assertTrue(preview_payload["dry_run"])
+            self.assertIn("README.md", preview_payload["different"])
+            self.assertIn("Roadmap.md", preview_payload["missing"])
+            self.assertIn("ADR/README.md", preview_payload["missing"])
+            self.assertIn("notes/README.md", preview_payload["missing"])
+
+            apply_missing = subprocess.run(
+                ["python3", str(scripts_dir / "refresh_knowledge_local.py"), "--apply-missing"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(apply_missing.returncode, 0, f"Refresh apply-missing failed: {apply_missing.stderr}")
+            apply_payload = json.loads(apply_missing.stdout)
+            self.assertFalse(apply_payload["dry_run"])
+            self.assertEqual((local_root / "README.md").read_text(encoding="utf-8"), "# Customized local README\n")
+            self.assertTrue((local_root / "Roadmap.md").exists())
+            self.assertTrue((local_root / "ADR" / "README.md").exists())
+            self.assertTrue((local_root / "notes" / "README.md").exists())
 
     def test_knowledge_structure_validator(self) -> None:
         result = subprocess.run(
@@ -758,6 +797,40 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("Knowledge/local/README.md", result.stderr)
+
+    def test_sync_manifest_alignment_validator(self) -> None:
+        result = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "check_sync_manifest_alignment.py")],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"Sync alignment validator failed: {result.stderr}")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "ok")
+        self.assertIn("Knowledge/Templates", payload["sync_paths"])
+
+    def test_sync_manifest_alignment_rejects_blocked_path(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "repo-governance").mkdir(parents=True)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            shutil.copy2(REPO_ROOT / "scripts" / "check_repo_ownership.py", root / "scripts" / "check_repo_ownership.py")
+            shutil.copy2(REPO_ROOT / "scripts" / "check_sync_manifest_alignment.py", root / "scripts" / "check_sync_manifest_alignment.py")
+            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
+            (root / ".github" / "workflows" / "template-upstream-sync.yml").write_text(
+                "paths=(\n"
+                "  Knowledge/README.md\n"
+                "  Knowledge/local\n"
+                ")\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["python3", str(root / "scripts" / "check_sync_manifest_alignment.py")],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Knowledge/local", result.stderr)
 
 
 if __name__ == "__main__":

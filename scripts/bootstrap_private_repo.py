@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from knowledge_local_scaffold import SOURCE_ROOT as KNOWLEDGE_TEMPLATE_LOCAL_DIR
+from knowledge_local_scaffold import materialize_scaffold
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +29,6 @@ ONBOARDING_MARKER_NAME = "template-onboarding"
 SYNC_BRANCH = "chore/template-sync"
 SYNC_WORKFLOW_PATH = ".github/workflows/template-upstream-sync.yml"
 PROMOTION_COMMAND = "python3 scripts/bootstrap_private_repo.py"
-KNOWLEDGE_TEMPLATE_LOCAL_DIR = ROOT / "Knowledge" / "Templates" / "local"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -242,23 +243,7 @@ def private_onboarding_pt_block() -> str:
 def seed_private_knowledge_local() -> list[str]:
     if not KNOWLEDGE_TEMPLATE_LOCAL_DIR.exists():
         raise SystemExit(f"Missing Knowledge scaffold source: {KNOWLEDGE_TEMPLATE_LOCAL_DIR}")
-
-    destination_root = ROOT / "Knowledge" / "local"
-    seeded_files: list[str] = []
-
-    for source in sorted(KNOWLEDGE_TEMPLATE_LOCAL_DIR.rglob("*")):
-        relative = source.relative_to(KNOWLEDGE_TEMPLATE_LOCAL_DIR)
-        target = destination_root / relative
-        if source.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            continue
-        shutil.copy2(source, target)
-        seeded_files.append(str(target.relative_to(ROOT)))
-
-    return seeded_files
+    return materialize_scaffold(ROOT, overwrite=False)["created"]
 
 
 def promote_repository(args: argparse.Namespace) -> dict[str, Any]:

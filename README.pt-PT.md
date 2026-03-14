@@ -274,6 +274,7 @@ Num repositório derivado novo, a sequência recomendada é:
 ```bash
 python3 scripts/bootstrap_private_repo.py
 python3 scripts/bootstrap_local.py
+python3 scripts/refresh_knowledge_local.py
 ```
 
 ## Garantias De Segurança
@@ -292,12 +293,13 @@ Antes de publicar o template:
 
 1. Corre `python3 scripts/check_agent_surface_parity.py --pre-publish`
 2. Corre `python3 scripts/check_repo_ownership.py`
-3. Corre `python3 scripts/check_knowledge_structure.py --strict`
-4. Confirma que `projects/registry.shared.json` só tem exemplos neutros
-5. Confirma que `.env.local`, `projects/registry.local.json`, `data/` e `state/` não estão tracked
-6. Confirma que `.agents/skills/`, `.codex/skills/` e `.claude/skills/` continuam alinhados
-7. Ativa o modo GitHub Template Repository no upstream
-8. Ativa branch protection e required checks para testes, parity, ownership e release automation
+3. Corre `python3 scripts/check_sync_manifest_alignment.py`
+4. Corre `python3 scripts/check_knowledge_structure.py --strict`
+5. Confirma que `projects/registry.shared.json` só tem exemplos neutros
+6. Confirma que `.env.local`, `projects/registry.local.json`, `data/` e `state/` não estão tracked
+7. Confirma que `.agents/skills/`, `.codex/skills/` e `.claude/skills/` continuam alinhados
+8. Ativa o modo GitHub Template Repository no upstream
+9. Ativa branch protection e required checks para testes, parity, ownership e release automation
 
 ## Contribuir
 

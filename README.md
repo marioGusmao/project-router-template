@@ -292,6 +292,7 @@ For a fresh derived repository, the recommended setup is:
 ```bash
 python3 scripts/bootstrap_private_repo.py
 python3 scripts/bootstrap_local.py
+python3 scripts/refresh_knowledge_local.py
 ```
 
 ## Safety Guarantees
@@ -310,12 +311,13 @@ Before publishing the template:
 
 1. Run `python3 scripts/check_agent_surface_parity.py --pre-publish`
 2. Run `python3 scripts/check_repo_ownership.py`
-3. Run `python3 scripts/check_knowledge_structure.py --strict`
-4. Confirm `projects/registry.shared.json` contains only neutral examples
-5. Confirm `.env.local`, `projects/registry.local.json`, `data/`, and `state/` are not tracked
-6. Confirm `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` still describe the same workflow contract
-7. Enable GitHub Template Repository on the upstream repo
-8. Enable branch protection and required checks for tests, parity, ownership, and release automation
+3. Run `python3 scripts/check_sync_manifest_alignment.py`
+4. Run `python3 scripts/check_knowledge_structure.py --strict`
+5. Confirm `projects/registry.shared.json` contains only neutral examples
+6. Confirm `.env.local`, `projects/registry.local.json`, `data/`, and `state/` are not tracked
+7. Confirm `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` still describe the same workflow contract
+8. Enable GitHub Template Repository on the upstream repo
+9. Enable branch protection and required checks for tests, parity, ownership, and release automation
 
 ## Contributing
 

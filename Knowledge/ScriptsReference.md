@@ -8,6 +8,7 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 |--------|---------|---------------|
 | `scripts/bootstrap_private_repo.py` | Promote a fresh derived copy into a private operational repository with tracked upstream-sync metadata | Run in a freshly cloned/derived repo, not in the template itself |
 | `scripts/bootstrap_local.py` | Create local-only config files (`.env.local`, `projects/registry.local.json`) | Run once per machine |
+| `scripts/refresh_knowledge_local.py` | Preview or backfill the derived `Knowledge/local/` scaffold from the template-owned source | Private-derived repo with `Knowledge/Templates/local/` present |
 
 ## Sync
 
@@ -38,6 +39,7 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/check_agent_surface_parity.py` | Verify alignment between .agents/skills/, .claude/skills/, and .codex/skills/ | None; use `--pre-publish` before publishing template changes |
 | `scripts/check_repo_ownership.py` | Validate ownership.manifest.json against actual repo files | None; run before publishing |
 | `scripts/check_knowledge_structure.py` | Validate Knowledge/ directory structure and required files | None |
+| `scripts/check_sync_manifest_alignment.py` | Validate that the upstream-sync workflow only targets paths allowed by the ownership manifest | None |
 
 ## Testing
 

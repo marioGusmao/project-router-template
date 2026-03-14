@@ -35,6 +35,8 @@ def classify_path(path: str, rules: list[dict[str, str]]) -> dict[str, str] | No
         pattern = str(rule["pattern"]).rstrip("/")
         if fnmatch.fnmatch(normalized, pattern):
             return rule
+        if pattern.endswith("/**") and normalized == pattern[:-3].rstrip("/"):
+            return rule
     return None
 
 
@@ -87,8 +89,8 @@ def main() -> int:
         "state/project_router/outbox_scan_state.json",
         "Knowledge/Templates/local/README.md",
         "Knowledge/Templates/local/Roadmap.md",
-        "Knowledge/Templates/local/ADR/.gitkeep",
-        "Knowledge/Templates/local/notes/.gitkeep",
+        "Knowledge/Templates/local/ADR/README.md",
+        "Knowledge/Templates/local/notes/README.md",
     ]
     for path in required_paths:
         if classify_path(path, rules) is None:

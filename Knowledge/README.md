@@ -8,6 +8,8 @@ Everything **outside** `local/` is **template-owned** and syncs from the upstrea
 
 The template-owned scaffold for derived repositories lives in `Knowledge/Templates/local/`. `python3 scripts/bootstrap_private_repo.py` materializes that scaffold into `Knowledge/local/` inside a private-derived repo.
 
+Use `python3 scripts/refresh_knowledge_local.py` to preview or backfill missing scaffold files in older derived repos after template updates.
+
 Your derived content goes in `Knowledge/local/` after bootstrap:
 
 | Location | Ownership | Syncs from template? |

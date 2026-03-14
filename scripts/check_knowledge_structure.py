@@ -31,8 +31,8 @@ TEMPLATE_REQUIRED_FILES = [
     "Knowledge/ADR/005-safety-invariants.md",
     "Knowledge/Templates/local/README.md",
     "Knowledge/Templates/local/Roadmap.md",
-    "Knowledge/Templates/local/ADR/.gitkeep",
-    "Knowledge/Templates/local/notes/.gitkeep",
+    "Knowledge/Templates/local/ADR/README.md",
+    "Knowledge/Templates/local/notes/README.md",
 ]
 
 EXPECTED_SYNCED = {
@@ -52,15 +52,15 @@ EXPECTED_SYNCED = {
     "Knowledge/ADR/005-safety-invariants.md",
     "Knowledge/Templates/local/README.md",
     "Knowledge/Templates/local/Roadmap.md",
-    "Knowledge/Templates/local/ADR/.gitkeep",
-    "Knowledge/Templates/local/notes/.gitkeep",
+    "Knowledge/Templates/local/ADR/README.md",
+    "Knowledge/Templates/local/notes/README.md",
 }
 
 DERIVED_REQUIRED_FILES = [
     "Knowledge/local/README.md",
     "Knowledge/local/Roadmap.md",
-    "Knowledge/local/ADR/.gitkeep",
-    "Knowledge/local/notes/.gitkeep",
+    "Knowledge/local/ADR/README.md",
+    "Knowledge/local/notes/README.md",
 ]
 
 ADR_ID_RE = re.compile(r"^(\d{3})-.*\.md$")
@@ -94,6 +94,8 @@ def classify_path(path: str, rules: list[dict[str, str]]) -> dict[str, str] | No
     for rule in rules:
         pattern = str(rule["pattern"]).rstrip("/")
         if fnmatch.fnmatch(normalized, pattern):
+            return rule
+        if pattern.endswith("/**") and normalized == pattern[:-3].rstrip("/"):
             return rule
     return None
 

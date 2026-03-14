@@ -74,6 +74,7 @@
 ## Current Commands
 - `python3 scripts/bootstrap_private_repo.py`
 - `python3 scripts/bootstrap_local.py`
+- `python3 scripts/refresh_knowledge_local.py`
 - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
 - `python3 scripts/project_router.py status`
 - `python3 scripts/project_router.py normalize`
@@ -87,5 +88,6 @@
 - `python3 scripts/project_router.py dispatch --dry-run`
 - `python3 scripts/check_agent_surface_parity.py`
 - `python3 scripts/check_repo_ownership.py`
+- `python3 scripts/check_sync_manifest_alignment.py`
 - `python3 scripts/check_knowledge_structure.py`
 - `python3 scripts/project_router.py context`

@@ -30,6 +30,9 @@ python3 scripts/bootstrap_private_repo.py
 # Bootstrap local-only config
 python3 scripts/bootstrap_local.py
 
+# Preview or backfill the derived Knowledge/local scaffold
+python3 scripts/refresh_knowledge_local.py
+
 # Run the CLI
 python3 scripts/project_router.py <command>
 
@@ -56,6 +59,7 @@ python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes
 # Governance checks
 python3 scripts/check_agent_surface_parity.py
 python3 scripts/check_repo_ownership.py
+python3 scripts/check_sync_manifest_alignment.py
 python3 scripts/check_knowledge_structure.py
 python3 scripts/project_router.py context
 ```
