@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -563,6 +564,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             ("Knowledge/local/ADR/100-custom.md", 1),
             ("Knowledge/TLDR.md", 0),
             ("Knowledge/ADR/001-stdlib-only.md", 0),
+            ("Knowledge/Templates/local/README.md", 0),
         ]
         for path, expected_exit in cases:
             result = subprocess.run(
@@ -588,19 +590,29 @@ class KnowledgeGovernanceTests(unittest.TestCase):
                 self.assertNotIn("Knowledge/local", stripped, "Knowledge/local must not appear in sync paths")
 
     def test_bootstrap_seeds_knowledge_local(self) -> None:
-        import shutil
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
             root = Path(tmp)
             # Copy the bootstrap script so ROOT resolves to the temp dir
             scripts_dir = root / "scripts"
             scripts_dir.mkdir()
             shutil.copy2(REPO_ROOT / "scripts" / "bootstrap_private_repo.py", scripts_dir / "bootstrap_private_repo.py")
+            shutil.copytree(REPO_ROOT / "Knowledge" / "Templates", root / "Knowledge" / "Templates")
             # Create minimal required files for bootstrap
             (root / "template.meta.json").write_text(
                 json.dumps({"version": "0.2.0", "template_name": "project-router-template", "template_repo": "test/repo"}),
                 encoding="utf-8",
             )
-            for doc_name in ("README.md", "README.pt-PT.md", "AGENTS.md", "CLAUDE.md"):
+            (root / "README.md").write_text(
+                "<!-- repository-mode:begin -->\nTemplate mode.\n<!-- repository-mode:end -->\n\n"
+                "<!-- template-onboarding:begin -->\nTemplate onboarding.\n<!-- template-onboarding:end -->\n",
+                encoding="utf-8",
+            )
+            (root / "README.pt-PT.md").write_text(
+                "<!-- repository-mode:begin -->\nModo template.\n<!-- repository-mode:end -->\n\n"
+                "<!-- template-onboarding:begin -->\nOnboarding template.\n<!-- template-onboarding:end -->\n",
+                encoding="utf-8",
+            )
+            for doc_name in ("AGENTS.md", "CLAUDE.md"):
                 (root / doc_name).write_text(
                     "<!-- repository-mode:begin -->\nTemplate mode.\n<!-- repository-mode:end -->\n",
                     encoding="utf-8",
@@ -610,9 +622,30 @@ class KnowledgeGovernanceTests(unittest.TestCase):
                 capture_output=True, text=True, cwd=str(root),
             )
             self.assertEqual(result.returncode, 0, f"Bootstrap failed: {result.stderr}")
-            self.assertTrue((root / "Knowledge" / "local" / "README.md").exists())
-            self.assertTrue((root / "Knowledge" / "local" / "ADR").is_dir())
-            self.assertTrue((root / "Knowledge" / "local" / "Roadmap.md").exists())
+            for rel in (
+                "Knowledge/local/README.md",
+                "Knowledge/local/Roadmap.md",
+                "Knowledge/local/ADR/.gitkeep",
+                "Knowledge/local/notes/.gitkeep",
+            ):
+                self.assertTrue((root / rel).exists(), f"Missing seeded scaffold file: {rel}")
+            for rel in (
+                "README.md",
+                "README.pt-PT.md",
+            ):
+                text = (root / rel).read_text(encoding="utf-8")
+                self.assertIn("bootstrap_local.py", text)
+                self.assertIn("Knowledge/local/Roadmap.md", text)
+                self.assertNotIn("Template onboarding.", text)
+            for rel in (
+                "README.md",
+                "Roadmap.md",
+                "ADR/.gitkeep",
+                "notes/.gitkeep",
+            ):
+                source = (REPO_ROOT / "Knowledge" / "Templates" / "local" / rel).read_bytes()
+                target = (root / "Knowledge" / "local" / rel).read_bytes()
+                self.assertEqual(target, source, f"Seeded scaffold drifted from template source for {rel}")
             # Verify idempotent: re-run should not overwrite
             mtime_readme = (root / "Knowledge" / "local" / "README.md").stat().st_mtime
             mtime_roadmap = (root / "Knowledge" / "local" / "Roadmap.md").stat().st_mtime
@@ -626,7 +659,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
 
     def test_knowledge_structure_validator(self) -> None:
         result = subprocess.run(
-            ["python3", str(REPO_ROOT / "scripts" / "check_knowledge_structure.py")],
+            ["python3", str(REPO_ROOT / "scripts" / "check_knowledge_structure.py"), "--strict"],
             capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, f"Validator failed: {result.stderr}")
@@ -649,6 +682,82 @@ class KnowledgeGovernanceTests(unittest.TestCase):
         self.assertTrue(output.startswith("# "), "Context output must start with a Markdown heading")
         self.assertIn("Registered Projects", output)
         self.assertIn("Available Scripts", output)
+
+    def test_context_help_no_longer_exposes_write_flag(self) -> None:
+        top_help = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "project_router.py"), "--help"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(top_help.returncode, 0)
+        self.assertNotIn("--write", top_help.stdout)
+
+        context_help = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "project_router.py"), "context", "--help"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(context_help.returncode, 0)
+        self.assertNotIn("--write", context_help.stdout)
+
+    def test_context_does_not_modify_context_pack(self) -> None:
+        context_pack = REPO_ROOT / "Knowledge" / "ContextPack.md"
+        before = context_pack.read_bytes()
+        result = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "project_router.py"), "context"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"Context command failed: {result.stderr}")
+        self.assertEqual(context_pack.read_bytes(), before)
+
+    def test_strict_validator_fails_when_curated_file_missing(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "repo-governance").mkdir()
+            shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
+            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
+            shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
+            (root / "Knowledge" / "ADR" / "005-safety-invariants.md").unlink()
+
+            result = subprocess.run(
+                ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("005-safety-invariants.md", result.stderr)
+
+    def test_strict_validator_fails_when_template_scaffold_source_missing(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "repo-governance").mkdir()
+            shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
+            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
+            shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
+            (root / "Knowledge" / "Templates" / "local" / "README.md").unlink()
+
+            result = subprocess.run(
+                ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Knowledge/Templates/local/README.md", result.stderr)
+
+    def test_strict_validator_requires_materialized_local_scaffold_for_private_repo(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "repo-governance").mkdir()
+            shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
+            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
+            shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
+            (root / "private.meta.json").write_text(json.dumps({"repo_role": "private-derived"}), encoding="utf-8")
+
+            result = subprocess.run(
+                ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Knowledge/local/README.md", result.stderr)
 
 
 if __name__ == "__main__":

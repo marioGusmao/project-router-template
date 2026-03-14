@@ -8,6 +8,7 @@ Este repositório é um repositório operacional privado do Project Router for V
 A relação com o upstream fica registada em `private.meta.json` e `template-base.json`, e as atualizações de `marioGusmao/project-router-template` devem entrar por pull requests revistos na branch `chore/template-sync`, não por copy-paste manual.
 <!-- repository-mode:end -->
 
+<!-- template-onboarding:begin -->
 ## Novo No GitHub Templates
 
 Um template repository do GitHub é um projeto base que podes copiar para criares o teu próprio repositório.
@@ -39,6 +40,7 @@ Diferenças importantes em relação a um fork:
 - os teus ficheiros locais `.env.local`, `data/` e `state/` ficam só na tua máquina
 
 Se só queres usar o workflow, cria um repositório a partir do template. Não precisas de contribuir de volta para este repositório upstream.
+<!-- template-onboarding:end -->
 
 ## Modelo Do Repositório
 
@@ -78,7 +80,7 @@ data/
   processed/
 Knowledge/
   ADR/
-  local/
+  Templates/
 project-router/
   inbox/
   outbox/
@@ -111,7 +113,7 @@ template.meta.json
 
 ## Knowledge
 
-O diretório `Knowledge/` fornece documentação de onboarding, registos de decisões arquiteturais e um glossário. Lê `Knowledge/ContextPack.md` para um guia de navegação pelo código, ou corre `python3 scripts/project_router.py context` para um briefing ao vivo do projeto.
+O diretório `Knowledge/` fornece documentação curada de onboarding, registos de decisões arquiteturais e um glossário. Lê `Knowledge/ContextPack.md` para um guia de navegação pelo código, ou corre `python3 scripts/project_router.py context` para um briefing ao vivo no terminal.
 
 ## Configuração Local
 

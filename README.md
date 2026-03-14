@@ -8,6 +8,7 @@ This repository is a private operational Project Router repo for VoiceNotes deri
 The upstream relationship is tracked in `private.meta.json` and `template-base.json`, and updates from `marioGusmao/project-router-template` should arrive through reviewed `chore/template-sync` pull requests rather than manual copy-paste.
 <!-- repository-mode:end -->
 
+<!-- template-onboarding:begin -->
 ## New To GitHub Templates
 
 A GitHub template repository is a starter project you can copy into your own repository.
@@ -39,6 +40,7 @@ Important differences from a fork:
 - your local `.env.local`, `data/`, and `state/` stay only on your machine
 
 If you only want to use the workflow, create a repository from the template. You do not need to contribute back to this upstream repository.
+<!-- template-onboarding:end -->
 
 ## Repository Model
 
@@ -78,7 +80,7 @@ data/
   processed/
 Knowledge/
   ADR/
-  local/
+  Templates/
 project-router/
   inbox/
   outbox/
@@ -111,7 +113,7 @@ template.meta.json
 
 ## Knowledge
 
-The `Knowledge/` directory provides onboarding docs, architectural decision records, and a glossary. Read `Knowledge/ContextPack.md` for a routing guide to the codebase, or run `python3 scripts/project_router.py context` for a live project briefing.
+The `Knowledge/` directory provides curated onboarding docs, architectural decision records, and a glossary. Read `Knowledge/ContextPack.md` for a routing guide to the codebase, or run `python3 scripts/project_router.py context` for a live project briefing in the terminal.
 
 ## Local Configuration
 

@@ -14,16 +14,25 @@ ROOT = Path(__file__).resolve().parents[1]
 KNOWLEDGE = ROOT / "Knowledge"
 MANIFEST_PATH = ROOT / "repo-governance" / "ownership.manifest.json"
 
-REQUIRED_FILES = [
+TEMPLATE_REQUIRED_FILES = [
+    "Knowledge/README.md",
     "Knowledge/TLDR.md",
     "Knowledge/ContextPack.md",
     "Knowledge/Glossary.md",
     "Knowledge/PipelineMap.md",
     "Knowledge/Roadmap.md",
     "Knowledge/ScriptsReference.md",
-    "Knowledge/README.md",
     "Knowledge/ADR/TEMPLATE.md",
     "Knowledge/ADR/000-use-adr-for-decisions.md",
+    "Knowledge/ADR/001-stdlib-only.md",
+    "Knowledge/ADR/002-template-private-split.md",
+    "Knowledge/ADR/003-knowledge-foundation.md",
+    "Knowledge/ADR/004-fail-closed-dispatch.md",
+    "Knowledge/ADR/005-safety-invariants.md",
+    "Knowledge/Templates/local/README.md",
+    "Knowledge/Templates/local/Roadmap.md",
+    "Knowledge/Templates/local/ADR/.gitkeep",
+    "Knowledge/Templates/local/notes/.gitkeep",
 ]
 
 EXPECTED_SYNCED = {
@@ -41,7 +50,18 @@ EXPECTED_SYNCED = {
     "Knowledge/ADR/003-knowledge-foundation.md",
     "Knowledge/ADR/004-fail-closed-dispatch.md",
     "Knowledge/ADR/005-safety-invariants.md",
+    "Knowledge/Templates/local/README.md",
+    "Knowledge/Templates/local/Roadmap.md",
+    "Knowledge/Templates/local/ADR/.gitkeep",
+    "Knowledge/Templates/local/notes/.gitkeep",
 }
+
+DERIVED_REQUIRED_FILES = [
+    "Knowledge/local/README.md",
+    "Knowledge/local/Roadmap.md",
+    "Knowledge/local/ADR/.gitkeep",
+    "Knowledge/local/notes/.gitkeep",
+]
 
 ADR_ID_RE = re.compile(r"^(\d{3})-.*\.md$")
 
@@ -84,7 +104,7 @@ def main() -> int:
     warnings: list[str] = []
 
     # 1. Required files
-    for rel in REQUIRED_FILES:
+    for rel in TEMPLATE_REQUIRED_FILES:
         if not (ROOT / rel).exists():
             errors.append(f"Required file missing: {rel}")
 
@@ -113,14 +133,9 @@ def main() -> int:
 
     # 4. Local scaffold (only when private.meta.json exists)
     if (ROOT / "private.meta.json").exists():
-        local_required = [
-            KNOWLEDGE / "local" / "README.md",
-            KNOWLEDGE / "local" / "ADR",
-            KNOWLEDGE / "local" / "Roadmap.md",
-        ]
-        for p in local_required:
-            if not p.exists():
-                errors.append(f"Local scaffold missing: {p.relative_to(ROOT).as_posix()}")
+        for rel in DERIVED_REQUIRED_FILES:
+            if not (ROOT / rel).exists():
+                errors.append(f"Local scaffold missing: {rel}")
 
     # 5. Ownership classification safety test
     if MANIFEST_PATH.exists():
@@ -133,6 +148,13 @@ def main() -> int:
             errors.append(
                 f"Ownership safety: {test_path} should be private_owned, got {actual}"
             )
+        seed_path = "Knowledge/Templates/local/README.md"
+        seed_rule = classify_path(seed_path, rules)
+        if seed_rule is None or seed_rule.get("ownership") != "template_owned":
+            actual = seed_rule.get("ownership") if seed_rule else "unclassified"
+            errors.append(
+                f"Ownership safety: {seed_path} should be template_owned, got {actual}"
+            )
 
     # Report
     for w in warnings:
@@ -144,7 +166,7 @@ def main() -> int:
 
     payload = {
         "status": "ok",
-        "required_present": len(REQUIRED_FILES),
+        "required_present": len(TEMPLATE_REQUIRED_FILES),
         "unexpected_synced": unexpected_count,
         "adr_count": adr_count,
     }

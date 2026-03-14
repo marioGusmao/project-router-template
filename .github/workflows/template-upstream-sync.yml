@@ -144,6 +144,7 @@ jobs:
             Knowledge/ScriptsReference.md
             Knowledge/README.md
             Knowledge/ADR
+            Knowledge/Templates
           )
           for path in "${paths[@]}"; do
             if [ -e "$upstream/$path" ]; then

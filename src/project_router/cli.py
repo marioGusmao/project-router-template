@@ -3076,14 +3076,7 @@ def context_command(args: argparse.Namespace) -> int:
             pass
 
     output = "\n".join(sections).rstrip() + "\n"
-
-    if getattr(args, "write", False):
-        out_path = ROOT / "Knowledge" / "ContextPack.md"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(output, encoding="utf-8")
-        print(f"Written to {out_path}")
-    else:
-        print(output, end="")
+    print(output, end="")
     return 0
 
 
@@ -3166,7 +3159,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     context = subparsers.add_parser("context", help="Generate a live project briefing from repo state.")
     add_source_argument(context)
-    context.add_argument("--write", action="store_true", help="Write output to Knowledge/ContextPack.md.")
     context.set_defaults(func=context_command)
 
     return parser

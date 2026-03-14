@@ -23,10 +23,13 @@ Optional flags:
 
 - rewrites the managed `repository-mode` block in `README.md`
 - rewrites the managed `repository-mode` block in `README.pt-PT.md`
+- rewrites the managed `template-onboarding` block in `README.md`
+- rewrites the managed `template-onboarding` block in `README.pt-PT.md`
 - rewrites the managed `repository-mode` block in `AGENTS.md`
 - rewrites the managed `repository-mode` block in `CLAUDE.md`
 - creates or updates `private.meta.json`
 - creates or updates `template-base.json`
+- materializes `Knowledge/local/` from `Knowledge/Templates/local/` when files are missing
 
 The script does not touch:
 
@@ -52,3 +55,4 @@ python3 scripts/check_repo_ownership.py
 ```
 
 After that, customize `projects/registry.shared.json`, private docs, and private skills according to the ownership manifest.
+Then adapt `Knowledge/local/Roadmap.md` and add any project-specific ADRs under `Knowledge/local/ADR/`.

@@ -25,6 +25,8 @@ Add a committed `Knowledge/` directory with:
 - **ScriptsReference.md**: Scripts grouped by purpose with "why and when" context.
 - **ADR/**: Architecture Decision Records (000--099 for template).
 
+The canonical seed scaffold for derived repos lives in `Knowledge/Templates/local/` (template_owned, synced from upstream).
+
 Derived content lives in `Knowledge/local/` (private_owned):
 
 - `Knowledge/local/ADR/`: Project-specific ADRs starting at 100.
@@ -38,6 +40,7 @@ All synced Knowledge files are `template_owned`. A `context` CLI subcommand gene
 - Faster onboarding for both humans and AI agents.
 - Architectural decisions are discoverable and searchable.
 - Knowledge syncs safely from template to derived repos via the ownership model.
+- Private bootstrap can backfill `Knowledge/local/` from one committed scaffold source.
 - Derived repos extend in `local/` without merge conflicts.
 - Maintaining knowledge docs adds a small overhead when pipeline changes occur.
 - The `context` command provides always-accurate live briefings, complementing the static docs.

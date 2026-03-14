@@ -29,4 +29,4 @@ Structured knowledge layer for onboarding and decision tracking.
 - Frozen vocabulary validation: enforce consistent term usage across agent surfaces
 - ADR cross-reference checker: validate Related links between ADRs
 - Machine-readable glossary: structured format for tooling consumption
-- `context --write` periodic regeneration: auto-update ContextPack from live state
+- Stronger bootstrap migrations for older derived repos when the local scaffold changes

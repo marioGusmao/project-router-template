@@ -32,6 +32,11 @@
       "sync_policy": "blocked"
     },
     {
+      "pattern": "Knowledge/Templates/**",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
       "pattern": "Knowledge/ADR/*.md",
       "ownership": "template_owned",
       "sync_policy": "template_sync"

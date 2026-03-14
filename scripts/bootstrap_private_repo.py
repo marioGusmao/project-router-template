@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,9 +23,11 @@ TEMPLATE_BASE_PATH = ROOT / "template-base.json"
 PRIVATE_META_PATH = ROOT / "private.meta.json"
 
 MARKER_NAME = "repository-mode"
+ONBOARDING_MARKER_NAME = "template-onboarding"
 SYNC_BRANCH = "chore/template-sync"
 SYNC_WORKFLOW_PATH = ".github/workflows/template-upstream-sync.yml"
 PROMOTION_COMMAND = "python3 scripts/bootstrap_private_repo.py"
+KNOWLEDGE_TEMPLATE_LOCAL_DIR = ROOT / "Knowledge" / "Templates" / "local"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -84,13 +87,13 @@ def current_origin_repo_slug() -> str | None:
     return parse_github_repo_slug(git_output("config", "--get", "remote.origin.url"))
 
 
-def replace_managed_block(path: Path, replacement: str) -> None:
-    start_marker = f"<!-- {MARKER_NAME}:begin -->"
-    end_marker = f"<!-- {MARKER_NAME}:end -->"
+def replace_managed_block(path: Path, replacement: str, marker_name: str = MARKER_NAME) -> None:
+    start_marker = f"<!-- {marker_name}:begin -->"
+    end_marker = f"<!-- {marker_name}:end -->"
     text = path.read_text(encoding="utf-8")
     pattern = re.compile(re.escape(start_marker) + r".*?" + re.escape(end_marker), re.DOTALL)
     if not pattern.search(text):
-        raise SystemExit(f"Managed block {MARKER_NAME!r} not found in {path}.")
+        raise SystemExit(f"Managed block {marker_name!r} not found in {path}.")
     managed_block = f"{start_marker}\n{replacement.rstrip()}\n{end_marker}"
     path.write_text(pattern.sub(managed_block, text, count=1), encoding="utf-8")
 
@@ -216,6 +219,48 @@ def private_claude_block(template_name: str, template_repo: str) -> str:
     )
 
 
+def private_onboarding_block() -> str:
+    return (
+        "## Private Repo First Steps\n\n"
+        "If this is a private-derived operational copy:\n\n"
+        "1. Run `python3 scripts/bootstrap_local.py`.\n"
+        "2. Run `python3 scripts/project_router.py context`.\n"
+        "3. Review `Knowledge/local/Roadmap.md` and adapt it to your project.\n"
+    )
+
+
+def private_onboarding_pt_block() -> str:
+    return (
+        "## Primeiros Passos No Repositório Privado\n\n"
+        "Se esta cópia já é um repositório operacional privado derivado:\n\n"
+        "1. Corre `python3 scripts/bootstrap_local.py`.\n"
+        "2. Corre `python3 scripts/project_router.py context`.\n"
+        "3. Revê `Knowledge/local/Roadmap.md` e adapta-o ao teu projeto.\n"
+    )
+
+
+def seed_private_knowledge_local() -> list[str]:
+    if not KNOWLEDGE_TEMPLATE_LOCAL_DIR.exists():
+        raise SystemExit(f"Missing Knowledge scaffold source: {KNOWLEDGE_TEMPLATE_LOCAL_DIR}")
+
+    destination_root = ROOT / "Knowledge" / "local"
+    seeded_files: list[str] = []
+
+    for source in sorted(KNOWLEDGE_TEMPLATE_LOCAL_DIR.rglob("*")):
+        relative = source.relative_to(KNOWLEDGE_TEMPLATE_LOCAL_DIR)
+        target = destination_root / relative
+        if source.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            continue
+        shutil.copy2(source, target)
+        seeded_files.append(str(target.relative_to(ROOT)))
+
+    return seeded_files
+
+
 def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
     template_meta = resolve_template_metadata()
     template_repo = resolve_template_repo(args, template_meta)
@@ -245,6 +290,16 @@ def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
         CLAUDE_PATH,
         private_claude_block(str(template_meta.get("template_name", ROOT.name)), template_repo),
     )
+    replace_managed_block(
+        README_PATH,
+        private_onboarding_block(),
+        marker_name=ONBOARDING_MARKER_NAME,
+    )
+    replace_managed_block(
+        README_PT_PATH,
+        private_onboarding_pt_block(),
+        marker_name=ONBOARDING_MARKER_NAME,
+    )
 
     write_json(
         PRIVATE_META_PATH,
@@ -266,38 +321,7 @@ def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     # Seed Knowledge/local/ scaffold (always non-destructive, regardless of --force)
-    seeded_files: list[str] = []
-
-    knowledge_local_dir = ROOT / "Knowledge" / "local"
-    knowledge_local_dir.mkdir(parents=True, exist_ok=True)
-
-    knowledge_local_readme = knowledge_local_dir / "README.md"
-    if not knowledge_local_readme.exists():
-        knowledge_local_readme.write_text(
-            "# Private Knowledge\n\nThis directory is for your private knowledge content.\n\n"
-            "- Your ADRs go in `ADR/` starting at 100+\n"
-            "- Your project roadmap goes in `Roadmap.md`\n"
-            "- Operational notes go in `notes/`\n"
-            "- This directory is `private_owned` and never synced from the template\n",
-            encoding="utf-8",
-        )
-        seeded_files.append(str(knowledge_local_readme.relative_to(ROOT)))
-
-    knowledge_local_adr_dir = knowledge_local_dir / "ADR"
-    knowledge_local_adr_dir.mkdir(parents=True, exist_ok=True)
-
-    knowledge_local_roadmap = knowledge_local_dir / "Roadmap.md"
-    if not knowledge_local_roadmap.exists():
-        knowledge_local_roadmap.write_text(
-            "# Project Roadmap\n\n## Current Focus\n\n<!-- Add your current project priorities here -->\n\n"
-            "## Planned\n\n<!-- Add planned work here -->\n\n"
-            "## Completed\n\n<!-- Move completed items here -->\n",
-            encoding="utf-8",
-        )
-        seeded_files.append(str(knowledge_local_roadmap.relative_to(ROOT)))
-
-    knowledge_local_notes_dir = knowledge_local_dir / "notes"
-    knowledge_local_notes_dir.mkdir(parents=True, exist_ok=True)
+    seeded_files = seed_private_knowledge_local()
 
     files_updated = [
         str(path.relative_to(ROOT))

@@ -85,16 +85,10 @@ def main() -> int:
         "data/raw/voicenotes",
         "data/raw/project_router",
         "state/project_router/outbox_scan_state.json",
-        "Knowledge/TLDR.md",
-        "Knowledge/ContextPack.md",
-        "Knowledge/Glossary.md",
-        "Knowledge/PipelineMap.md",
-        "Knowledge/ScriptsReference.md",
-        "Knowledge/Roadmap.md",
-        "Knowledge/README.md",
-        "Knowledge/ADR/TEMPLATE.md",
-        "Knowledge/ADR/000-use-adr-for-decisions.md",
-        "Knowledge/local/README.md",
+        "Knowledge/Templates/local/README.md",
+        "Knowledge/Templates/local/Roadmap.md",
+        "Knowledge/Templates/local/ADR/.gitkeep",
+        "Knowledge/Templates/local/notes/.gitkeep",
     ]
     for path in required_paths:
         if classify_path(path, rules) is None:

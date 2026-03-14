@@ -29,7 +29,7 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/project_router.py status` | status | Show current queue counts across all stages | None |
 | `scripts/project_router.py scan-outboxes` | scan-outboxes | Read-only ingestion of downstream project outbox directories | `registry.local.json` with valid `router_root_path` values |
 | `scripts/project_router.py doctor` | doctor | Validate a downstream project's protocol compliance | `--project` flag; downstream project has `project-router/` directory |
-| `scripts/project_router.py context` | context | Generate a live project briefing from current state | None |
+| `scripts/project_router.py context` | context | Generate a live project briefing in the terminal from current state | None |
 
 ## Governance
 

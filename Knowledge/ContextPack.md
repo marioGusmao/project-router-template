@@ -1,8 +1,8 @@
 # Context Pack
 
-> For a live, always-accurate project briefing, run `python3 scripts/project_router.py context`.
+This is a curated routing document for GitHub browsing -- a "where to find what" table for the project-router-template codebase.
 
-This is a static routing document for GitHub browsing -- a "where to find what" table for the project-router-template codebase.
+For a live project briefing in the terminal, run `python3 scripts/project_router.py context`.
 
 | Topic | Location | Notes |
 |-------|----------|-------|
