@@ -210,6 +210,248 @@
       "agent_load_rule": null,
       "migration_policy": "silent_ok",
       "validator_hooks": []
+    },
+    {
+      "pattern": "repo-governance/**",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "parity.manifest.json",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": ["check_agent_surface_parity"]
+    },
+    {
+      "pattern": "template-base.json",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "VERSION",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "CHANGELOG.md",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "template.meta.json",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".release-please-config.json",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".release-please-manifest.json",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".env.example",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".github/workflows/template-release.yml",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".github/workflows/template-upstream-sync.yml",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".github/workflows/template-ci.yml",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".github/ISSUE_TEMPLATE/**",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".github/pull_request_template.md",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
+      "customization_model": "diff_only",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "review_required",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "project-router/**",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "private.meta.json",
+      "ownership": "private_owned",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".env.local",
+      "ownership": "local_only",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "projects/registry.local.json",
+      "ownership": "local_only",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "data/**",
+      "ownership": "local_only",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "state/**",
+      "ownership": "local_only",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": ".claude/settings.example.json",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "projects/registry.example.json",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
     }
   ]
 }

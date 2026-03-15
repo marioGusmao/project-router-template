@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -1931,6 +1932,461 @@ class DiscoverCommandTests(unittest.TestCase):
             self.assertIn("welcome_810492", ignored_ids)
             # Real note should not be ignored
             self.assertNotIn("vn_disc3", ignored_ids)
+
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+
+
+class TemplateSyncTests(unittest.TestCase):
+    """Tests for template-sync related scripts:
+    sync_ai_files.py, apply_managed_block_sync.py, migrate_add_contract_block.py,
+    check_managed_blocks.py, check_customization_contracts.py
+    """
+
+    # ---- Helpers to load script modules via importlib ----
+
+    @staticmethod
+    def _load_module(name: str, script_path: Path):
+        import importlib.util
+
+        # Add the script's parent directory to sys.path so sibling imports
+        # (e.g. check_customization_contracts → check_repo_ownership) resolve.
+        parent = str(script_path.parent)
+        added = parent not in sys.path
+        if added:
+            sys.path.insert(0, parent)
+        try:
+            spec = importlib.util.spec_from_file_location(name, str(script_path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        finally:
+            if added and parent in sys.path:
+                sys.path.remove(parent)
+        return mod
+
+    # =====================================================================
+    #  sync_ai_files.py tests
+    # =====================================================================
+
+    def test_restore_contract_block_from_backup(self) -> None:
+        """Private contract block from backup replaces upstream placeholder in local file."""
+        mod = self._load_module("sync_ai_files", SCRIPTS_DIR / "sync_ai_files.py")
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            backup_dir = root / "backup"
+            local_dir = root / "local"
+            backup_dir.mkdir()
+            local_dir.mkdir()
+
+            private_block = (
+                "<!-- customization-contract:begin -->\n"
+                "## Private AI Rules\n"
+                "@Knowledge/local/AI/claude.md\n"
+                "<!-- customization-contract:end -->"
+            )
+            upstream_block = (
+                "<!-- customization-contract:begin -->\n"
+                "## Upstream placeholder\n"
+                "<!-- customization-contract:end -->"
+            )
+
+            # Backup has private block
+            (backup_dir / "CLAUDE.md").write_text(
+                f"# CLAUDE.md\n\nSome text.\n\n{private_block}\n",
+                encoding="utf-8",
+            )
+            # Local (post-overwrite) has upstream placeholder block
+            (local_dir / "CLAUDE.md").write_text(
+                f"# CLAUDE.md\n\nUpstream content.\n\n{upstream_block}\n",
+                encoding="utf-8",
+            )
+
+            result = mod.restore_contract_block(
+                backup_dir / "CLAUDE.md", local_dir / "CLAUDE.md"
+            )
+            self.assertTrue(result)
+
+            updated = (local_dir / "CLAUDE.md").read_text(encoding="utf-8")
+            self.assertIn("@Knowledge/local/AI/claude.md", updated)
+            self.assertIn("Upstream content.", updated)
+            self.assertNotIn("Upstream placeholder", updated)
+
+    def test_restore_contract_block_appends_when_upstream_lacks_it(self) -> None:
+        """When upstream file has no contract block, the private block is appended."""
+        mod = self._load_module("sync_ai_files", SCRIPTS_DIR / "sync_ai_files.py")
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            backup_dir = root / "backup"
+            local_dir = root / "local"
+            backup_dir.mkdir()
+            local_dir.mkdir()
+
+            private_block = (
+                "<!-- customization-contract:begin -->\n"
+                "## Private AI Rules\n"
+                "<!-- customization-contract:end -->"
+            )
+
+            (backup_dir / "CLAUDE.md").write_text(
+                f"# Backup CLAUDE\n\n{private_block}\n",
+                encoding="utf-8",
+            )
+            # Local file has no contract block at all
+            (local_dir / "CLAUDE.md").write_text(
+                "# CLAUDE.md\n\nUpstream only content.\n",
+                encoding="utf-8",
+            )
+
+            result = mod.restore_contract_block(
+                backup_dir / "CLAUDE.md", local_dir / "CLAUDE.md"
+            )
+            self.assertTrue(result)
+
+            updated = (local_dir / "CLAUDE.md").read_text(encoding="utf-8")
+            self.assertIn("customization-contract:begin", updated)
+            self.assertIn("Upstream only content.", updated)
+
+    def test_restore_no_op_when_backup_has_no_block(self) -> None:
+        """No changes when backup has no contract block."""
+        mod = self._load_module("sync_ai_files", SCRIPTS_DIR / "sync_ai_files.py")
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            backup_dir = root / "backup"
+            local_dir = root / "local"
+            backup_dir.mkdir()
+            local_dir.mkdir()
+
+            (backup_dir / "CLAUDE.md").write_text(
+                "# Backup without contract block\n",
+                encoding="utf-8",
+            )
+            (local_dir / "CLAUDE.md").write_text(
+                "# Local CLAUDE\n",
+                encoding="utf-8",
+            )
+
+            result = mod.restore_contract_block(
+                backup_dir / "CLAUDE.md", local_dir / "CLAUDE.md"
+            )
+            self.assertFalse(result)
+
+            # File should not be modified
+            self.assertEqual(
+                (local_dir / "CLAUDE.md").read_text(encoding="utf-8"),
+                "# Local CLAUDE\n",
+            )
+
+    def test_restore_skips_missing_files(self) -> None:
+        """Returns False without error when backup or local file is missing."""
+        mod = self._load_module("sync_ai_files", SCRIPTS_DIR / "sync_ai_files.py")
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            backup_dir = root / "backup"
+            local_dir = root / "local"
+            backup_dir.mkdir()
+            local_dir.mkdir()
+
+            # Missing backup file
+            (local_dir / "CLAUDE.md").write_text("# CLAUDE\n", encoding="utf-8")
+            result = mod.restore_contract_block(
+                backup_dir / "CLAUDE.md", local_dir / "CLAUDE.md"
+            )
+            self.assertFalse(result)
+
+            # Missing local file
+            (backup_dir / "CLAUDE.md").write_text("# CLAUDE\n", encoding="utf-8")
+            (local_dir / "CLAUDE.md").unlink()
+            result = mod.restore_contract_block(
+                backup_dir / "CLAUDE.md", local_dir / "CLAUDE.md"
+            )
+            self.assertFalse(result)
+
+    # =====================================================================
+    #  apply_managed_block_sync.py tests
+    # =====================================================================
+
+    def test_replace_managed_block_from_upstream(self) -> None:
+        """Local managed block content is replaced with upstream content, preserving outside content."""
+        mod = self._load_module(
+            "apply_managed_block_sync", SCRIPTS_DIR / "apply_managed_block_sync.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            upstream_dir = root / "upstream"
+            local_dir = root / "local"
+            upstream_dir.mkdir()
+            local_dir.mkdir()
+
+            marker = "repository-mode"
+            local_content = (
+                "# README\n\n"
+                "Custom header.\n\n"
+                f"<!-- {marker}:begin -->\n"
+                "Old local block content.\n"
+                f"<!-- {marker}:end -->\n\n"
+                "Custom footer.\n"
+            )
+            upstream_content = (
+                "# README\n\n"
+                f"<!-- {marker}:begin -->\n"
+                "New upstream block content.\n"
+                f"<!-- {marker}:end -->\n"
+            )
+
+            (local_dir / "README.md").write_text(local_content, encoding="utf-8")
+            (upstream_dir / "README.md").write_text(upstream_content, encoding="utf-8")
+
+            changed = mod.sync_managed_blocks(
+                upstream_dir / "README.md",
+                local_dir / "README.md",
+                [marker],
+            )
+            self.assertTrue(changed)
+
+            updated = (local_dir / "README.md").read_text(encoding="utf-8")
+            self.assertIn("New upstream block content.", updated)
+            self.assertNotIn("Old local block content.", updated)
+            self.assertIn("Custom header.", updated)
+            self.assertIn("Custom footer.", updated)
+
+    def test_no_op_when_blocks_identical(self) -> None:
+        """No changes when upstream and local blocks are identical."""
+        mod = self._load_module(
+            "apply_managed_block_sync", SCRIPTS_DIR / "apply_managed_block_sync.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            upstream_dir = root / "upstream"
+            local_dir = root / "local"
+            upstream_dir.mkdir()
+            local_dir.mkdir()
+
+            marker = "repository-mode"
+            same_content = (
+                "# README\n\n"
+                f"<!-- {marker}:begin -->\n"
+                "Same block content.\n"
+                f"<!-- {marker}:end -->\n"
+            )
+
+            (local_dir / "README.md").write_text(same_content, encoding="utf-8")
+            (upstream_dir / "README.md").write_text(same_content, encoding="utf-8")
+
+            changed = mod.sync_managed_blocks(
+                upstream_dir / "README.md",
+                local_dir / "README.md",
+                [marker],
+            )
+            self.assertFalse(changed)
+
+    def test_missing_marker_in_upstream(self) -> None:
+        """Missing marker in upstream warns but does not crash."""
+        mod = self._load_module(
+            "apply_managed_block_sync", SCRIPTS_DIR / "apply_managed_block_sync.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            upstream_dir = root / "upstream"
+            local_dir = root / "local"
+            upstream_dir.mkdir()
+            local_dir.mkdir()
+
+            marker = "repository-mode"
+            local_content = (
+                "# README\n\n"
+                f"<!-- {marker}:begin -->\n"
+                "Local block content.\n"
+                f"<!-- {marker}:end -->\n"
+            )
+            upstream_content = "# README\n\nNo markers here.\n"
+
+            (local_dir / "README.md").write_text(local_content, encoding="utf-8")
+            (upstream_dir / "README.md").write_text(upstream_content, encoding="utf-8")
+
+            # Should not raise
+            changed = mod.sync_managed_blocks(
+                upstream_dir / "README.md",
+                local_dir / "README.md",
+                [marker],
+            )
+            # No changes since upstream lacks the marker
+            self.assertFalse(changed)
+
+    # =====================================================================
+    #  migrate_add_contract_block.py tests
+    # =====================================================================
+
+    def test_inserts_block_when_missing(self) -> None:
+        """Contract block is appended when missing from file."""
+        mod = self._load_module(
+            "migrate_add_contract_block", SCRIPTS_DIR / "migrate_add_contract_block.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            target = root / "CLAUDE.md"
+            target.write_text("# CLAUDE.md\n\nSome content.\n", encoding="utf-8")
+
+            result = mod.insert_block(target, mod.CLAUDE_BLOCK)
+            self.assertTrue(result)
+
+            updated = target.read_text(encoding="utf-8")
+            self.assertIn("customization-contract:begin", updated)
+            self.assertIn("customization-contract:end", updated)
+            self.assertIn("Some content.", updated)
+
+    def test_idempotent_no_double_insertion(self) -> None:
+        """Running insert_block twice does not duplicate the block."""
+        mod = self._load_module(
+            "migrate_add_contract_block", SCRIPTS_DIR / "migrate_add_contract_block.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            target = root / "AGENTS.md"
+            target.write_text("# AGENTS.md\n\nContent.\n", encoding="utf-8")
+
+            first = mod.insert_block(target, mod.AGENTS_BLOCK)
+            self.assertTrue(first)
+
+            second = mod.insert_block(target, mod.AGENTS_BLOCK)
+            self.assertFalse(second)
+
+            updated = target.read_text(encoding="utf-8")
+            # Only one occurrence of begin marker
+            self.assertEqual(
+                updated.count("customization-contract:begin"), 1
+            )
+
+    def test_skips_nonexistent_file(self) -> None:
+        """insert_block returns False for nonexistent file without error."""
+        mod = self._load_module(
+            "migrate_add_contract_block", SCRIPTS_DIR / "migrate_add_contract_block.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            result = mod.insert_block(root / "nonexistent.md", mod.CLAUDE_BLOCK)
+            self.assertFalse(result)
+
+    # =====================================================================
+    #  check_managed_blocks.py tests
+    # =====================================================================
+
+    def test_passes_with_valid_markers(self) -> None:
+        """validate_file passes when all required begin/end markers are present."""
+        mod = self._load_module(
+            "check_managed_blocks", SCRIPTS_DIR / "check_managed_blocks.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            content = (
+                "# README\n\n"
+                "<!-- repository-mode:begin -->\nMode block\n<!-- repository-mode:end -->\n\n"
+                "<!-- template-onboarding:begin -->\nOnboarding block\n<!-- template-onboarding:end -->\n"
+            )
+            (root / "README.md").write_text(content, encoding="utf-8")
+
+            # Monkeypatch ROOT so validate_file resolves against our temp dir
+            original_root = mod.ROOT
+            try:
+                mod.ROOT = root
+                errors = mod.validate_file("README.md", ["repository-mode", "template-onboarding"])
+            finally:
+                mod.ROOT = original_root
+
+            self.assertEqual(errors, [])
+
+    def test_fails_with_missing_begin_marker(self) -> None:
+        """validate_file reports error when a required begin marker is missing."""
+        mod = self._load_module(
+            "check_managed_blocks", SCRIPTS_DIR / "check_managed_blocks.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            # Has repository-mode but is missing template-onboarding begin marker
+            content = (
+                "# README\n\n"
+                "<!-- repository-mode:begin -->\nMode block\n<!-- repository-mode:end -->\n\n"
+                "<!-- template-onboarding:end -->\n"
+            )
+            (root / "README.md").write_text(content, encoding="utf-8")
+
+            original_root = mod.ROOT
+            try:
+                mod.ROOT = root
+                errors = mod.validate_file("README.md", ["repository-mode", "template-onboarding"])
+            finally:
+                mod.ROOT = original_root
+
+            error_text = "\n".join(errors)
+            self.assertIn("missing <!-- template-onboarding:begin -->", error_text)
+
+    def test_detects_duplicate_markers(self) -> None:
+        """validate_file detects duplicate begin markers."""
+        mod = self._load_module(
+            "check_managed_blocks", SCRIPTS_DIR / "check_managed_blocks.py"
+        )
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            root = Path(tmpdir)
+            content = (
+                "# README\n\n"
+                "<!-- repository-mode:begin -->\nFirst\n<!-- repository-mode:end -->\n\n"
+                "<!-- repository-mode:begin -->\nDuplicate\n<!-- repository-mode:end -->\n\n"
+                "<!-- template-onboarding:begin -->\nOnboarding\n<!-- template-onboarding:end -->\n"
+            )
+            (root / "README.md").write_text(content, encoding="utf-8")
+
+            original_root = mod.ROOT
+            try:
+                mod.ROOT = root
+                errors = mod.validate_file("README.md", ["repository-mode", "template-onboarding"])
+            finally:
+                mod.ROOT = original_root
+
+            error_text = "\n".join(errors)
+            self.assertIn("duplicate", error_text.lower())
+            self.assertIn("repository-mode", error_text)
+
+    # =====================================================================
+    #  check_customization_contracts.py tests
+    # =====================================================================
+
+    def test_validates_schema_fields(self) -> None:
+        """check_schema reports error for entries with missing required fields."""
+        mod = self._load_module(
+            "check_customization_contracts",
+            SCRIPTS_DIR / "check_customization_contracts.py",
+        )
+        incomplete_surface = {
+            "pattern": "CLAUDE.md",
+            "ownership": "shared_review",
+            # Missing: sync_policy, customization_model, private_overlay,
+            # bootstrap_source, agent_load_rule, migration_policy, validator_hooks
+        }
+        errors = mod.check_schema([incomplete_surface])
+        self.assertTrue(len(errors) > 0)
+        error_text = "\n".join(errors)
+        self.assertIn("missing fields", error_text)
+
+    def test_detects_invalid_ownership(self) -> None:
+        """check_schema reports error for invalid ownership value."""
+        mod = self._load_module(
+            "check_customization_contracts",
+            SCRIPTS_DIR / "check_customization_contracts.py",
+        )
+        bad_surface = {
+            "pattern": "CLAUDE.md",
+            "ownership": "invalid_ownership_value",
+            "sync_policy": "template_sync",
+            "customization_model": "overwrite",
+            "private_overlay": None,
+            "bootstrap_source": None,
+            "agent_load_rule": None,
+            "migration_policy": "silent_ok",
+            "validator_hooks": [],
+        }
+        errors = mod.check_schema([bad_surface])
+        self.assertTrue(len(errors) > 0)
+        error_text = "\n".join(errors)
+        self.assertIn("invalid ownership", error_text)
 
 
 if __name__ == "__main__":

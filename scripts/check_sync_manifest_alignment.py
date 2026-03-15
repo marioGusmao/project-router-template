@@ -45,6 +45,9 @@ def extract_sync_paths(text: str) -> list[str]:
 
 
 def main() -> int:
+    if not WORKFLOW_PATH.exists():
+        print(f"ERROR: Workflow file not found: {WORKFLOW_PATH}", file=sys.stderr)
+        return 1
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
     sync_paths = extract_sync_paths(workflow_text)
     manifest = load_manifest()

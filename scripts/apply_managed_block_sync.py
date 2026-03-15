@@ -56,6 +56,10 @@ def sync_managed_blocks(
     result = local_text
 
     for marker in marker_names:
+        start = f"<!-- {marker}:begin -->"
+        count = local_text.count(start)
+        if count > 1:
+            print(f"WARNING: {local_path.name} has {count} occurrences of {start} — only first will be replaced.", file=sys.stderr)
         updated = replace_block(result, upstream_text, marker)
         if updated is not None:
             result = updated

@@ -41,6 +41,16 @@ def validate_file(rel_path: str, required_markers: list[str]) -> list[str]:
         if marker not in found_ends:
             errors.append(f"{rel_path}: missing <!-- {marker}:end -->")
 
+    # Check for duplicate markers.
+    begin_list = BEGIN_PATTERN.findall(text)
+    end_list = END_PATTERN.findall(text)
+    for marker in set(begin_list):
+        if begin_list.count(marker) > 1:
+            errors.append(f"{rel_path}: duplicate <!-- {marker}:begin --> found ({begin_list.count(marker)} occurrences)")
+    for marker in set(end_list):
+        if end_list.count(marker) > 1:
+            errors.append(f"{rel_path}: duplicate <!-- {marker}:end --> found ({end_list.count(marker)} occurrences)")
+
     # Check for orphaned markers (begin without end or vice versa) across all found markers.
     all_markers = found_begins | found_ends
     for marker in all_markers:

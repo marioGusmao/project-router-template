@@ -74,7 +74,7 @@ def check_manifest_consistency(surfaces: list[dict], manifest_rules: list[dict])
     for surface in surfaces:
         pattern = surface["pattern"]
         # Use a representative path to classify.
-        test_path = pattern.rstrip("*").rstrip("/").rstrip("*").rstrip("/")
+        test_path = pattern.removesuffix("/**").removesuffix("/*").rstrip("/")
         if not test_path:
             continue
         rule = classify_path(test_path, manifest_rules)

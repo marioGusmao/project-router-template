@@ -53,6 +53,7 @@ def report_failure(errors: list[str]) -> int:
 
 
 def main() -> int:
+    args = parse_args()
     manifest = load_manifest()
     errors: list[str] = []
 
@@ -107,29 +108,28 @@ def main() -> int:
         if fragment in docs_corpus:
             errors.append(f"Forbidden internal client path reference found: {fragment}")
 
-    if args := parse_args():
-        if args.pre_publish:
-            if REGISTRY_SHARED_PATH.exists():
-                registry = json.loads(REGISTRY_SHARED_PATH.read_text(encoding="utf-8"))
-                for project_key, raw in (registry.get("projects") or {}).items():
-                    if "inbox_path" in raw:
-                        errors.append(f"Shared registry project '{project_key}' must not define inbox_path.")
-                    if "router_root_path" in raw:
-                        errors.append(f"Shared registry project '{project_key}' must not define router_root_path.")
+    if args.pre_publish:
+        if REGISTRY_SHARED_PATH.exists():
+            registry = json.loads(REGISTRY_SHARED_PATH.read_text(encoding="utf-8"))
+            for project_key, raw in (registry.get("projects") or {}).items():
+                if "inbox_path" in raw:
+                    errors.append(f"Shared registry project '{project_key}' must not define inbox_path.")
+                if "router_root_path" in raw:
+                    errors.append(f"Shared registry project '{project_key}' must not define router_root_path.")
 
-            secret_patterns = [
-                re.compile(r"VOICENOTES_API_KEY\s*=\s*(?!replace-with-your-voicenotes-token)"),
-                re.compile(r"sk-[A-Za-z0-9]{20,}"),
-                re.compile(r"ghp_[A-Za-z0-9]{20,}"),
-            ]
-            for path in tracked_files():
-                if not path.exists() or path.is_dir():
-                    continue
-                text = read_text(path)
-                for pattern in secret_patterns:
-                    if pattern.search(text):
-                        errors.append(f"Tracked file appears to contain a secret-like value: {path.relative_to(ROOT)}")
-                        break
+        secret_patterns = [
+            re.compile(r"VOICENOTES_API_KEY\s*=\s*(?!replace-with-your-voicenotes-token)"),
+            re.compile(r"sk-[A-Za-z0-9]{20,}"),
+            re.compile(r"ghp_[A-Za-z0-9]{20,}"),
+        ]
+        for path in tracked_files():
+            if not path.exists() or path.is_dir():
+                continue
+            text = read_text(path)
+            for pattern in secret_patterns:
+                if pattern.search(text):
+                    errors.append(f"Tracked file appears to contain a secret-like value: {path.relative_to(ROOT)}")
+                    break
 
     if errors:
         return report_failure(errors)
