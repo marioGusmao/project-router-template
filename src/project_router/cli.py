@@ -2400,6 +2400,38 @@ def update_scan_state(state: dict[str, Any], project_key: str, note_id: str, pay
     project_packets[note_id] = payload
 
 
+def count_active_scan_state_errors(state: dict[str, Any] | None = None) -> int:
+    if state is None:
+        state = load_outbox_scan_state()
+    active_errors = 0
+    for project_packets in (state.get("scanned_packets") or {}).values():
+        if not isinstance(project_packets, dict):
+            continue
+        for entry in project_packets.values():
+            if isinstance(entry, dict) and entry.get("status") == "invalid":
+                active_errors += 1
+    return active_errors
+
+
+def legacy_source_layout_operations() -> list[tuple[Path, Path]]:
+    operations: list[tuple[Path, Path]] = []
+    legacy_map = {
+        RAW_DIR: raw_dir_for(VOICE_SOURCE),
+        NORMALIZED_DIR: normalized_dir_for(VOICE_SOURCE),
+        COMPILED_DIR: compiled_dir_for(VOICE_SOURCE),
+        REVIEW_DIR / "ambiguous": review_dir_for(VOICE_SOURCE, "ambiguous"),
+        REVIEW_DIR / "needs_review": review_dir_for(VOICE_SOURCE, "needs_review"),
+        REVIEW_DIR / "pending_project": review_dir_for(VOICE_SOURCE, "pending_project"),
+    }
+    for src_dir, dest_dir in legacy_map.items():
+        if not src_dir.exists():
+            continue
+        for item in src_dir.iterdir():
+            if item.is_file() and item.name != ".gitkeep":
+                operations.append((item, dest_dir / item.name))
+    return operations
+
+
 def _is_pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -2869,21 +2901,7 @@ def migrate_decision_packet(path: Path, replacements: dict[str, str]) -> None:
 
 def migrate_source_layout_command(args: argparse.Namespace) -> int:
     ensure_layout()
-    operations: list[tuple[Path, Path]] = []
-    legacy_map = {
-        RAW_DIR: raw_dir_for(VOICE_SOURCE),
-        NORMALIZED_DIR: normalized_dir_for(VOICE_SOURCE),
-        COMPILED_DIR: compiled_dir_for(VOICE_SOURCE),
-        REVIEW_DIR / "ambiguous": review_dir_for(VOICE_SOURCE, "ambiguous"),
-        REVIEW_DIR / "needs_review": review_dir_for(VOICE_SOURCE, "needs_review"),
-        REVIEW_DIR / "pending_project": review_dir_for(VOICE_SOURCE, "pending_project"),
-    }
-    for src_dir, dest_dir in legacy_map.items():
-        if not src_dir.exists():
-            continue
-        for item in src_dir.iterdir():
-            if item.is_file() and item.name != ".gitkeep":
-                operations.append((item, dest_dir / item.name))
+    operations = legacy_source_layout_operations()
     replacements: dict[str, str] = {str(src): str(dest) for src, dest in operations}
     if args.dry_run or not args.confirm:
         print(
@@ -2942,8 +2960,8 @@ def status_command(args: argparse.Namespace) -> int:
     project_router_raw = sum(count_raw(path) for path in iter_source_dirs("raw", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     project_router_normalized = sum(count_markdown(path) for path in iter_source_dirs("normalized", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     project_router_compiled = sum(count_markdown(path) for path in iter_source_dirs("compiled", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
-    # Count files in legacy (non-source-aware) layout using existing helpers
-    legacy_backlog = count_raw(RAW_DIR) + count_markdown(NORMALIZED_DIR) + count_markdown(COMPILED_DIR)
+    scan_state = load_outbox_scan_state() if PROJECT_ROUTER_SOURCE in sources else None
+    legacy_backlog = len(legacy_source_layout_operations())
 
     summary = {
         "sources": sorted(sources),
@@ -2966,7 +2984,7 @@ def status_command(args: argparse.Namespace) -> int:
                 "needs_review": count_markdown(review_dir_for(VOICE_SOURCE, "needs_review")) if VOICE_SOURCE in sources else 0,
             },
             "project_router": {
-                "parse_errors": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors")) if PROJECT_ROUTER_SOURCE in sources else 0,
+                "parse_errors": count_active_scan_state_errors(scan_state) if PROJECT_ROUTER_SOURCE in sources else 0,
                 "pending_project": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "pending_project")) if PROJECT_ROUTER_SOURCE in sources else 0,
                 "needs_review": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")) if PROJECT_ROUTER_SOURCE in sources else 0,
             },
@@ -3052,10 +3070,10 @@ def context_command(args: argparse.Namespace) -> int:
             env_notes.append("WARNING: registry.local.json contains invalid JSON")
         except OSError:
             pass
-    legacy_total = count_raw(RAW_DIR) + count_markdown(NORMALIZED_DIR) + count_markdown(COMPILED_DIR)
+    legacy_total = len(legacy_source_layout_operations())
     if legacy_total > 0:
         env_notes.append(f"Legacy layout backlog: {legacy_total} files (run migrate-source-layout)")
-    parse_error_count = count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors"))
+    parse_error_count = count_active_scan_state_errors()
     if parse_error_count > 0:
         env_notes.append(f"Active parse errors: {parse_error_count}")
     if env_notes:

@@ -1189,6 +1189,63 @@ class PR1FixTests(unittest.TestCase):
             self.assertEqual(contract_entry["status"], "valid")
             self.assertIsNone(contract_entry["error_code"])
 
+    def test_status_uses_scan_state_for_active_parse_errors(self) -> None:
+        """status must count active parse errors from scan state, not stale queue files."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            error_dir = root / "data" / "review" / "project_router" / "parse_errors"
+            (error_dir / "20260313T225438Z--home-renovation--router-contract.md").write_text(
+                "---\ntitle: stale\n---\n\nOld error.\n",
+                encoding="utf-8",
+            )
+            (error_dir / "20260313T225506Z--weekly-meal-prep--router-contract.md").write_text(
+                "---\ntitle: stale\n---\n\nOld error.\n",
+                encoding="utf-8",
+            )
+            scan_state = {
+                "schema_version": "1",
+                "scanned_packets": {
+                    "home_renovation": {
+                        "router-contract": {
+                            "status": "invalid",
+                            "error_code": "INVALID_CONTRACT",
+                        },
+                        "pkt-ok": {
+                            "status": "valid",
+                            "error_code": None,
+                        },
+                    }
+                },
+            }
+            (root / "state" / "project_router" / "outbox_scan_state.json").write_text(
+                json.dumps(scan_state, indent=2),
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.status_command(type("Args", (), {"source": "all"})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["review"]["project_router"]["parse_errors"], 1)
+
+    def test_context_ignores_stale_parse_error_files_without_active_scan_state(self) -> None:
+        """context must not report active parse errors when only stale queue files exist."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            error_dir = root / "data" / "review" / "project_router" / "parse_errors"
+            (error_dir / "20260313T225438Z--home-renovation--router-contract.md").write_text(
+                "---\ntitle: stale\n---\n\nOld error.\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.context_command(type("Args", (), {"source": "all"})())
+            output = mock_print.call_args[0][0]
+            self.assertNotIn("Active parse errors", output)
+
     def test_metadata_paths_are_relative(self) -> None:
         """Decision packets must use project-relative paths for internal metadata."""
         with temporary_repo_dir() as tmp:
@@ -1253,6 +1310,48 @@ class PR1FixTests(unittest.TestCase):
             output = parse_print_json(mock_print)
             self.assertIn("legacy_backlog", output)
             self.assertGreaterEqual(output["legacy_backlog"], 1)
+
+    def test_status_legacy_backlog_includes_review_queue_files(self) -> None:
+        """legacy_backlog must include legacy review queue files, not only core data stages."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            (root / "data" / "normalized" / "legacy_note.md").write_text(
+                "---\ntitle: Legacy\n---\n\nOld.\n",
+                encoding="utf-8",
+            )
+            (root / "data" / "review" / "pending_project" / "legacy_review.md").parent.mkdir(parents=True, exist_ok=True)
+            (root / "data" / "review" / "pending_project" / "legacy_review.md").write_text(
+                "---\ntitle: Legacy review\n---\n\nOld review.\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.status_command(type("Args", (), {"source": "all"})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["legacy_backlog"], 2)
+
+    def test_status_legacy_backlog_matches_migrate_dry_run(self) -> None:
+        """legacy_backlog must match the number of migrate-source-layout dry-run operations."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            (root / "data" / "raw" / "20260311T160000Z--legacy.json").write_text("{}", encoding="utf-8")
+            (root / "data" / "review" / "ambiguous" / "legacy_review.md").parent.mkdir(parents=True, exist_ok=True)
+            (root / "data" / "review" / "ambiguous" / "legacy_review.md").write_text(
+                "---\ntitle: Legacy review\n---\n\nOld review.\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as status_print:
+                    cli.status_command(type("Args", (), {"source": "all"})())
+                with unittest.mock.patch("builtins.print") as migrate_print:
+                    cli.migrate_source_layout_command(type("Args", (), {"dry_run": True, "confirm": False})())
+            status_output = parse_print_json(status_print)
+            migrate_output = parse_print_json(migrate_print)
+            self.assertEqual(status_output["legacy_backlog"], len(migrate_output["operations"]))
 
 
 def _write_triaged_note(root: Path, note_id: str, *, status: str = "classified", project: str = "home_renovation",
