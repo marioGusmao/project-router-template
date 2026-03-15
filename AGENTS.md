@@ -85,7 +85,9 @@
 - `python3 scripts/project_router.py scan-outboxes`
 - `python3 scripts/project_router.py doctor`
 - `python3 scripts/project_router.py migrate-source-layout --dry-run`
+- `python3 scripts/project_router.py decide --note-id vn_123 --decision approve`
 - `python3 scripts/project_router.py dispatch --dry-run`
+- `python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123`
 - `python3 scripts/check_agent_surface_parity.py`
 - `python3 scripts/check_repo_ownership.py`
 - `python3 scripts/check_sync_manifest_alignment.py`

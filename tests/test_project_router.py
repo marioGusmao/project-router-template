@@ -1599,6 +1599,205 @@ class DecideCommandTests(unittest.TestCase):
             self.assertIn("vn_d7", metadata.get("related_note_ids", []))
 
 
+def _write_dispatch_ready_note(root: Path, note_id: str = "vn_126") -> tuple[Path, Path]:
+    """Helper: write a classified+approved note with a fresh compiled artifact."""
+    note_path = root / "data" / "normalized" / "voicenotes" / f"20260311T160000Z--{note_id}.md"
+    compiled_path = root / "data" / "compiled" / "voicenotes" / f"20260311T160000Z--{note_id}.md"
+    note_metadata = {
+        "source": "voicenotes",
+        "source_note_id": note_id,
+        "title": "Renovation idea",
+        "created_at": "2026-03-11T16:00:00Z",
+        "tags": ["renovation", "contractor"],
+        "status": "classified",
+        "project": "home_renovation",
+        "candidate_projects": ["home_renovation"],
+        "confidence": 1.0,
+        "routing_reason": "Matched keywords.",
+        "requires_user_confirmation": False,
+        "review_status": "approved",
+        "canonical_path": str(note_path.relative_to(root)),
+        "raw_payload_path": str((root / "data" / "raw" / "voicenotes" / f"20260311T160000Z--{note_id}.json").relative_to(root)),
+        "note_type": "project-idea",
+    }
+    body = "# Renovation idea\n\nNeed contractor quotes.\n"
+    cli.write_note(note_path, note_metadata, body)
+    compiled_path.parent.mkdir(parents=True, exist_ok=True)
+    compiled_metadata = {
+        "source": "voicenotes",
+        "source_note_id": note_id,
+        "title": "Renovation idea",
+        "created_at": "2026-03-11T16:00:00Z",
+        "compiled_at": "2026-03-11T16:05:00Z",
+        "compiled_from_signature": cli.canonical_compile_signature(
+            cli.read_note(note_path)[0],
+            cli.read_note(note_path)[1],
+        ),
+        "brief_summary": "Summary",
+    }
+    cli.write_note(compiled_path, compiled_metadata, "# Renovation idea\n\nCompiled\n")
+    return note_path, compiled_path
+
+
+class DispatchCommandTests(unittest.TestCase):
+    """Tests for dispatch_command safety and correctness."""
+
+    def test_dispatch_updates_metadata_and_decision_packet(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, compiled_path = _write_dispatch_ready_note(root)
+            with patch_cli_paths(root):
+                cli.dispatch_command(
+                    type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_126"], "source": "voicenotes"})()
+                )
+                metadata, _ = cli.read_note(note_path)
+                self.assertEqual(metadata["status"], "dispatched")
+                self.assertIn("dispatched_at", metadata)
+                self.assertIsInstance(metadata["dispatched_to"], list)
+                self.assertGreater(len(metadata["dispatched_to"]), 0)
+                # Decision packet has dispatch block
+                packet = cli.load_decision_packet_for_metadata(metadata)
+                self.assertIn("dispatch", packet)
+                self.assertIn("destination", packet["dispatch"])
+                self.assertIn("compiled_path", packet["dispatch"])
+            # Mirror file exists
+            mirror = root / "data" / "dispatched" / "home_renovation" / "20260311T160000Z--vn_126.md"
+            self.assertTrue(mirror.exists())
+
+    def test_dispatch_idempotent_skips_dispatched(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, _ = _write_dispatch_ready_note(root)
+            with patch_cli_paths(root):
+                cli.dispatch_command(
+                    type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_126"], "source": "voicenotes"})()
+                )
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_126"], "source": "voicenotes"})()
+                    )
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["dispatched"], 0)
+
+    def test_dispatch_dry_run_no_side_effects(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry(root)
+            note_path, _ = _write_dispatch_ready_note(root)
+            original_content = note_path.read_text(encoding="utf-8")
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": True, "confirm_user_approval": False, "note_ids": None, "source": "voicenotes"})()
+                    )
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["dispatched"], 1)
+            self.assertFalse((inbox_path / "20260311T160000Z--vn_126.md").exists())
+            mirror = root / "data" / "dispatched" / "home_renovation" / "20260311T160000Z--vn_126.md"
+            self.assertFalse(mirror.exists())
+            self.assertEqual(note_path.read_text(encoding="utf-8"), original_content)
+
+    def test_dispatch_skips_stale_compiled(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, _ = _write_dispatch_ready_note(root)
+            metadata, _ = cli.read_note(note_path)
+            cli.write_note(note_path, metadata, "# Renovation idea\n\nBody has been changed.\n")
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": True, "confirm_user_approval": False, "note_ids": None, "source": "voicenotes"})()
+                    )
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["dispatched"], 0)
+            self.assertEqual(output["candidates"][0]["skip_reason"], "compiled package is stale")
+
+    def test_dispatch_skips_missing_compiled(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, compiled_path = _write_dispatch_ready_note(root)
+            compiled_path.unlink()
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": True, "confirm_user_approval": False, "note_ids": None, "source": "voicenotes"})()
+                    )
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["dispatched"], 0)
+            self.assertEqual(output["candidates"][0]["skip_reason"], "compiled package missing")
+
+    def test_dispatch_downstream_write_failure_leaves_metadata_unchanged(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, _ = _write_dispatch_ready_note(root)
+            original_content = note_path.read_text(encoding="utf-8")
+            inbox_dir = root / "repos" / "home-renovation" / "project-router" / "inbox"
+            inbox_dir.mkdir(parents=True, exist_ok=True)
+            with patch_cli_paths(root):
+                # Mock Path.write_text to raise OSError for downstream writes
+                original_write_text = Path.write_text
+                def failing_write_text(self_path, *a, **kw):
+                    if str(inbox_dir) in str(self_path):
+                        raise OSError("Simulated downstream write failure")
+                    return original_write_text(self_path, *a, **kw)
+                with unittest.mock.patch.object(Path, "write_text", failing_write_text):
+                    with unittest.mock.patch("builtins.print"):
+                        cli.dispatch_command(
+                            type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_126"], "source": "voicenotes"})()
+                        )
+                metadata, _ = cli.read_note(note_path)
+                self.assertEqual(metadata["status"], "classified")
+                mirror = root / "data" / "dispatched" / "home_renovation" / "20260311T160000Z--vn_126.md"
+                self.assertFalse(mirror.exists())
+                # Decision packet should NOT have dispatch block
+                packet = cli.load_decision_packet_for_metadata(metadata)
+                self.assertNotIn("dispatch", packet)
+
+
+class ReadNoteTests(unittest.TestCase):
+    """Tests for read_note frontmatter parsing edge cases."""
+
+    def test_read_note_unclosed_frontmatter(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            note_path = root / "unclosed.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            note_path.write_text("---\ntitle: Test\nstatus: draft\nThis line never closes.\n", encoding="utf-8")
+            import io
+            captured = io.StringIO()
+            with mock.patch("sys.stderr", captured):
+                metadata, body = cli.read_note(note_path)
+            self.assertEqual(metadata, {})
+            self.assertIn("---", body)
+            self.assertIn("unclosed frontmatter", captured.getvalue())
+
+    def test_read_note_no_frontmatter(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            note_path = root / "plain.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            content = "# Just a heading\n\nSome body text.\n"
+            note_path.write_text(content, encoding="utf-8")
+            import io
+            captured = io.StringIO()
+            with mock.patch("sys.stderr", captured):
+                metadata, body = cli.read_note(note_path)
+            self.assertEqual(metadata, {})
+            self.assertEqual(body, content)
+            self.assertEqual(captured.getvalue(), "")
+
+
 class CompileCommandTests(unittest.TestCase):
     """Tests for compile_command (PR 2, section 2.2)."""
 

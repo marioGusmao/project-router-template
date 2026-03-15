@@ -515,6 +515,7 @@ def read_note(path: Path) -> tuple[dict[str, Any], str]:
         metadata[key.strip()] = parse_scalar(value)
 
     if end_index is None:
+        sys.stderr.write(f"Warning: {path} has unclosed frontmatter. Treating as plain text.\n")
         return {}, text
 
     body = "\n".join(lines[end_index + 1 :]).lstrip("\n")
@@ -1941,15 +1942,23 @@ def dispatch_command(args: argparse.Namespace) -> int:
             skipped += 1
             continue
 
-        assert compiled_metadata is not None
-        assert destination is not None
-        assert mirror_path is not None
+        if compiled_metadata is None:
+            raise SystemExit(f"Internal error: compiled metadata missing for {source_note_id}.")
+        if destination is None:
+            raise SystemExit(f"Internal error: dispatch destination unresolved for {source_note_id}.")
+        if mirror_path is None:
+            raise SystemExit(f"Internal error: mirror path unresolved for {source_note_id}.")
         _, compiled_body = read_note(compiled_path)
         title, content = build_dispatch_note(metadata, compiled_metadata, compiled_body, project, note_path, compiled_path)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8")
-        mirror_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(destination, mirror_path)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(content, encoding="utf-8")
+            mirror_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(destination, mirror_path)
+        except OSError as exc:
+            candidates[-1]["skip_reason"] = f"downstream write failed: {exc}"
+            skipped += 1
+            continue
 
         metadata["status"] = "dispatched"
         metadata["dispatched_at"] = "manual-run"
@@ -3239,7 +3248,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     triage = subparsers.add_parser("triage", help="Classify normalized notes conservatively.")
     add_source_argument(triage)
-    triage.add_argument("--all", action="store_true", help="Reserved flag for future filtering.")
+    triage.add_argument("--all", action="store_true", help="Label the output JSON mode as 'all' instead of 'default'. Does not change triage behaviour.")
     triage.set_defaults(func=triage_command)
 
     compile_parser = subparsers.add_parser("compile", help="Generate project-ready compiled note packages from canonical notes.")

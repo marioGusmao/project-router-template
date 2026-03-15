@@ -1,3 +1,8 @@
+---
+name: project-router-triage-review
+description: Analyze normalized VoiceNotes notes inside Project Router, propose project routing, surface ambiguity, and ask the user for confirmation before any note is written to another project.
+---
+
 # Project Router Triage Review
 
 Use this workflow to review normalized notes in Project Router for VoiceNotes and recommend the next step.
