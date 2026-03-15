@@ -167,6 +167,11 @@ These are critical — never violate:
 - **Run the parity and ownership checks before publishing starter changes** — use `python3 scripts/check_agent_surface_parity.py --pre-publish` and `python3 scripts/check_repo_ownership.py`
 - **If a downstream repository must be edited**, read that repository's local agent instructions first
 
+## Language
+
+- Write project-facing repository files in English.
+- Preserve the downstream project's language conventions when generating notes for that project.
+
 ## Key Conventions
 
 - **Filenames:** `{ISO_TIMESTAMP}--{SOURCE_NOTE_ID}.{ext}` — collision-resistant, immutable
@@ -176,6 +181,14 @@ These are critical — never violate:
 - **Re-normalization preserves user metadata:** `user_keywords`, `thread_id`, `continuation_of`, `related_note_ids` survive re-triage
 - **Errors use `SystemExit(message)`** for validation failures, not exceptions
 - **Classification is rule-based:** recording_type mapping + keyword matching + sentence-level heuristics — no ML
+- **Compiled notes must be rich:** include summary, facts, tasks, decisions, open questions, follow-ups, timeline, ambiguities, and evidence spans whenever available
+
+## Workflow Preferences
+
+- Prefer `python3 scripts/project_router_client.py` for direct VoiceNotes API access — do not use ad-hoc `curl`
+- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `project-router/` surface
+- Prefer `python3 scripts/project_router.py migrate-source-layout --dry-run` before changing or auditing old local copies that still use the flat pre-source-aware layout
+- Validate with focused commands first, then broader checks if the repository grows more tooling later
 
 ## Claude Skills
 
