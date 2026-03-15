@@ -2424,14 +2424,13 @@ def acquire_scan_lock() -> None:
             lock_pid = None
         if lock_pid is not None and _is_pid_alive(lock_pid):
             raise SystemExit(f"Another scan-outboxes command is already running (PID {lock_pid}, lock: {OUTBOX_SCAN_LOCK_PATH}).")
-        # Stale lock — reclaim
-        OUTBOX_SCAN_LOCK_PATH.unlink(missing_ok=True)
+        # Stale lock — reclaim by overwriting with our PID
         try:
-            fd = os.open(OUTBOX_SCAN_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            fd = os.open(OUTBOX_SCAN_LOCK_PATH, os.O_WRONLY | os.O_TRUNC)
             os.write(fd, str(os.getpid()).encode())
             os.close(fd)
-        except FileExistsError as exc:
-            raise SystemExit(f"Another scan-outboxes command is already running ({OUTBOX_SCAN_LOCK_PATH}).") from exc
+        except OSError as exc:
+            raise SystemExit(f"Could not reclaim stale scan lock ({OUTBOX_SCAN_LOCK_PATH}): {exc}") from exc
 
 
 def release_scan_lock() -> None:
@@ -3072,10 +3071,12 @@ def context_command(args: argparse.Namespace) -> int:
         sections.append("## Available Scripts")
         sections.append("")
         docstring_re = re.compile(r'^"""(.*?)"""', re.DOTALL | re.MULTILINE)
+        scripts_unreadable = 0
         for script in sorted(scripts_dir.glob("*.py")):
             try:
                 text = script.read_text(encoding="utf-8")
             except OSError:
+                scripts_unreadable += 1
                 continue
             m = docstring_re.search(text)
             if m:
@@ -3083,10 +3084,13 @@ def context_command(args: argparse.Namespace) -> int:
                 sections.append(f"- `{script.name}`: {first_line}")
             else:
                 sections.append(f"- `{script.name}`")
+        if scripts_unreadable:
+            sections.append(f"- ({scripts_unreadable} script(s) could not be read)")
         sections.append("")
 
     # --- Available skills ---
     seen_skills: dict[str, str] = {}
+    skills_unreadable = 0
     for pattern in [".agents/skills/*/SKILL.md", ".claude/skills/*/SKILL.md", ".codex/skills/*/SKILL.md"]:
         for skill_path in sorted(ROOT.glob(pattern)):
             skill_name = skill_path.parent.name
@@ -3100,7 +3104,8 @@ def context_command(args: argparse.Namespace) -> int:
                 else:
                     seen_skills[skill_name] = skill_name
             except OSError:
-                seen_skills[skill_name] = skill_name
+                seen_skills[skill_name] = f"{skill_name} (unreadable)"
+                skills_unreadable += 1
     if seen_skills:
         sections.append("## Available Skills")
         sections.append("")
@@ -3115,6 +3120,7 @@ def context_command(args: argparse.Namespace) -> int:
         if adr_files:
             sections.append("## ADR Index")
             sections.append("")
+            adr_unreadable = 0
             for adr in adr_files:
                 status = "unknown"
                 try:
@@ -3124,7 +3130,8 @@ def context_command(args: argparse.Namespace) -> int:
                             status = stripped.split(":", 1)[1].strip().strip("*").strip()
                             break
                 except OSError:
-                    pass
+                    status = "unreadable"
+                    adr_unreadable += 1
                 stem = adr.stem
                 sections.append(f"- {stem}: {status}")
             sections.append("")
