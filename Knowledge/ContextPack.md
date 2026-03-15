@@ -31,4 +31,5 @@ For a live project briefing in the terminal, run `python3 scripts/project_router
 | Template promotion | `scripts/bootstrap_private_repo.py` | Promotes a derived copy into private operational repo |
 | Local config bootstrap | `scripts/bootstrap_local.py` | Creates `.env.local` and `registry.local.json` |
 | Design specs | `docs/superpowers/specs/` | Detailed implementation designs |
+| Knowledge sync model | `Knowledge/README.md` | Explains Knowledge directory structure and sync rules |
 | Changelog | `CHANGELOG.md` | Version history |

@@ -9,6 +9,7 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/bootstrap_private_repo.py` | Promote a fresh derived copy into a private operational repository with tracked upstream-sync metadata | Run in a freshly cloned/derived repo, not in the template itself |
 | `scripts/bootstrap_local.py` | Create local-only config files (`.env.local`, `projects/registry.local.json`) | Run once per machine |
 | `scripts/refresh_knowledge_local.py` | Preview or backfill the derived `Knowledge/local/` scaffold from the template-owned source | Private-derived repo with `Knowledge/Templates/local/` present |
+| `scripts/knowledge_local_scaffold.py` | Shared helpers for comparing and materializing the Knowledge/local scaffold from templates | Library module imported by bootstrap and refresh scripts |
 
 ## Sync
 

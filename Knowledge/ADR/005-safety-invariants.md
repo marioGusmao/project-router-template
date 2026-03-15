@@ -44,3 +44,4 @@ Never delete or overwrite canonical raw JSON in `data/raw/`. It is the source of
 ## Related
 
 - ADR-004: Fail-closed dispatch (implements invariant #1 and #2 at the dispatch stage)
+- ADR-001: Stdlib-only dependency policy

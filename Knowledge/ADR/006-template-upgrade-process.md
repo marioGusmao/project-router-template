@@ -41,14 +41,15 @@ Skill directories use the `extensible_directory` model. Template skills update v
 
 `repo-governance/customization-contracts.json` is the normative source of truth. It declares ownership, sync_policy, customization_model, private_overlay, bootstrap_source, agent_load_rule, migration_policy, and validator_hooks for each surface. `check_customization_contracts.py` validates the registry against the ownership manifest and the repository state.
 
-### Sync workflow (5 passes)
+### Sync workflow (7 steps: passes 0 through 5, including 0.5)
 
 1. **Pass 0 — Migrate:** Insert missing `customization-contract` markers (for old derived repos)
-2. **Pass 1 — Overwrite:** Full replacement of `template_owned` paths and AI files
-3. **Pass 2 — Restore:** Restore `customization-contract` blocks in AI files from local backup
-4. **Pass 3 — Managed blocks:** Update content inside markers in READMEs
-5. **Pass 4 — Extensible:** Sync skill directories without `--delete`
-6. **Pass 5 — Diff-only:** Generate diffs for manual review
+2. **Pass 0.5 — Backup:** Save CLAUDE.md and AGENTS.md before overwrite so contract blocks can be restored
+3. **Pass 1 — Overwrite:** Full replacement of `template_owned` paths and AI files
+4. **Pass 2 — Restore:** Restore `customization-contract` blocks in AI files from the pre-overwrite backup
+5. **Pass 3 — Managed blocks:** Update content inside markers in READMEs
+6. **Pass 4 — Extensible:** Sync skill directories without `--delete`
+7. **Pass 5 — Diff-only:** Generate diffs for manual review
 
 ## Consequences
 
@@ -62,7 +63,7 @@ Skill directories use the `extensible_directory` model. Template skills update v
 ### Harder
 
 - Adding a new file to the repo requires declaring it in `customization-contracts.json`.
-- The 5-pass workflow is more complex than a single rsync loop.
+- The 7-step sync workflow is more complex than a single rsync loop.
 - Old derived repos need the migration script before the first sync with the new workflow.
 
 ### Trade-offs
@@ -75,6 +76,7 @@ Skill directories use the `extensible_directory` model. Template skills update v
 
 - ADR-002: Template/private split model
 - ADR-003: Knowledge foundation structure
+- ADR-005: Safety invariants
 
 ---
 

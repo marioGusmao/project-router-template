@@ -32,7 +32,8 @@ def replace_block(local_text: str, upstream_text: str, marker_name: str) -> str 
     if not local_match:
         return None
 
-    return pattern.sub(upstream_match.group(0), local_text, count=1)
+    upstream_content = upstream_match.group(0)
+    return pattern.sub(lambda _: upstream_content, local_text, count=1)
 
 
 def sync_managed_blocks(

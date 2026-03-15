@@ -101,7 +101,7 @@ def replace_managed_block(path: Path, replacement: str, marker_name: str = MARKE
     if not pattern.search(text):
         raise SystemExit(f"Managed block {marker_name!r} not found in {path}.")
     managed_block = f"{start_marker}\n{replacement.rstrip()}\n{end_marker}"
-    path.write_text(pattern.sub(managed_block, text, count=1), encoding="utf-8")
+    path.write_text(pattern.sub(lambda _: managed_block, text, count=1), encoding="utf-8")
 
 
 def resolve_template_metadata() -> dict[str, Any]:
@@ -367,6 +367,10 @@ def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
             "Run python3 scripts/check_sync_manifest_alignment.py.",
             "Run python3 scripts/check_customization_contracts.py.",
             "Customize Knowledge/local/Roadmap.md for your project roadmap.",
+            "Run python3 scripts/refresh_knowledge_local.py.",
+            "Run python3 scripts/check_managed_blocks.py.",
+            "Run python3 scripts/check_knowledge_structure.py.",
+            "Run python3 scripts/check_adr_related_links.py.",
         ],
     }
 

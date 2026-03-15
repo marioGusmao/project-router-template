@@ -64,7 +64,7 @@ def restore_contract_block(backup_path: Path, local_path: Path) -> bool:
 
     if upstream_block:
         # Replace upstream's contract block with the private one.
-        result = BLOCK_PATTERN.sub(private_block, local_text, count=1)
+        result = BLOCK_PATTERN.sub(lambda _: private_block, local_text, count=1)
     else:
         # Upstream lacks a contract block — append the private one.
         result = local_text.rstrip() + "\n\n" + private_block + "\n"

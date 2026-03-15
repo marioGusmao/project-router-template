@@ -12,14 +12,15 @@ The PR title includes the upstream version tag: `chore(template-sync): update te
 
 ## What the Sync Does
 
-The workflow uses a 5-pass approach:
+The workflow uses a 7-step approach (passes 0 through 5, including a 0.5 backup step):
 
 1. **Pass 0 — Migrate:** Inserts `customization-contract` markers if missing (for old repos).
-2. **Pass 1 — Overwrite:** Replaces `template_owned` paths and AI files with upstream content.
-3. **Pass 2 — Restore:** Restores the `customization-contract` block in CLAUDE.md and AGENTS.md from the local backup (preserving your `@import` references).
-4. **Pass 3 — Managed blocks:** Updates content inside `repository-mode` and `template-onboarding` markers in README files, preserving your branding and content outside the markers.
-5. **Pass 4 — Extensible:** Syncs skill directories without deleting your local additions.
-6. **Pass 5 — Diff-only:** Generates diffs for `.gitignore` and `CONTRIBUTING.md` — review manually.
+2. **Pass 0.5 — Backup:** Saves a copy of CLAUDE.md and AGENTS.md before overwrite so the contract blocks can be restored later.
+3. **Pass 1 — Overwrite:** Replaces `template_owned` paths and AI files with upstream content.
+4. **Pass 2 — Restore:** Restores the `customization-contract` block in CLAUDE.md and AGENTS.md from the pre-overwrite backup (preserving your `@import` references).
+5. **Pass 3 — Managed blocks:** Updates content inside `repository-mode` and `template-onboarding` markers in README files, preserving your branding and content outside the markers.
+6. **Pass 4 — Extensible:** Syncs skill directories without deleting your local additions.
+7. **Pass 5 — Diff-only:** Generates diffs for `.gitignore` and `CONTRIBUTING.md` — review manually.
 
 ## Merging the Sync PR
 

@@ -78,6 +78,16 @@
 - Preserve note relationship metadata (`thread_id`, `continuation_of`, `related_note_ids`) when reviewing or dispatching related captures.
 - Treat `data/review/...` as queue views. Canonical metadata changes should land in source-aware `data/normalized/...`, not only in review copies.
 
+## Key Conventions
+- Filenames: `{ISO_TIMESTAMP}--{SOURCE_NOTE_ID}.{ext}` — collision-resistant, immutable.
+- Note ID validation: alphanumeric + dash + underscore only (`NOTE_ID_PATTERN`).
+- Metadata model is layered: `capture_kind`, `intent`, and `destination` are distinct fields — never conflate them.
+- Bilingual stopwords: English + Portuguese (supports downstream Portuguese-language projects).
+- Re-normalization preserves user metadata: `user_keywords`, `thread_id`, `continuation_of`, `related_note_ids` survive re-triage.
+- Errors use `SystemExit(message)` for validation failures, not exceptions.
+- Classification is rule-based: recording_type mapping + keyword matching + sentence-level heuristics — no ML.
+- Compiled notes must be rich: include summary, facts, tasks, decisions, open questions, follow-ups, timeline, ambiguities, and evidence spans whenever available.
+
 ## Current Commands
 - `python3 scripts/bootstrap_private_repo.py`
 - `python3 scripts/bootstrap_local.py`
