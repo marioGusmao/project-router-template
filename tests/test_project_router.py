@@ -1257,5 +1257,308 @@ class PR1FixTests(unittest.TestCase):
             self.assertGreaterEqual(output["legacy_backlog"], 1)
 
 
+def _write_triaged_note(root: Path, note_id: str, *, status: str = "classified", project: str = "home_renovation",
+                        title: str = "Test note", body_text: str = "Renovation ideas.\n",
+                        review_status: str = "pending", tags: list | None = None) -> Path:
+    """Helper: write a normalized note that looks like it has been through triage."""
+    note_path = root / "data" / "normalized" / "voicenotes" / f"20260311T160000Z--{note_id}.md"
+    cli.write_note(
+        note_path,
+        {
+            "source": "voicenotes",
+            "source_note_id": note_id,
+            "title": title,
+            "created_at": "2026-03-11T16:00:00Z",
+            "tags": tags or ["renovation"],
+            "status": status,
+            "project": project,
+            "candidate_projects": [project] if project else [],
+            "confidence": 0.8,
+            "routing_reason": "Keyword match.",
+            "requires_user_confirmation": True,
+            "review_status": review_status,
+            "canonical_path": str(note_path),
+            "raw_payload_path": str(root / "data" / "raw" / "voicenotes" / f"20260311T160000Z--{note_id}.json"),
+            "note_type": "project-idea",
+            "dispatched_to": [],
+        },
+        f"# {title}\n\n{body_text}",
+    )
+    return note_path
+
+
+class DecideCommandTests(unittest.TestCase):
+    """Tests for decide_command (PR 2, section 2.1)."""
+
+    def test_decide_approve_sets_classified_status(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_d1", status="pending_project", project=None)
+            with patch_cli_paths(root):
+                cli.decide_command(type("Args", (), {
+                    "note_id": "vn_d1", "decision": "approve", "final_project": "home_renovation",
+                    "final_type": None, "user_keywords": None, "related_note_ids": None,
+                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                })())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d1.md")
+            self.assertEqual(metadata["status"], "classified")
+            self.assertEqual(metadata["project"], "home_renovation")
+            self.assertEqual(metadata["review_status"], "approved")
+            # Review copies should be removed
+            for queue in ("ambiguous", "needs_review", "pending_project"):
+                self.assertFalse((root / "data" / "review" / "voicenotes" / queue / "20260311T160000Z--vn_d1.md").exists())
+
+    def test_decide_approve_without_project_fails(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_d2", status="pending_project", project=None)
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.decide_command(type("Args", (), {
+                        "note_id": "vn_d2", "decision": "approve", "final_project": None,
+                        "final_type": None, "user_keywords": None, "related_note_ids": None,
+                        "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    })())
+                self.assertIn("Approve requires", str(ctx.exception))
+
+    def test_decide_approve_invalid_project_fails(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_d3", status="pending_project", project=None)
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.decide_command(type("Args", (), {
+                        "note_id": "vn_d3", "decision": "approve", "final_project": "nonexistent_project",
+                        "final_type": None, "user_keywords": None, "related_note_ids": None,
+                        "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    })())
+                self.assertIn("Unknown project", str(ctx.exception))
+
+    def test_decide_ambiguous_creates_review_copy(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_d4", status="classified", project="home_renovation")
+            with patch_cli_paths(root):
+                cli.decide_command(type("Args", (), {
+                    "note_id": "vn_d4", "decision": "ambiguous", "final_project": None,
+                    "final_type": None, "user_keywords": None, "related_note_ids": None,
+                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                })())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d4.md")
+            self.assertEqual(metadata["status"], "ambiguous")
+            self.assertTrue((root / "data" / "review" / "voicenotes" / "ambiguous" / "20260311T160000Z--vn_d4.md").exists())
+
+    def test_decide_pending_project_creates_review_copy(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_d5", status="classified", project="home_renovation")
+            with patch_cli_paths(root):
+                cli.decide_command(type("Args", (), {
+                    "note_id": "vn_d5", "decision": "pending-project", "final_project": None,
+                    "final_type": None, "user_keywords": None, "related_note_ids": None,
+                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                })())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d5.md")
+            self.assertEqual(metadata["status"], "pending_project")
+            self.assertTrue((root / "data" / "review" / "voicenotes" / "pending_project" / "20260311T160000Z--vn_d5.md").exists())
+
+    def test_decide_reject_creates_needs_review(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_d6", status="classified", project="home_renovation")
+            with patch_cli_paths(root):
+                cli.decide_command(type("Args", (), {
+                    "note_id": "vn_d6", "decision": "reject", "final_project": None,
+                    "final_type": None, "user_keywords": None, "related_note_ids": None,
+                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                })())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d6.md")
+            self.assertEqual(metadata["status"], "needs_review")
+            self.assertEqual(metadata["review_status"], "reject")
+            self.assertTrue((root / "data" / "review" / "voicenotes" / "needs_review" / "20260311T160000Z--vn_d6.md").exists())
+
+    def test_decide_creates_decision_packet(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_d7", status="pending_project", project=None)
+            with patch_cli_paths(root):
+                cli.decide_command(type("Args", (), {
+                    "note_id": "vn_d7", "decision": "approve", "final_project": "home_renovation",
+                    "final_type": "meeting-notes", "user_keywords": None, "related_note_ids": None,
+                    "thread_id": None, "continuation_of": None, "notes": "Looks good", "source": "all",
+                })())
+            packets = list((root / "state" / "decisions").glob("*vn-d7*"))
+            self.assertEqual(len(packets), 1)
+            packet = json.loads(packets[0].read_text(encoding="utf-8"))
+            self.assertEqual(packet["source_note_id"], "vn_d7")
+            self.assertIn("reviews", packet)
+            self.assertEqual(len(packet["reviews"]), 1)
+            self.assertEqual(packet["reviews"][0]["decision"], "approve")
+            self.assertEqual(packet["reviews"][0]["final_project"], "home_renovation")
+            self.assertEqual(packet["final_decision"]["decision"], "approve")
+
+    def test_decide_applies_note_annotations(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_d8", status="pending_project", project=None)
+            with patch_cli_paths(root):
+                cli.decide_command(type("Args", (), {
+                    "note_id": "vn_d8", "decision": "approve", "final_project": "home_renovation",
+                    "final_type": None, "user_keywords": ["bathroom", "tile"],
+                    "related_note_ids": ["vn_d7"], "thread_id": "thread-001",
+                    "continuation_of": "vn_d7", "notes": "", "source": "all",
+                })())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d8.md")
+            self.assertIn("bathroom", metadata.get("user_keywords", []))
+            self.assertIn("tile", metadata.get("user_keywords", []))
+            self.assertEqual(metadata.get("thread_id"), "thread-001")
+            self.assertEqual(metadata.get("continuation_of"), "vn_d7")
+            self.assertIn("vn_d7", metadata.get("related_note_ids", []))
+
+
+class CompileCommandTests(unittest.TestCase):
+    """Tests for compile_command (PR 2, section 2.2)."""
+
+    def test_compile_creates_artifact(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_c1", body_text="Need to get budget estimates for kitchen renovation.\n")
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.compile_command(type("Args", (), {"note_ids": None, "source": "all"})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["compiled_written"], 1)
+            compiled_path = root / "data" / "compiled" / "voicenotes" / "20260311T160000Z--vn_c1.md"
+            self.assertTrue(compiled_path.exists())
+            compiled_meta, _ = cli.read_note(compiled_path)
+            self.assertIn("compiled_from_signature", compiled_meta)
+            self.assertIn("brief_summary", compiled_meta)
+
+    def test_compile_idempotent_when_unchanged(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_c2", body_text="Check contractor availability.\n")
+            with patch_cli_paths(root):
+                cli.compile_command(type("Args", (), {"note_ids": None, "source": "all"})())
+                compiled_path = root / "data" / "compiled" / "voicenotes" / "20260311T160000Z--vn_c2.md"
+                first_content = compiled_path.read_text(encoding="utf-8")
+                cli.compile_command(type("Args", (), {"note_ids": None, "source": "all"})())
+            second_content = compiled_path.read_text(encoding="utf-8")
+            self.assertEqual(first_content, second_content, "Compiled artifact changed on re-run with same source")
+
+    def test_compile_updates_when_source_changed(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path = _write_triaged_note(root, "vn_c3", body_text="Original body.\n")
+            with patch_cli_paths(root):
+                cli.compile_command(type("Args", (), {"note_ids": None, "source": "all"})())
+                compiled_path = root / "data" / "compiled" / "voicenotes" / "20260311T160000Z--vn_c3.md"
+                first_content = compiled_path.read_text(encoding="utf-8")
+                # Change the source note body
+                metadata, _ = cli.read_note(note_path)
+                cli.write_note(note_path, metadata, "# Test note\n\nUpdated body with entirely new content.\n")
+                cli.compile_command(type("Args", (), {"note_ids": None, "source": "all"})())
+            second_content = compiled_path.read_text(encoding="utf-8")
+            self.assertNotEqual(first_content, second_content, "Compiled artifact should change when source changes")
+
+    def test_compile_skips_dispatched_notes(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_c4", status="dispatched")
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.compile_command(type("Args", (), {"note_ids": None, "source": "all"})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["compiled_written"], 0)
+            self.assertEqual(output["skipped"], 1)
+
+
+class DiscoverCommandTests(unittest.TestCase):
+    """Tests for discover_command (PR 2, section 2.3)."""
+
+    def test_discover_empty_queue(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.discover_command(type("Args", (), {"source": "all"})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["pending_project_notes"], 0)
+            self.assertEqual(output["clusters"], [])
+
+    def test_discover_clusters_related_notes(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            # Two notes with overlapping keywords should cluster
+            _write_triaged_note(root, "vn_disc1", status="pending_project", project=None,
+                                title="Garden landscaping plan",
+                                body_text="Need to plan the garden landscaping and patio design.\n",
+                                tags=["garden", "landscaping"])
+            _write_triaged_note(root, "vn_disc2", status="pending_project", project=None,
+                                title="Patio furniture selection",
+                                body_text="Research patio furniture options for the garden area.\n",
+                                tags=["garden", "patio"])
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.discover_command(type("Args", (), {"source": "all"})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["pending_project_notes"], 2)
+            # With shared keywords (garden), these should cluster together
+            all_cluster_notes = sum(c["note_count"] for c in output["clusters"])
+            singleton_count = len(output.get("singleton_notes", []))
+            self.assertEqual(all_cluster_notes + singleton_count, 2)
+
+    def test_discover_filters_system_notes(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "welcome_810492", status="pending_project", project=None,
+                                title="Welcome to VoiceNotes",
+                                body_text="Capture your thoughts with meeting and recording features.\n",
+                                tags=[])
+            _write_triaged_note(root, "vn_disc3", status="pending_project", project=None,
+                                title="Actual pending note",
+                                body_text="Something real to discuss.\n",
+                                tags=["discussion"])
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.discover_command(type("Args", (), {"source": "all"})())
+            output = parse_print_json(mock_print)
+            # System note should be in ignored_system_notes
+            ignored_ids = [n["source_note_id"] for n in output.get("ignored_system_notes", [])]
+            self.assertIn("welcome_810492", ignored_ids)
+            # Real note should not be ignored
+            self.assertNotIn("vn_disc3", ignored_ids)
+
+
 if __name__ == "__main__":
     unittest.main()
