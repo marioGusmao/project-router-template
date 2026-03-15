@@ -201,7 +201,6 @@ class ProjectRule:
     inbox_path: Path | None
     router_root_path: Path | None
     note_type: str
-    auto_dispatch_threshold: float
     keywords: list[str]
 
 
@@ -474,7 +473,6 @@ def load_registry(*, require_local: bool = False) -> tuple[dict[str, Any], dict[
             inbox_path=Path(inbox_path_raw) if inbox_path_raw else None,
             router_root_path=Path(router_root_path_raw) if router_root_path_raw else None,
             note_type=raw["note_type"],
-            auto_dispatch_threshold=float(raw.get("auto_dispatch_threshold", defaults.get("auto_dispatch_threshold", 0.9))),
             keywords=list(raw.get("keywords", [])),
         )
     return defaults, projects

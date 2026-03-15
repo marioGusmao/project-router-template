@@ -81,13 +81,12 @@ def patch_cli_paths(root: Path) -> ExitStack:
 
 def write_registry(root: Path, *, include_router_root: bool = True) -> Path:
     shared = {
-        "defaults": {"auto_dispatch_threshold": 0.9, "min_keyword_hits": 2},
+        "defaults": {"min_keyword_hits": 2},
         "projects": {
             "home_renovation": {
                 "display_name": "Home Renovation",
                 "language": "en",
                 "note_type": "project-idea",
-                "auto_dispatch_threshold": 0.9,
                 "keywords": ["renovation", "contractor", "budget"],
             }
         },
@@ -524,13 +523,12 @@ class ProjectRouterFlowTests(unittest.TestCase):
             root = Path(tmp)
             prepare_repo(root)
             shared = {
-                "defaults": {"auto_dispatch_threshold": 0.9, "min_keyword_hits": 2},
+                "defaults": {"min_keyword_hits": 2},
                 "projects": {
                     "home_renovation": {
                         "display_name": "Home Renovation",
                         "language": "en",
                         "note_type": "project-idea",
-                        "auto_dispatch_threshold": 0.9,
                         "keywords": ["renovation"],
                     }
                 },
