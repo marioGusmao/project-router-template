@@ -41,6 +41,16 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/check_knowledge_structure.py` | Validate Knowledge/ directory structure and required files | None |
 | `scripts/check_sync_manifest_alignment.py` | Validate that the upstream-sync workflow only targets paths allowed by the ownership manifest | None |
 | `scripts/check_adr_related_links.py` | Validate that `## Related` sections in ADR files point to real files; catches self-references and malformed entries | None; use `--mode block` in CI |
+| `scripts/check_managed_blocks.py` | Validate that all managed block markers exist in matched begin/end pairs across CLAUDE.md, AGENTS.md, and README files | None |
+| `scripts/check_customization_contracts.py` | Validate the customization contract registry against the ownership manifest, @import presence, and overlay path safety | None |
+
+## Template Sync
+
+| Script | Purpose | Prerequisites |
+|--------|---------|---------------|
+| `scripts/sync_ai_files.py` | Restore customization-contract blocks into AI files after upstream overwrite during sync | Called by `template-upstream-sync.yml` Pass 2 |
+| `scripts/apply_managed_block_sync.py` | Sync managed blocks from upstream into local README files, preserving content outside markers | Called by `template-upstream-sync.yml` Pass 3 |
+| `scripts/migrate_add_contract_block.py` | Insert customization-contract markers into CLAUDE.md/AGENTS.md for old derived repos that lack them | Run once before first sync; also called by Pass 0 of the sync workflow |
 
 ## Testing
 

@@ -35,3 +35,4 @@ Sync from template to derived repo is governed by:
 ## Related
 
 - ADR-003: Knowledge foundation builds on this split model
+- ADR-006: Template upgrade process and customization contract

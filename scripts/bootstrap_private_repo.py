@@ -27,6 +27,7 @@ PRIVATE_META_PATH = ROOT / "private.meta.json"
 
 MARKER_NAME = "repository-mode"
 ONBOARDING_MARKER_NAME = "template-onboarding"
+CONTRACT_MARKER_NAME = "customization-contract"
 SYNC_BRANCH = "chore/template-sync"
 SYNC_WORKFLOW_PATH = ".github/workflows/template-upstream-sync.yml"
 PROMOTION_COMMAND = "python3 scripts/bootstrap_private_repo.py"
@@ -271,12 +272,18 @@ def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
         (CLAUDE_PATH, MARKER_NAME),
         (README_PATH, ONBOARDING_MARKER_NAME),
         (README_PT_PATH, ONBOARDING_MARKER_NAME),
+        (AGENTS_PATH, CONTRACT_MARKER_NAME),
+        (CLAUDE_PATH, CONTRACT_MARKER_NAME),
     ]
     missing_markers = []
     for path, marker in marker_checks:
+        text = path.read_text(encoding="utf-8")
         start_marker = f"<!-- {marker}:begin -->"
-        if start_marker not in path.read_text(encoding="utf-8"):
-            missing_markers.append(f"{path.name} ({marker})")
+        end_marker = f"<!-- {marker}:end -->"
+        if start_marker not in text:
+            missing_markers.append(f"{path.name} ({marker} begin)")
+        if end_marker not in text:
+            missing_markers.append(f"{path.name} ({marker} end)")
     if missing_markers:
         raise SystemExit(f"Cannot promote: missing managed block markers: {', '.join(missing_markers)}")
 
@@ -357,6 +364,8 @@ def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
             "Run python3 -m pytest tests/test_project_router.py -v.",
             "Run python3 scripts/check_agent_surface_parity.py.",
             "Run python3 scripts/check_repo_ownership.py.",
+            "Run python3 scripts/check_sync_manifest_alignment.py.",
+            "Run python3 scripts/check_customization_contracts.py.",
             "Customize Knowledge/local/Roadmap.md for your project roadmap.",
         ],
     }

@@ -50,3 +50,4 @@ All synced Knowledge files are `template_owned`. A `context` CLI subcommand gene
 ## Related
 
 - ADR-002: Template/private split (Knowledge uses the same ownership model)
+- ADR-006: Template upgrade process and customization contract

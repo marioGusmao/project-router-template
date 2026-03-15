@@ -4,6 +4,7 @@
 !.env.example
 firebase-debug.log
 
+.claude/settings.local.json
 projects/registry.local.json
 state/*
 !state/.gitkeep

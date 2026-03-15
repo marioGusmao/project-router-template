@@ -615,7 +615,8 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             )
             for doc_name in ("AGENTS.md", "CLAUDE.md"):
                 (root / doc_name).write_text(
-                    "<!-- repository-mode:begin -->\nTemplate mode.\n<!-- repository-mode:end -->\n",
+                    "<!-- repository-mode:begin -->\nTemplate mode.\n<!-- repository-mode:end -->\n\n"
+                    "<!-- customization-contract:begin -->\nContract placeholder.\n<!-- customization-contract:end -->\n",
                     encoding="utf-8",
                 )
             result = subprocess.run(
@@ -629,6 +630,9 @@ class KnowledgeGovernanceTests(unittest.TestCase):
                 "Knowledge/local/ADR/README.md",
                 "Knowledge/local/notes/README.md",
                 "Knowledge/local/TLDR/README.md",
+                "Knowledge/local/AI/README.md",
+                "Knowledge/local/AI/claude.md",
+                "Knowledge/local/AI/codex.md",
             ):
                 self.assertTrue((root / rel).exists(), f"Missing seeded scaffold file: {rel}")
             for rel in (
@@ -645,6 +649,9 @@ class KnowledgeGovernanceTests(unittest.TestCase):
                 "ADR/README.md",
                 "notes/README.md",
                 "TLDR/README.md",
+                "AI/README.md",
+                "AI/claude.md",
+                "AI/codex.md",
             ):
                 source = (REPO_ROOT / "Knowledge" / "Templates" / "local" / rel).read_bytes()
                 target = (root / "Knowledge" / "local" / rel).read_bytes()

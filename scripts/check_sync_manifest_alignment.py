@@ -15,20 +15,33 @@ WORKFLOW_PATH = ROOT / ".github" / "workflows" / "template-upstream-sync.yml"
 ALLOWED_SYNC_POLICIES = {"template_sync", "review_required"}
 
 
+SYNC_ARRAY_NAMES = {"paths", "overwrite_paths", "ai_files", "extensible_paths", "diff_paths"}
+
+
 def extract_sync_paths(text: str) -> list[str]:
-    in_paths = False
+    """Extract all paths from known bash sync array assignments in the workflow.
+
+    Recognises arrays named: paths, overwrite_paths, ai_files,
+    extensible_paths, diff_paths. Collects their non-comment entries.
+    """
+    in_array = False
     paths: list[str] = []
     for raw_line in text.splitlines():
         stripped = raw_line.strip()
-        if stripped.startswith("paths=("):
-            in_paths = True
+        # Match e.g. "overwrite_paths=(" or "paths=("
+        if not in_array:
+            for name in SYNC_ARRAY_NAMES:
+                if stripped == f"{name}=(" or stripped.startswith(f"{name}=("):
+                    in_array = True
+                    break
             continue
-        if in_paths and stripped == ")":
-            break
-        if not in_paths or not stripped or stripped.startswith("#"):
+        if stripped == ")":
+            in_array = False
+            continue
+        if not stripped or stripped.startswith("#"):
             continue
         paths.append(stripped)
-    return paths
+    return list(dict.fromkeys(paths))  # deduplicate, preserve order
 
 
 def main() -> int:

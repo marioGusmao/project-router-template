@@ -78,6 +78,26 @@ jobs:
               raise SystemExit("\n".join(errors))
           PY
 
+  managed-blocks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check managed block markers
+        run: python3 scripts/check_managed_blocks.py
+
+  customization-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check customization contracts
+        run: python3 scripts/check_customization_contracts.py
+
   adr-related-links:
     runs-on: ubuntu-latest
     steps:

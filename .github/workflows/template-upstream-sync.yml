@@ -101,52 +101,74 @@ jobs:
             "https://x-access-token:${UPSTREAM_TOKEN}@github.com/${{ steps.release.outputs.upstream_repo }}.git" \
             "$RUNNER_TEMP/upstream-template"
 
-      - name: Sync allowed template paths
+      # Pass 0: Migrate — insert missing customization-contract markers (old derived repos)
+      - name: "Pass 0: Migrate contract markers"
+        if: steps.release.outputs.update_required == 'true'
+        shell: bash
+        run: python3 scripts/migrate_add_contract_block.py
+
+      # Pass 0.5: Backup local contract blocks before overwrite
+      - name: "Pass 0.5: Backup local contract blocks"
+        if: steps.release.outputs.update_required == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/contract-backup"
+          for f in CLAUDE.md AGENTS.md; do
+            if [ -f "$f" ]; then
+              cp "$f" "$RUNNER_TEMP/contract-backup/$f"
+            fi
+          done
+
+      # Pass 1: Overwrite — template_owned paths and AI files (full overwrite with --delete)
+      - name: "Pass 1: Overwrite template-owned paths"
         if: steps.release.outputs.update_required == 'true'
         shell: bash
         run: |
           set -euo pipefail
           upstream="$RUNNER_TEMP/upstream-template"
-          paths=(
+
+          # template_owned: overwrite with --delete
+          overwrite_paths=(
             src
             scripts
             tests
             docs
-            .agents
-            .codex/skills
-            .claude/skills
+            repo-governance
             .github/ISSUE_TEMPLATE
-            .github/pull_request_template.md
             .github/workflows/template-release.yml
             .github/workflows/template-upstream-sync.yml
             .github/workflows/template-ci.yml
-            .gitignore
-            README.md
-            README.pt-PT.md
-            CONTRIBUTING.md
-            AGENTS.md
-            CLAUDE.md
             parity.manifest.json
-            repo-governance
             projects/registry.example.json
+            .claude/settings.example.json
             .env.example
             VERSION
             CHANGELOG.md
             template.meta.json
             .release-please-config.json
             .release-please-manifest.json
-            # Knowledge — never sync Knowledge/local (private_owned derived content)
+            # Knowledge (template_owned, not Knowledge/local which is private_owned)
             Knowledge/TLDR.md
             Knowledge/ContextPack.md
             Knowledge/Glossary.md
             Knowledge/PipelineMap.md
             Knowledge/Roadmap.md
             Knowledge/ScriptsReference.md
+            Knowledge/CustomizationContract.md
+            Knowledge/UpgradeGuide.md
             Knowledge/README.md
             Knowledge/ADR
             Knowledge/Templates
           )
-          for path in "${paths[@]}"; do
+
+          # full_overwrite_preserve_contract: AI files (contract block restored in Pass 2)
+          ai_files=(
+            CLAUDE.md
+            AGENTS.md
+          )
+
+          for path in "${overwrite_paths[@]}" "${ai_files[@]}"; do
             if [ -e "$upstream/$path" ]; then
               mkdir -p "$(dirname "$path")"
               if [ -d "$upstream/$path" ]; then
@@ -156,6 +178,70 @@ jobs:
               fi
             fi
           done
+
+      # Pass 2: Restore customization-contract blocks from pre-overwrite backup
+      - name: "Pass 2: Restore contract blocks in AI files"
+        if: steps.release.outputs.update_required == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/sync_ai_files.py \
+            --backup-dir "$RUNNER_TEMP/contract-backup" \
+            --local-dir "." \
+            --files CLAUDE.md,AGENTS.md
+
+      # Pass 3: Managed blocks — READMEs (replace inside markers, preserve outside)
+      - name: "Pass 3: Sync managed blocks in READMEs"
+        if: steps.release.outputs.update_required == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_managed_block_sync.py \
+            --upstream-dir "$RUNNER_TEMP/upstream-template" \
+            --local-dir "." \
+            --files README.md,README.pt-PT.md \
+            --markers repository-mode,template-onboarding
+
+      # Pass 4: Extensible directories — shared_review dirs (no --delete, local extras preserved)
+      - name: "Pass 4: Sync extensible directories"
+        if: steps.release.outputs.update_required == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="$RUNNER_TEMP/upstream-template"
+          extensible_paths=(
+            .agents
+            .codex/skills
+            .claude/skills
+          )
+          for path in "${extensible_paths[@]}"; do
+            if [ -d "$upstream/$path" ]; then
+              mkdir -p "$path"
+              rsync -a "$upstream/$path/" "$path/"
+            fi
+          done
+
+      # Pass 5: Diff-only — shared_review files that are not overwritten (diff in PR body)
+      - name: "Pass 5: Diff-only paths"
+        if: steps.release.outputs.update_required == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="$RUNNER_TEMP/upstream-template"
+          diff_paths=(
+            .gitignore
+            CONTRIBUTING.md
+            .github/pull_request_template.md
+          )
+          : > sync-diffs.txt
+          for path in "${diff_paths[@]}"; do
+            if [ -e "$upstream/$path" ] && [ -e "$path" ]; then
+              diff -u "$path" "$upstream/$path" >> sync-diffs.txt 2>/dev/null || true
+            fi
+          done
+          if [ -s sync-diffs.txt ]; then
+            echo "::notice::Diff-only paths have upstream changes — review sync-diffs.txt in the PR."
+          fi
 
       - name: Capture changed files
         if: steps.release.outputs.update_required == 'true'

@@ -29,3 +29,5 @@ When updating a shared workflow:
 3. Update `README.md`, `AGENTS.md`, or `CLAUDE.md` when the operating model changes.
 4. Run `python3 scripts/check_agent_surface_parity.py`.
 5. Run `python3 scripts/check_repo_ownership.py`.
+6. Run `python3 scripts/check_managed_blocks.py`.
+7. Run `python3 scripts/check_customization_contracts.py`.

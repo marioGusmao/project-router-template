@@ -91,6 +91,11 @@ def main() -> int:
         "Knowledge/Templates/local/Roadmap.md",
         "Knowledge/Templates/local/ADR/README.md",
         "Knowledge/Templates/local/notes/README.md",
+        "Knowledge/Templates/local/AI/README.md",
+        "Knowledge/Templates/local/AI/claude.md",
+        "Knowledge/Templates/local/AI/codex.md",
+        ".claude/settings.example.json",
+        "repo-governance/customization-contracts.json",
     ]
     for path in required_paths:
         if classify_path(path, rules) is None:

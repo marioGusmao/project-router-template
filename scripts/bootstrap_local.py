@@ -15,6 +15,8 @@ ENV_EXAMPLE_PATH = ROOT / ".env.example"
 ENV_LOCAL_PATH = ROOT / ".env.local"
 REGISTRY_SHARED_PATH = ROOT / "projects" / "registry.shared.json"
 REGISTRY_LOCAL_PATH = ROOT / "projects" / "registry.local.json"
+CLAUDE_SETTINGS_EXAMPLE = ROOT / ".claude" / "settings.example.json"
+CLAUDE_SETTINGS_LOCAL = ROOT / ".claude" / "settings.local.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +41,16 @@ def ensure_env_local(force: bool) -> str:
         return "skipped .env.local creation (.env.example missing)"
     ENV_LOCAL_PATH.write_text(ENV_EXAMPLE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     return "wrote .env.local from .env.example"
+
+
+def ensure_claude_settings(force: bool) -> str:
+    if CLAUDE_SETTINGS_LOCAL.exists() and not force:
+        return "kept existing .claude/settings.local.json"
+    if not CLAUDE_SETTINGS_EXAMPLE.exists():
+        return "skipped .claude/settings.local.json creation (settings.example.json missing)"
+    CLAUDE_SETTINGS_LOCAL.parent.mkdir(parents=True, exist_ok=True)
+    CLAUDE_SETTINGS_LOCAL.write_text(CLAUDE_SETTINGS_EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+    return "wrote .claude/settings.local.json from settings.example.json"
 
 
 def prompt_for_path(project_key: str, existing_value: str | None) -> str | None:
@@ -89,6 +101,7 @@ def build_registry_local(force: bool) -> tuple[dict[str, Any] | None, list[str],
 def main() -> int:
     args = parse_args()
     env_status = ensure_env_local(force=args.force)
+    claude_settings_status = ensure_claude_settings(force=args.force)
     registry_payload, warnings, registry_status = build_registry_local(force=args.force)
 
     for warning in warnings:
@@ -96,6 +109,7 @@ def main() -> int:
 
     summary = {
         "env_local": env_status,
+        "claude_settings": claude_settings_status,
         "registry_local": registry_status,
         "configured_projects": sorted((registry_payload or {}).get("projects", {}).keys()),
         "next_steps": [

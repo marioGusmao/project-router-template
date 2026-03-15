@@ -54,7 +54,13 @@ python3 -m pytest tests/test_project_router.py -v
 python3 scripts/check_agent_surface_parity.py
 python3 scripts/check_repo_ownership.py
 python3 scripts/check_sync_manifest_alignment.py
+python3 scripts/check_managed_blocks.py
+python3 scripts/check_customization_contracts.py
+python3 scripts/check_knowledge_structure.py
+python3 scripts/check_adr_related_links.py
 ```
 
-After that, customize `projects/registry.shared.json`, private docs, and private skills according to the ownership manifest.
+After that, customize `projects/registry.shared.json` and private docs according to the ownership manifest.
+Private operating rules live in `Knowledge/local/AI/` (loaded via `@import` in CLAUDE.md and prose in AGENTS.md).
+Local skill additions in `.claude/skills/`, `.codex/skills/`, or `.agents/skills/` are preserved during sync but do not require parity mirroring across surfaces.
 Then adapt `Knowledge/local/Roadmap.md` and add any project-specific ADRs under `Knowledge/local/ADR/`.

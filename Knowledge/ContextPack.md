@@ -17,8 +17,11 @@ For a live project briefing in the terminal, run `python3 scripts/project_router
 | Agent skills (Claude) | `.claude/skills/` | Claude-facing adaptations |
 | Agent skills (Codex) | `.codex/skills/` | Codex-facing adaptations |
 | Governance (ownership) | `repo-governance/ownership.manifest.json` | Template/private sync boundary |
+| Governance (contracts) | `repo-governance/customization-contracts.json` | Per-surface sync model and overlay rules |
 | Governance (parity) | `parity.manifest.json` | Agent surface parity tracking |
-| Governance (validators) | `scripts/check_*.py` | Knowledge structure, ADR links, sync alignment, ownership, parity |
+| Governance (validators) | `scripts/check_*.py` | Knowledge structure, ADR links, sync alignment, ownership, parity, managed blocks, contracts |
+| Customization contract | `Knowledge/CustomizationContract.md` | Human-readable surface ownership table |
+| Upgrade guide | `Knowledge/UpgradeGuide.md` | How to merge template sync PRs |
 | Tests | `tests/test_project_router.py` | unittest + tempfile isolation |
 | ADRs | `Knowledge/ADR/` | Architecture Decision Records (000--099 template) |
 | Glossary | `Knowledge/Glossary.md` | ~25 terms across 6 categories |

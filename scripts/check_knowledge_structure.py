@@ -18,10 +18,12 @@ TEMPLATE_REQUIRED_FILES = [
     "Knowledge/README.md",
     "Knowledge/TLDR.md",
     "Knowledge/ContextPack.md",
+    "Knowledge/CustomizationContract.md",
     "Knowledge/Glossary.md",
     "Knowledge/PipelineMap.md",
     "Knowledge/Roadmap.md",
     "Knowledge/ScriptsReference.md",
+    "Knowledge/UpgradeGuide.md",
     "Knowledge/ADR/TEMPLATE.md",
     "Knowledge/ADR/000-use-adr-for-decisions.md",
     "Knowledge/ADR/001-stdlib-only.md",
@@ -29,21 +31,27 @@ TEMPLATE_REQUIRED_FILES = [
     "Knowledge/ADR/003-knowledge-foundation.md",
     "Knowledge/ADR/004-fail-closed-dispatch.md",
     "Knowledge/ADR/005-safety-invariants.md",
+    "Knowledge/ADR/006-template-upgrade-process.md",
     "Knowledge/Templates/local/README.md",
     "Knowledge/Templates/local/Roadmap.md",
     "Knowledge/Templates/local/ADR/README.md",
     "Knowledge/Templates/local/notes/README.md",
     "Knowledge/Templates/local/TLDR/README.md",
+    "Knowledge/Templates/local/AI/README.md",
+    "Knowledge/Templates/local/AI/claude.md",
+    "Knowledge/Templates/local/AI/codex.md",
 ]
 
 EXPECTED_SYNCED = {
     "Knowledge/README.md",
     "Knowledge/TLDR.md",
     "Knowledge/ContextPack.md",
+    "Knowledge/CustomizationContract.md",
     "Knowledge/Glossary.md",
     "Knowledge/PipelineMap.md",
     "Knowledge/Roadmap.md",
     "Knowledge/ScriptsReference.md",
+    "Knowledge/UpgradeGuide.md",
     "Knowledge/ADR/TEMPLATE.md",
     "Knowledge/ADR/000-use-adr-for-decisions.md",
     "Knowledge/ADR/001-stdlib-only.md",
@@ -51,11 +59,15 @@ EXPECTED_SYNCED = {
     "Knowledge/ADR/003-knowledge-foundation.md",
     "Knowledge/ADR/004-fail-closed-dispatch.md",
     "Knowledge/ADR/005-safety-invariants.md",
+    "Knowledge/ADR/006-template-upgrade-process.md",
     "Knowledge/Templates/local/README.md",
     "Knowledge/Templates/local/Roadmap.md",
     "Knowledge/Templates/local/ADR/README.md",
     "Knowledge/Templates/local/notes/README.md",
     "Knowledge/Templates/local/TLDR/README.md",
+    "Knowledge/Templates/local/AI/README.md",
+    "Knowledge/Templates/local/AI/claude.md",
+    "Knowledge/Templates/local/AI/codex.md",
 }
 
 DERIVED_REQUIRED_FILES = [
@@ -64,6 +76,9 @@ DERIVED_REQUIRED_FILES = [
     "Knowledge/local/ADR/README.md",
     "Knowledge/local/TLDR/README.md",
     "Knowledge/local/notes/README.md",
+    "Knowledge/local/AI/README.md",
+    "Knowledge/local/AI/claude.md",
+    "Knowledge/local/AI/codex.md",
 ]
 
 DERIVED_METADATA_FILES = [

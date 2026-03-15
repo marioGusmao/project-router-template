@@ -25,7 +25,14 @@
 - Treat downstream project writes as derived exports. The canonical note always remains in this repository.
 - Never dispatch a normalized note directly. Compile a project-ready package first and dispatch from that compiled artifact.
 - Compiled packages must be fresh before dispatch.
+- Registry paths must be absolute. `router_root_path` and `inbox_path` use absolute paths; placeholder paths trigger validation errors during dispatch.
 - Treat downstream project-router outboxes as read-only during scan and review.
+- AGENTS.md and CLAUDE.md are template-owned — do not edit directly; use `Knowledge/local/AI/` overlays for private rules.
+- New files must be declared in `customization-contracts.json` with all fields before merging.
+- Private AI rules belong in `Knowledge/local/AI/` — never in synced AI files.
+- Private ADRs belong in `Knowledge/local/ADR/`.
+- Skills dirs are extensible — local skill additions are preserved during sync and do not require parity mirroring.
+- Run `check_customization_contracts.py` before publishing.
 
 ## Project Boundaries
 - Treat the managed `Repository Mode` block above as authoritative. In template mode this repository is the shared starter upstream; in private-derived mode it becomes the operational private home while upstream updates arrive through reviewed sync PRs.
@@ -93,4 +100,15 @@
 - `python3 scripts/check_sync_manifest_alignment.py`
 - `python3 scripts/check_knowledge_structure.py`
 - `python3 scripts/check_adr_related_links.py`
+- `python3 scripts/check_managed_blocks.py`
+- `python3 scripts/check_customization_contracts.py`
 - `python3 scripts/project_router.py context`
+
+<!-- customization-contract:begin -->
+## Private AI Rules
+
+Tracked AI surfaces are upstream shared_review base.
+If Knowledge/local/AI/README.md exists, read it first for private cross-agent rules.
+If Knowledge/local/AI/codex.md exists, read it next for Codex-specific additions.
+Do not store private rules directly in this file.
+<!-- customization-contract:end -->

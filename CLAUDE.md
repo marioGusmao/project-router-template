@@ -63,6 +63,8 @@ python3 scripts/check_repo_ownership.py
 python3 scripts/check_sync_manifest_alignment.py
 python3 scripts/check_knowledge_structure.py
 python3 scripts/check_adr_related_links.py
+python3 scripts/check_managed_blocks.py
+python3 scripts/check_customization_contracts.py
 python3 scripts/project_router.py context
 ```
 
@@ -114,8 +116,10 @@ Classification can run from the shared registry alone. Real dispatch requires th
 **Template/private split:**
 
 - The managed `Repository Mode` block above is authoritative for the current repo role.
-- Private downstream repos may keep their own branded `projects/registry.shared.json`, private skills, and private docs.
-- The sync boundary is enforced through `repo-governance/ownership.manifest.json`.
+- Private downstream repos may keep their own branded `projects/registry.shared.json` and private docs.
+- Private operating rules live in `Knowledge/local/AI/` (loaded via `@import` in CLAUDE.md and prose in AGENTS.md).
+- Local skill additions in `.claude/skills/` are preserved during sync but do not require parity mirroring.
+- The sync boundary is enforced through `repo-governance/ownership.manifest.json` and `repo-governance/customization-contracts.json`.
 
 **Agent surfaces:**
 
@@ -166,6 +170,12 @@ These are critical — never violate:
 - **The pipeline is idempotent** — re-running must not duplicate notes or dispatch records
 - **Run the parity and ownership checks before publishing starter changes** — use `python3 scripts/check_agent_surface_parity.py --pre-publish` and `python3 scripts/check_repo_ownership.py`
 - **If a downstream repository must be edited**, read that repository's local agent instructions first
+- **CLAUDE.md and AGENTS.md are template-owned** — do not edit directly; use `Knowledge/local/AI/` overlays for private rules
+- **New files must be declared** in `customization-contracts.json` with all fields before merging
+- **Private AI rules belong in `Knowledge/local/AI/`** — never in synced AI files
+- **Private ADRs belong in `Knowledge/local/ADR/`**
+- **Skills dirs are extensible** — local skill additions are preserved during sync and do not require parity mirroring, but operational rules live in overlays
+- **Run `check_customization_contracts.py` before publishing**
 
 ## Language
 
@@ -192,11 +202,19 @@ These are critical — never violate:
 
 ## Claude Skills
 
-Repository-local Claude workflow references live under `.claude/skills/`:
-
-- `project-router-session-opener`
-- `project-router-direct-sync`
-- `project-router-triage-review`
+Template skills live in `.claude/skills/`. Private operating rules live in `Knowledge/local/AI/claude.md` (loaded via `@import` below). Local skill additions in `.claude/skills/` are preserved during sync but do not require parity mirroring.
 
 Treat `.agents/skills/` as the canonical neutral reference for shared workflow rules.
 Keep the Claude skills aligned with both `.agents/skills/` and the Codex skill surface under `.codex/skills/`, but do not assume byte-for-byte identity is required.
+
+<!-- customization-contract:begin -->
+## Private AI Rules
+
+Tracked AI surfaces (this file, AGENTS.md, skills) are upstream shared_review base.
+Private operating rules live in Knowledge/local/AI/:
+
+@Knowledge/local/AI/README.md
+@Knowledge/local/AI/claude.md
+
+Do not store private rules directly in this file — they will be overwritten during template sync.
+<!-- customization-contract:end -->

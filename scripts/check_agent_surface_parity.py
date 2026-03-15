@@ -56,6 +56,10 @@ def main() -> int:
     manifest = load_manifest()
     errors: list[str] = []
 
+    # Parity check validates only required template skills listed in the manifest.
+    # Local skill additions (extra directories in .claude/skills/, .codex/skills/,
+    # or .agents/skills/) do NOT need to be mirrored across all three surfaces.
+    # See ADR-006 and customization-contracts.json for the extensible directory model.
     required_skills = [str(item) for item in manifest.get("required_skills", [])]
     surface_files = {key: [ROOT / entry for entry in value] for key, value in manifest.get("surface_files", {}).items()}
     required_commands = [str(item) for item in manifest.get("required_commands", [])]
