@@ -92,7 +92,7 @@ template.meta.json
 
 ## Knowledge
 
-The `Knowledge/` directory provides curated onboarding docs, architectural decision records, and a glossary. Read `Knowledge/ContextPack.md` for a routing guide to the codebase, or run `python3 scripts/project_router.py context` for a live project briefing in the terminal.
+The `Knowledge/` directory provides curated onboarding docs, architectural decision records, and a glossary. Read `Knowledge/ContextPack.md` for a routing guide to the codebase, or run `python3 scripts/project_router.py context` for a project briefing that reflects current repo state including demo indicators and pending migrations.
 
 ## Local Configuration
 

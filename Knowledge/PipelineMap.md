@@ -62,7 +62,7 @@ Generates an enriched project-ready brief. Adds extracted summary, facts, tasks,
 data/review/voicenotes/{status}/20260314T120000Z--vn_abc123.md
 ```
 
-Where `{status}` is one of: `ready`, `ambiguous`, `needs_review`, `pending_project`.
+Where `{status}` is one of: `ambiguous`, `needs_review`, `pending_project`.
 
 These are **queue view copies**, not the source of truth. The canonical metadata lives in the source-aware `data/normalized/` path.
 
@@ -111,14 +111,13 @@ data/
       {project}/
   review/
     voicenotes/          # Queue views (not source of truth)
-      ready/
       ambiguous/
       needs_review/
       pending_project/
     project_router/
-      {project}/
-        ready/
-        ...
+      parse_errors/
+      needs_review/
+      pending_project/
   dispatched/            # Successfully dispatched packages
 state/
   decisions/             # User decision packets (JSON)

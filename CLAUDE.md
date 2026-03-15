@@ -159,7 +159,7 @@ These are critical — never violate:
 - **Compiled packages must be fresh** relative to the canonical normalized note before dispatch
 - **Never write to a downstream project during session opening or review analysis** — stop at `review` and ask the user what to approve
 - **Never mutate downstream `project-router/outbox/` content during scan or review** — `scan-outboxes` is read-only
-- **Registry paths must be absolute** — placeholder paths trigger validation errors during dispatch
+- **Registry paths must be absolute** — `router_root_path` and `inbox_path` in the registry use absolute paths; placeholder paths trigger validation errors during dispatch. Internal metadata paths (`canonical_path`, `raw_payload_path`, `compiled_from_path`) use project-relative paths.
 - **Fail closed** when local config is missing or uses placeholder paths
 - **Canonical metadata lives in source-aware `data/normalized/` paths** — review copies are queue views, not the source of truth
 - **The pipeline is idempotent** — re-running must not duplicate notes or dispatch records

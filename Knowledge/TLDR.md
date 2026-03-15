@@ -11,7 +11,7 @@ Project Router Template is an **intake and classification layer** for VoiceNotes
 **Where to start:**
 
 1. Run `python3 scripts/project_router.py status` to see current queue counts.
-2. Run `python3 scripts/project_router.py context` for a live project briefing.
+2. Run `python3 scripts/project_router.py context` for a project briefing (reflects current repo state including demo indicators and pending migrations).
 3. Read `Knowledge/ContextPack.md` for a "where to find what" routing table.
 4. Read `Knowledge/PipelineMap.md` for a concrete trace of a note through the full pipeline.
 5. Read `CLAUDE.md` or `AGENTS.md` for safety rules and session defaults.

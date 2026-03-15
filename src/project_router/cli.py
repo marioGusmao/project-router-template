@@ -921,7 +921,7 @@ def build_decision_packet(
             "source_note_id": source_note_id,
             "source": metadata.get("source", VOICE_SOURCE),
             "source_project": metadata.get("source_project"),
-            "canonical_path": str(note_path),
+            "canonical_path": relative_or_absolute(note_path),
             "raw_payload_path": metadata.get("raw_payload_path"),
             "title": metadata.get("title"),
             "created_at": metadata.get("created_at"),
@@ -1082,8 +1082,8 @@ def normalized_note_from_raw(raw_path: Path, raw_payload: dict[str, Any], raw_fo
             "review_status": "pending",
             "requires_user_confirmation": True,
             "content_hash": raw_payload.get("content_hash"),
-            "canonical_path": str(normalized_path),
-            "raw_payload_path": str(raw_path),
+            "canonical_path": relative_or_absolute(normalized_path),
+            "raw_payload_path": relative_or_absolute(raw_path),
             "dispatched_to": [],
             "packet_type": packet.get("packet_type"),
             "supported_packet_types": packet.get("supported_packet_types"),
@@ -1134,8 +1134,8 @@ def normalized_note_from_raw(raw_path: Path, raw_payload: dict[str, Any], raw_fo
         "review_status": "pending",
         "requires_user_confirmation": True,
         "content_hash": None,
-        "canonical_path": str(normalized_path),
-        "raw_payload_path": str(raw_path),
+        "canonical_path": relative_or_absolute(normalized_path),
+        "raw_payload_path": relative_or_absolute(raw_path),
         "dispatched_to": [],
     }
     body = f"# {title}\n\n{strip_html(transcript)}\n"
@@ -1471,11 +1471,11 @@ def compile_note_artifact(metadata: dict[str, Any], body: str, note_path: Path) 
         "audio_local_path": metadata.get("audio_local_path"),
         "classification_basis": metadata.get("classification_basis", []),
         "derived_outputs": metadata.get("derived_outputs", []),
-        "canonical_path": str(note_path),
+        "canonical_path": relative_or_absolute(note_path),
         "raw_payload_path": metadata.get("raw_payload_path"),
         "compiled_at": iso_now(),
         "compiled_version": 1,
-        "compiled_from_path": str(note_path),
+        "compiled_from_path": relative_or_absolute(note_path),
         "compiled_from_signature": compile_signature,
         "compiled_from_status": metadata.get("status"),
         "brief_summary": brief_summary,
@@ -1531,7 +1531,7 @@ def compile_command(args: argparse.Namespace) -> int:
         packet.setdefault("source_note_id", source_note_id)
         packet.setdefault("source", metadata.get("source", VOICE_SOURCE))
         packet.setdefault("source_project", metadata.get("source_project"))
-        packet.setdefault("canonical_path", str(note_path))
+        packet.setdefault("canonical_path", relative_or_absolute(note_path))
         packet.setdefault("title", metadata.get("title"))
         if artifact_path.exists():
             existing_metadata, existing_body = read_note(artifact_path)
@@ -1827,8 +1827,8 @@ def build_dispatch_note(
         "continuation_of": metadata.get("continuation_of"),
         "related_note_ids": metadata.get("related_note_ids", []),
         "status": "por_triar" if project.language.lower() == "pt-pt" else "to_review",
-        "canonical_path": str(canonical_path),
-        "compiled_path": str(compiled_path),
+        "canonical_path": relative_or_absolute(canonical_path),
+        "compiled_path": relative_or_absolute(compiled_path),
         "raw_payload_path": metadata.get("raw_payload_path"),
         "tags": metadata.get("tags", []),
         "compiled_at": compiled_metadata.get("compiled_at"),
@@ -1906,9 +1906,9 @@ def dispatch_command(args: argparse.Namespace) -> int:
         mirror_path = DISPATCHED_DIR / project.key / destination.name if destination is not None else None
         candidates.append(
             {
-                "note": str(note_path),
+                "note": relative_or_absolute(note_path),
                 "source_note_id": source_note_id,
-                "compiled_path": str(compiled_path),
+                "compiled_path": relative_or_absolute(compiled_path),
                 "compiled_ready": compiled_ready,
                 "compiled_fresh": compiled_fresh,
                 "destination": str(destination) if destination is not None else None,
@@ -1962,13 +1962,13 @@ def dispatch_command(args: argparse.Namespace) -> int:
         packet.setdefault("source_note_id", source_note_id)
         packet.setdefault("source", metadata.get("source", VOICE_SOURCE))
         packet.setdefault("source_project", metadata.get("source_project"))
-        packet.setdefault("canonical_path", str(note_path))
+        packet.setdefault("canonical_path", relative_or_absolute(note_path))
         packet.setdefault("title", metadata.get("title"))
         packet.setdefault("created_at", metadata.get("created_at"))
         packet["dispatch"] = {
             "destination": str(destination),
             "dispatched_at": metadata["dispatched_at"],
-            "compiled_path": str(compiled_path),
+            "compiled_path": relative_or_absolute(compiled_path),
         }
         save_decision_packet_for_metadata(metadata, packet)
         dispatched += 1
@@ -2175,7 +2175,8 @@ def build_review_entry(packet: dict[str, Any], packet_path: Path) -> dict[str, A
     compiled = packet.get("compiled") or {}
     note_metadata: dict[str, Any] = {}
     note_body = ""
-    canonical_path = packet.get("canonical_path")
+    canonical_path_raw = packet.get("canonical_path")
+    canonical_path = str(ROOT / canonical_path_raw) if canonical_path_raw and not Path(canonical_path_raw).is_absolute() else canonical_path_raw
     if canonical_path and Path(canonical_path).exists():
         note_metadata, note_body = read_note(Path(canonical_path))
         note_metadata = ensure_note_metadata_defaults(note_metadata)
@@ -2187,7 +2188,7 @@ def build_review_entry(packet: dict[str, Any], packet_path: Path) -> dict[str, A
     note_type = note_metadata.get("note_type")
     note_review_status = note_metadata.get("review_status") or proposal.get("review_status")
     note_confidence = note_metadata.get("confidence") if "confidence" in note_metadata else proposal.get("confidence")
-    compiled_path = compiled.get("path") or (str(compiled_note_path(note_metadata)) if canonical_path else None)
+    compiled_path = compiled.get("path") or (str(compiled_note_path(note_metadata)) if note_metadata else None)
     compiled_summary = compiled.get("brief_summary")
     compiled_is_fresh = None
     compiled_ready = False
@@ -2344,7 +2345,7 @@ def decide_command(args: argparse.Namespace) -> int:
     packet.setdefault("source_note_id", args.note_id)
     packet.setdefault("source", metadata.get("source", VOICE_SOURCE))
     packet.setdefault("source_project", metadata.get("source_project"))
-    packet.setdefault("canonical_path", str(note_path))
+    packet.setdefault("canonical_path", relative_or_absolute(note_path))
     packet.setdefault("title", metadata.get("title"))
     packet.setdefault("created_at", metadata.get("created_at"))
     packet["reviews"].append(
@@ -2523,7 +2524,7 @@ def build_project_router_raw_payload(
 
 
 def parse_error_note_path(project_key: str, note_id: str) -> Path:
-    return review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors") / f"{normalize_timestamp(iso_now())}--{slugify(project_key)}--{note_id}.md"
+    return review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors") / f"{slugify(project_key)}--{note_id}.md"
 
 
 def write_parse_error_note(
@@ -2546,8 +2547,8 @@ def write_parse_error_note(
         "status": "parse_error",
         "review_status": "pending",
         "routing_reason": "; ".join(errors),
-        "canonical_path": str(path),
-        "raw_payload_path": str(source_path),
+        "canonical_path": relative_or_absolute(path),
+        "raw_payload_path": relative_or_absolute(source_path),
         "content_hash": packet_content_hash(metadata or {}, "\n".join(errors)),
     }
     body = "## Errors\n\n" + "\n".join(f"- {error}" for error in errors) + f"\n\n## Source path\n\n- {source_path}\n"
@@ -2669,6 +2670,13 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
                 errors = [f"Missing project-router contract at {contract_path}"]
                 invalid += 1
                 write_parse_error_note(project_key=project_key, source_path=contract_path, note_id="router-contract", errors=errors)
+                update_scan_state(state, project_key, "router-contract", {
+                    "source_path": str(contract_path),
+                    "status": "invalid",
+                    "error_code": "MISSING_CONTRACT",
+                    "error_detail": "; ".join(errors),
+                    "last_seen_at": iso_now(),
+                })
                 scanned_packets.append(
                     {
                         "project_key": project_key,
@@ -2683,6 +2691,13 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
             if contract_errors:
                 invalid += 1
                 write_parse_error_note(project_key=project_key, source_path=contract_path, note_id="router-contract", errors=contract_errors)
+                update_scan_state(state, project_key, "router-contract", {
+                    "source_path": str(contract_path),
+                    "status": "invalid",
+                    "error_code": "INVALID_CONTRACT",
+                    "error_detail": "; ".join(contract_errors),
+                    "last_seen_at": iso_now(),
+                })
                 scanned_packets.append(
                     {
                         "project_key": project_key,
@@ -2692,6 +2707,20 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
                     }
                 )
                 continue
+            # Contract is valid — update scan state and reconcile error notes
+            update_scan_state(state, project_key, "router-contract", {
+                "source_path": str(contract_path),
+                "status": "valid",
+                "error_code": None,
+                "error_detail": None,
+                "last_seen_at": iso_now(),
+            })
+            error_dir = review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors")
+            contract_note_id = "router-contract"
+            stable_contract_error = error_dir / f"{slugify(project_key)}--{contract_note_id}.md"
+            stable_contract_error.unlink(missing_ok=True)
+            for legacy_contract_error in error_dir.glob(f"*--{slugify(project_key)}--{contract_note_id}.md"):
+                legacy_contract_error.unlink()
             for packet_path in outbox_packet_paths(router_root):
                 metadata, body, errors, normalized = parse_outbox_packet(packet_path, expected_project_key=project_key, strict=args.strict)
                 note_id = normalized.get("source_note_id") or slugify(packet_path.stem) or "invalid-packet"
@@ -2717,6 +2746,12 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
                     )
                     scanned_packets.append({"project_key": project_key, "packet": str(packet_path), "status": "invalid", "errors": errors})
                     continue
+                # Reconcile: clean up parse error notes for this now-valid packet
+                error_dir = review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors")
+                stable_error = error_dir / f"{slugify(project_key)}--{note_id}.md"
+                stable_error.unlink(missing_ok=True)
+                for legacy_error in error_dir.glob(f"*--{slugify(project_key)}--{note_id}.md"):
+                    legacy_error.unlink()
                 status = "ingested"
                 if entry and entry.get("content_hash") == normalized.get("content_hash"):
                     unchanged += 1
@@ -2886,6 +2921,12 @@ def status_command(args: argparse.Namespace) -> int:
     project_router_raw = sum(count_raw(path) for path in iter_source_dirs("raw", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     project_router_normalized = sum(count_markdown(path) for path in iter_source_dirs("normalized", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     project_router_compiled = sum(count_markdown(path) for path in iter_source_dirs("compiled", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
+    # Count files in legacy (non-source-aware) layout
+    legacy_raw = len([f for f in RAW_DIR.iterdir() if f.is_file() and f.name != ".gitkeep"]) if RAW_DIR.exists() else 0
+    legacy_normalized = len([f for f in NORMALIZED_DIR.iterdir() if f.is_file() and f.suffix == ".md"]) if NORMALIZED_DIR.exists() else 0
+    legacy_compiled = len([f for f in COMPILED_DIR.iterdir() if f.is_file() and f.suffix == ".md"]) if COMPILED_DIR.exists() else 0
+    legacy_backlog = legacy_raw + legacy_normalized + legacy_compiled
+
     summary = {
         "sources": sorted(sources),
         "raw": {
@@ -2915,6 +2956,7 @@ def status_command(args: argparse.Namespace) -> int:
         "dispatched": sum(count_markdown(path) for path in DISPATCHED_DIR.glob("*") if path.is_dir()),
         "processed": count_markdown(PROCESSED_DIR),
         "decision_packets": len(list(DECISIONS_DIR.glob("*.json"))),
+        "legacy_backlog": legacy_backlog,
         "scan_state_path": str(OUTBOX_SCAN_STATE_PATH),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
@@ -2973,6 +3015,33 @@ def context_command(args: argparse.Namespace) -> int:
         if total:
             sections.append(f"- **{stage_name}** ({total}): {', '.join(details)}")
     sections.append("")
+
+    # --- Environment notes ---
+    env_notes: list[str] = []
+    if REGISTRY_LOCAL_PATH.exists():
+        try:
+            local_reg = json.loads(REGISTRY_LOCAL_PATH.read_text(encoding="utf-8"))
+            local_projects = local_reg.get("projects", {}) if isinstance(local_reg, dict) else {}
+            demo_paths = [k for k, v in local_projects.items() if isinstance(v, dict) and "demo-inboxes" in str(v.get("router_root_path", ""))]
+            if demo_paths:
+                env_notes.append(f"Demo mode active (demo-inboxes configured for: {', '.join(demo_paths)})")
+        except (json.JSONDecodeError, OSError):
+            pass
+    legacy_raw = len([f for f in RAW_DIR.iterdir() if f.is_file() and f.name != ".gitkeep"]) if RAW_DIR.exists() else 0
+    legacy_normalized = len([f for f in NORMALIZED_DIR.iterdir() if f.is_file() and f.suffix == ".md"]) if NORMALIZED_DIR.exists() else 0
+    legacy_compiled = len([f for f in COMPILED_DIR.iterdir() if f.is_file() and f.suffix == ".md"]) if COMPILED_DIR.exists() else 0
+    legacy_total = legacy_raw + legacy_normalized + legacy_compiled
+    if legacy_total > 0:
+        env_notes.append(f"Legacy layout backlog: {legacy_total} files (run migrate-source-layout)")
+    parse_error_count = count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors"))
+    if parse_error_count > 0:
+        env_notes.append(f"Active parse errors: {parse_error_count}")
+    if env_notes:
+        sections.append("## Environment Notes")
+        sections.append("")
+        for note in env_notes:
+            sections.append(f"- {note}")
+        sections.append("")
 
     # --- Available scripts ---
     scripts_dir = ROOT / "scripts"

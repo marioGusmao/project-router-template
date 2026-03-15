@@ -200,7 +200,8 @@ class ProjectRouterFlowTests(unittest.TestCase):
             normalized = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_123.md"
             metadata, body = cli.read_note(normalized)
             self.assertEqual(metadata["source"], "voicenotes")
-            self.assertEqual(metadata["raw_payload_path"], str(raw_path))
+            # raw_payload_path is now project-relative
+            self.assertIn("data/raw/voicenotes/20260311T160000Z--vn_123.json", metadata["raw_payload_path"])
             self.assertIn("Hello\nworld", body)
 
     def test_triage_routes_unmatched_voicenote_to_pending_project_queue(self) -> None:
@@ -549,7 +550,7 @@ class ProjectRouterFlowTests(unittest.TestCase):
             self.assertEqual(payload["invalid"], 1)
             self.assertEqual(payload["packets"][0]["status"], "invalid")
             self.assertIn("Missing project-router contract", payload["packets"][0]["errors"][0])
-            parse_errors = list((root / "data" / "review" / "project_router" / "parse_errors").glob("*--home-renovation--router-contract.md"))
+            parse_errors = list((root / "data" / "review" / "project_router" / "parse_errors").glob("*home-renovation--router-contract.md"))
             self.assertEqual(len(parse_errors), 1)
 
 
@@ -1004,6 +1005,256 @@ class TestCheckAdrRelatedLinks(unittest.TestCase):
             capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, f"Real repo failed: {result.stderr}")
+
+
+class PR1FixTests(unittest.TestCase):
+    """Tests covering PR 1 confirmed-defect fixes."""
+
+    def test_review_all_with_missing_canonical(self) -> None:
+        """review --all must not crash when decision packets have empty metadata."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            # Create a note and triage it so we have a valid decision packet
+            note_path = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_good.md"
+            cli.write_note(
+                note_path,
+                {
+                    "source": "voicenotes",
+                    "source_note_id": "vn_good",
+                    "title": "Good note",
+                    "created_at": "2026-03-11T16:00:00Z",
+                    "tags": ["renovation"],
+                    "status": "normalized",
+                    "project": None,
+                    "candidate_projects": [],
+                    "confidence": 0.0,
+                    "routing_reason": "",
+                    "requires_user_confirmation": True,
+                    "canonical_path": str(note_path),
+                    "dispatched_to": [],
+                },
+                "# Good note\n\nRenovation ideas.\n",
+            )
+            with patch_cli_paths(root):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+                # Plant a stale decision packet with a non-existent canonical_path
+                stale_packet = {
+                    "source_note_id": "vn_stale",
+                    "source": "voicenotes",
+                    "canonical_path": "/does/not/exist/stale.md",
+                    "proposal": {"status": "pending_project", "review_status": "pending"},
+                    "reviews": [],
+                }
+                (root / "state" / "decisions" / "voicenotes--vn_stale.json").write_text(
+                    json.dumps(stale_packet), encoding="utf-8"
+                )
+                # review --all must return without crashing
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    result = cli.review_command(type("Args", (), {"all": True, "source": "all", "note_id": None})())
+                self.assertEqual(result, 0)
+                output = parse_print_json(mock_print)
+                self.assertIsInstance(output, list)
+                # The stale entry should be present with degraded data (no crash)
+                stale_entries = [e for e in output if e.get("source_note_id") == "vn_stale"]
+                self.assertEqual(len(stale_entries), 1)
+
+    def test_parse_error_deduplication(self) -> None:
+        """Re-scanning with errors must not duplicate parse error notes."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            write_router_contract(router_root)
+            # Create an invalid packet (missing title)
+            invalid_packet = router_root / "outbox" / "20260313T100000Z--pkt_dup.md"
+            invalid_packet.write_text(
+                "---\n"
+                'schema_version: "1"\n'
+                'packet_id: "pkt_dup"\n'
+                'created_at: "2026-03-13T10:00:00Z"\n'
+                'source_project: "home_renovation"\n'
+                'packet_type: "proposal"\n'
+                'language: "en"\n'
+                'status: "open"\n'
+                "---\n\nBody\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+            error_dir = root / "data" / "review" / "project_router" / "parse_errors"
+            error_files = list(error_dir.glob("*pkt_dup*.md"))
+            self.assertEqual(len(error_files), 1, f"Expected 1 parse error note, got {len(error_files)}: {error_files}")
+
+    def test_parse_error_reconciliation_packet(self) -> None:
+        """Fixing a packet must remove its parse error note (stable + legacy)."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            write_router_contract(router_root)
+            error_dir = root / "data" / "review" / "project_router" / "parse_errors"
+            # Seed a legacy timestamped error file
+            legacy_error = error_dir / "20260101T000000Z--home-renovation--pkt_fix.md"
+            legacy_error.write_text("---\ntitle: legacy\n---\n\nOld error.\n", encoding="utf-8")
+            # Create an invalid packet first (missing title)
+            packet_path = router_root / "outbox" / "20260313T100000Z--pkt_fix.md"
+            packet_path.write_text(
+                "---\n"
+                'schema_version: "1"\n'
+                'packet_id: "pkt_fix"\n'
+                'created_at: "2026-03-13T10:00:00Z"\n'
+                'source_project: "home_renovation"\n'
+                'packet_type: "proposal"\n'
+                'language: "en"\n'
+                'status: "open"\n'
+                "---\n\nBody\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+            self.assertTrue(any(error_dir.glob("*pkt_fix*")))
+            # Now fix the packet (add title)
+            packet_path.write_text(
+                "---\n"
+                'schema_version: "1"\n'
+                'packet_id: "pkt_fix"\n'
+                'created_at: "2026-03-13T10:00:00Z"\n'
+                'source_project: "home_renovation"\n'
+                'packet_type: "proposal"\n'
+                'title: "Fixed packet"\n'
+                'language: "en"\n'
+                'status: "open"\n'
+                "---\n\n# Fixed packet\n\nFixed.\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+            remaining = list(error_dir.glob("*pkt_fix*"))
+            self.assertEqual(len(remaining), 0, f"Expected 0 error notes after fix, got {len(remaining)}: {remaining}")
+
+    def test_parse_error_reconciliation_contract(self) -> None:
+        """Fixing a contract must remove its router-contract error note."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            (router_root / "inbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "outbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "conformance").mkdir(parents=True, exist_ok=True)
+            error_dir = root / "data" / "review" / "project_router" / "parse_errors"
+            # Write a bad contract (missing fields)
+            (router_root / "router-contract.json").write_text(
+                json.dumps({"schema_version": "1"}), encoding="utf-8"
+            )
+            with patch_cli_paths(root):
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+            contract_errors = list(error_dir.glob("*router-contract*"))
+            self.assertGreaterEqual(len(contract_errors), 1)
+            # Fix the contract
+            write_router_contract(router_root)
+            with patch_cli_paths(root):
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+            remaining = list(error_dir.glob("*router-contract*"))
+            self.assertEqual(len(remaining), 0, f"Expected 0 contract error notes after fix, got: {remaining}")
+
+    def test_contract_error_tracked_in_scan_state(self) -> None:
+        """Contract errors must be recorded in outbox_scan_state.json."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            (router_root / "inbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "outbox").mkdir(parents=True, exist_ok=True)
+            # Write a bad contract
+            (router_root / "router-contract.json").write_text(
+                json.dumps({"schema_version": "1"}), encoding="utf-8"
+            )
+            with patch_cli_paths(root):
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+            state = json.loads((root / "state" / "project_router" / "outbox_scan_state.json").read_text(encoding="utf-8"))
+            contract_entry = state["scanned_packets"]["home_renovation"]["router-contract"]
+            self.assertEqual(contract_entry["status"], "invalid")
+            self.assertEqual(contract_entry["error_code"], "INVALID_CONTRACT")
+            # Fix the contract and verify state updates to valid
+            write_router_contract(router_root)
+            with patch_cli_paths(root):
+                cli.scan_outboxes_command(type("Args", (), {"include_self": False, "strict": False})())
+            state = json.loads((root / "state" / "project_router" / "outbox_scan_state.json").read_text(encoding="utf-8"))
+            contract_entry = state["scanned_packets"]["home_renovation"]["router-contract"]
+            self.assertEqual(contract_entry["status"], "valid")
+            self.assertIsNone(contract_entry["error_code"])
+
+    def test_metadata_paths_are_relative(self) -> None:
+        """Decision packets must use project-relative paths for internal metadata."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_path = root / "data" / "raw" / "voicenotes" / "20260311T160000Z--vn_rel.json"
+            raw_path.write_text(
+                json.dumps(
+                    {
+                        "source": "voicenotes",
+                        "source_endpoint": "recordings",
+                        "recording": {
+                            "id": "vn_rel",
+                            "title": "Renovation scope",
+                            "created_at": "2026-03-11T16:00:00Z",
+                            "recorded_at": "2026-03-11T16:00:00Z",
+                            "recording_type": 3,
+                            "duration": 0,
+                            "tags": ["renovation"],
+                            "transcript": "Check the contractor schedule.",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                cli.normalize_command(type("Args", (), {"source": "voicenotes"})())
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            # Check normalized note metadata
+            note_path = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rel.md"
+            metadata, _ = cli.read_note(note_path)
+            self.assertFalse(
+                metadata.get("canonical_path", "").startswith("/"),
+                f"canonical_path should be relative, got: {metadata.get('canonical_path')}",
+            )
+            self.assertFalse(
+                str(metadata.get("raw_payload_path", "")).startswith("/"),
+                f"raw_payload_path should be relative, got: {metadata.get('raw_payload_path')}",
+            )
+            # Check decision packet (slugify converts _ to -)
+            packet_files = list((root / "state" / "decisions").glob("*vn-rel*"))
+            self.assertGreaterEqual(len(packet_files), 1)
+            packet = json.loads(packet_files[0].read_text(encoding="utf-8"))
+            self.assertFalse(
+                str(packet.get("canonical_path", "")).startswith("/"),
+                f"Decision packet canonical_path should be relative, got: {packet.get('canonical_path')}",
+            )
+
+    def test_status_counts_legacy_backlog(self) -> None:
+        """status must report legacy_backlog when files exist in non-source-aware dirs."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            # Place a file directly in the top-level normalized dir (legacy layout)
+            legacy_file = root / "data" / "normalized" / "legacy_note.md"
+            legacy_file.write_text("---\ntitle: Legacy\n---\n\nOld.\n", encoding="utf-8")
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.status_command(type("Args", (), {"source": "all"})())
+            output = parse_print_json(mock_print)
+            self.assertIn("legacy_backlog", output)
+            self.assertGreaterEqual(output["legacy_backlog"], 1)
 
 
 if __name__ == "__main__":
