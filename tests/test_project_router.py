@@ -1246,6 +1246,72 @@ class PR1FixTests(unittest.TestCase):
             output = mock_print.call_args[0][0]
             self.assertNotIn("Active parse errors", output)
 
+    def test_context_pipeline_state_uses_pending_review_entries(self) -> None:
+        """context pipeline state must use pending review entries, not stale review files."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            (root / "state" / "decisions" / "voicenotes--vn_ctx1.json").write_text(
+                json.dumps(
+                    {
+                        "source_note_id": "vn_ctx1",
+                        "source": "voicenotes",
+                        "proposal": {"status": "pending_project", "review_status": "pending"},
+                        "reviews": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            error_dir = root / "data" / "review" / "project_router" / "parse_errors"
+            (error_dir / "20260313T225438Z--home-renovation--router-contract.md").write_text(
+                "---\ntitle: stale\n---\n\nOld error.\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.context_command(type("Args", (), {"source": "all"})())
+            output = mock_print.call_args[0][0]
+            self.assertIn("- **review** (1): voicenotes=1", output)
+            self.assertNotIn("project_router=1", output)
+
+    def test_context_pipeline_state_uses_active_parse_errors(self) -> None:
+        """context pipeline state must use active parse errors from scan state."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            error_dir = root / "data" / "review" / "project_router" / "parse_errors"
+            (error_dir / "20260313T225438Z--home-renovation--router-contract.md").write_text(
+                "---\ntitle: stale\n---\n\nOld error.\n",
+                encoding="utf-8",
+            )
+            (error_dir / "20260313T225506Z--weekly-meal-prep--router-contract.md").write_text(
+                "---\ntitle: stale\n---\n\nOld error.\n",
+                encoding="utf-8",
+            )
+            scan_state = {
+                "schema_version": "1",
+                "scanned_packets": {
+                    "home_renovation": {
+                        "router-contract": {
+                            "status": "invalid",
+                            "error_code": "INVALID_CONTRACT",
+                        }
+                    }
+                },
+            }
+            (root / "state" / "project_router" / "outbox_scan_state.json").write_text(
+                json.dumps(scan_state, indent=2),
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.context_command(type("Args", (), {"source": "all"})())
+            output = mock_print.call_args[0][0]
+            self.assertIn("- **review** (1): project_router=1", output)
+            self.assertNotIn("project_router=2", output)
+
     def test_metadata_paths_are_relative(self) -> None:
         """Decision packets must use project-relative paths for internal metadata."""
         with temporary_repo_dir() as tmp:

@@ -2238,6 +2238,20 @@ def _raw_payload_path_from_packet(packet: dict[str, Any]) -> str | None:
     return packet.get("raw_payload_path")
 
 
+def count_pending_review_entries(*, sources: set[str]) -> dict[str, int]:
+    counts = {source: 0 for source in sources}
+    for path in sorted(DECISIONS_DIR.glob("*.json")):
+        packet = load_decision_packet_by_path(path)
+        source = normalize_source_name(str(packet.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+        if source not in sources:
+            continue
+        entry = build_review_entry(packet, path)
+        if entry.get("review_status") != "pending" and entry.get("action") not in {"compile_required", "recompile_required"}:
+            continue
+        counts[source] = counts.get(source, 0) + 1
+    return counts
+
+
 def find_normalized_note_paths(note_id: str, *, sources: set[str] | None = None) -> list[Path]:
     matches: list[Path] = []
     for path in iter_normalized_files_by_source(sources or {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}):
@@ -3040,6 +3054,20 @@ def context_command(args: argparse.Namespace) -> int:
     sections.append("## Pipeline State")
     sections.append("")
     for stage_name, stage_dir in stages.items():
+        if stage_name == "review":
+            review_counts = count_pending_review_entries(sources=sources)
+            if PROJECT_ROUTER_SOURCE in sources:
+                review_counts[PROJECT_ROUTER_SOURCE] = review_counts.get(PROJECT_ROUTER_SOURCE, 0) + count_active_scan_state_errors()
+            total = 0
+            details: list[str] = []
+            for source in sorted(sources):
+                n = review_counts.get(source, 0)
+                if n:
+                    details.append(f"{source}={n}")
+                    total += n
+            if total:
+                sections.append(f"- **{stage_name}** ({total}): {', '.join(details)}")
+            continue
         if not stage_dir.exists():
             continue
         total = 0
