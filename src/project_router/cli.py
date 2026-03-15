@@ -2400,13 +2400,36 @@ def update_scan_state(state: dict[str, Any], project_key: str, note_id: str, pay
     project_packets[note_id] = payload
 
 
-def acquire_scan_lock() -> None:
+def _is_pid_alive(pid: int) -> bool:
     try:
-        OUTBOX_SCAN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def acquire_scan_lock() -> None:
+    OUTBOX_SCAN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
         fd = os.open(OUTBOX_SCAN_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
         os.close(fd)
-    except FileExistsError as exc:
-        raise SystemExit(f"Another scan-outboxes command is already running ({OUTBOX_SCAN_LOCK_PATH}).") from exc
+    except FileExistsError:
+        # Check if the holding process is still alive
+        try:
+            lock_pid = int(OUTBOX_SCAN_LOCK_PATH.read_text(encoding="utf-8").strip())
+        except (ValueError, OSError):
+            lock_pid = None
+        if lock_pid is not None and _is_pid_alive(lock_pid):
+            raise SystemExit(f"Another scan-outboxes command is already running (PID {lock_pid}, lock: {OUTBOX_SCAN_LOCK_PATH}).")
+        # Stale lock — reclaim
+        OUTBOX_SCAN_LOCK_PATH.unlink(missing_ok=True)
+        try:
+            fd = os.open(OUTBOX_SCAN_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+        except FileExistsError as exc:
+            raise SystemExit(f"Another scan-outboxes command is already running ({OUTBOX_SCAN_LOCK_PATH}).") from exc
 
 
 def release_scan_lock() -> None:

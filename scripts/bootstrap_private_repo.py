@@ -255,6 +255,12 @@ def promote_repository(args: argparse.Namespace) -> dict[str, Any]:
             "Current origin remote still points to the template upstream. Run this in a derived repository, or pass --force if that is intentional."
         )
 
+    # Pre-validate: all target files must exist before any mutations
+    required_files = [README_PATH, README_PT_PATH, AGENTS_PATH, CLAUDE_PATH]
+    missing = [str(p) for p in required_files if not p.exists()]
+    if missing:
+        raise SystemExit(f"Cannot promote: missing required files: {', '.join(missing)}")
+
     promoted_at = iso_now()
     private_repo_name = resolve_private_repo_name(args, template_repo)
     template_commit = args.template_commit or git_output("rev-parse", "HEAD") or ""
