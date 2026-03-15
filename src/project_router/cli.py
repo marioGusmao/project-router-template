@@ -1537,7 +1537,7 @@ def compile_command(args: argparse.Namespace) -> int:
             artifact_metadata["compiled_at"] = preserved_compiled_at or artifact_metadata["compiled_at"]
             if existing_metadata == artifact_metadata and existing_body == artifact_body:
                 packet["compiled"] = {
-                    "path": str(artifact_path),
+                    "path": relative_or_absolute(artifact_path),
                     "compiled_at": artifact_metadata.get("compiled_at"),
                     "brief_summary": artifact_metadata.get("brief_summary"),
                     "entities": artifact_metadata.get("entities", []),
@@ -2186,7 +2186,7 @@ def build_review_entry(packet: dict[str, Any], packet_path: Path) -> dict[str, A
     note_type = note_metadata.get("note_type")
     note_review_status = note_metadata.get("review_status") or proposal.get("review_status")
     note_confidence = note_metadata.get("confidence") if "confidence" in note_metadata else proposal.get("confidence")
-    compiled_path = compiled.get("path") or (str(compiled_note_path(note_metadata)) if note_metadata else None)
+    compiled_path = compiled.get("path") or (str(compiled_note_path(note_metadata)) if note_metadata.get("source_note_id") else None)
     compiled_summary = compiled.get("brief_summary")
     compiled_is_fresh = None
     compiled_ready = False
@@ -2404,8 +2404,10 @@ def _is_pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
         return True
-    except (OSError, ProcessLookupError):
+    except ProcessLookupError:
         return False
+    except PermissionError:
+        return True  # process exists but belongs to another user
 
 
 def acquire_scan_lock() -> None:
@@ -2433,8 +2435,7 @@ def acquire_scan_lock() -> None:
 
 
 def release_scan_lock() -> None:
-    if OUTBOX_SCAN_LOCK_PATH.exists():
-        OUTBOX_SCAN_LOCK_PATH.unlink()
+    OUTBOX_SCAN_LOCK_PATH.unlink(missing_ok=True)
 
 
 def relative_or_absolute(path: Path) -> str:
@@ -2741,7 +2742,7 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
             stable_contract_error = error_dir / f"{slugify(project_key)}--{contract_note_id}.md"
             stable_contract_error.unlink(missing_ok=True)
             for legacy_contract_error in error_dir.glob(f"*--{slugify(project_key)}--{contract_note_id}.md"):
-                legacy_contract_error.unlink()
+                legacy_contract_error.unlink(missing_ok=True)
             for packet_path in outbox_packet_paths(router_root):
                 metadata, body, errors, normalized = parse_outbox_packet(packet_path, expected_project_key=project_key, strict=args.strict)
                 note_id = normalized.get("source_note_id") or slugify(packet_path.stem) or "invalid-packet"
@@ -2772,7 +2773,7 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
                 stable_error = error_dir / f"{slugify(project_key)}--{note_id}.md"
                 stable_error.unlink(missing_ok=True)
                 for legacy_error in error_dir.glob(f"*--{slugify(project_key)}--{note_id}.md"):
-                    legacy_error.unlink()
+                    legacy_error.unlink(missing_ok=True)
                 status = "ingested"
                 if entry and entry.get("content_hash") == normalized.get("content_hash"):
                     unchanged += 1
@@ -2942,11 +2943,8 @@ def status_command(args: argparse.Namespace) -> int:
     project_router_raw = sum(count_raw(path) for path in iter_source_dirs("raw", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     project_router_normalized = sum(count_markdown(path) for path in iter_source_dirs("normalized", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     project_router_compiled = sum(count_markdown(path) for path in iter_source_dirs("compiled", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
-    # Count files in legacy (non-source-aware) layout
-    legacy_raw = len([f for f in RAW_DIR.iterdir() if f.is_file() and f.name != ".gitkeep"]) if RAW_DIR.exists() else 0
-    legacy_normalized = len([f for f in NORMALIZED_DIR.iterdir() if f.is_file() and f.suffix == ".md"]) if NORMALIZED_DIR.exists() else 0
-    legacy_compiled = len([f for f in COMPILED_DIR.iterdir() if f.is_file() and f.suffix == ".md"]) if COMPILED_DIR.exists() else 0
-    legacy_backlog = legacy_raw + legacy_normalized + legacy_compiled
+    # Count files in legacy (non-source-aware) layout using existing helpers
+    legacy_backlog = count_raw(RAW_DIR) + count_markdown(NORMALIZED_DIR) + count_markdown(COMPILED_DIR)
 
     summary = {
         "sources": sorted(sources),
@@ -3009,7 +3007,12 @@ def context_command(args: argparse.Namespace) -> int:
             for k in keys:
                 sections.append(f"- {k}")
             sections.append("")
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError:
+            sections.append("## Registered Projects")
+            sections.append("")
+            sections.append("- **WARNING:** registry.shared.json contains invalid JSON")
+            sections.append("")
+        except OSError:
             pass
 
     # --- Pipeline state ---
@@ -3046,12 +3049,11 @@ def context_command(args: argparse.Namespace) -> int:
             demo_paths = [k for k, v in local_projects.items() if isinstance(v, dict) and "demo-inboxes" in str(v.get("router_root_path", ""))]
             if demo_paths:
                 env_notes.append(f"Demo mode active (demo-inboxes configured for: {', '.join(demo_paths)})")
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError:
+            env_notes.append("WARNING: registry.local.json contains invalid JSON")
+        except OSError:
             pass
-    legacy_raw = len([f for f in RAW_DIR.iterdir() if f.is_file() and f.name != ".gitkeep"]) if RAW_DIR.exists() else 0
-    legacy_normalized = len([f for f in NORMALIZED_DIR.iterdir() if f.is_file() and f.suffix == ".md"]) if NORMALIZED_DIR.exists() else 0
-    legacy_compiled = len([f for f in COMPILED_DIR.iterdir() if f.is_file() and f.suffix == ".md"]) if COMPILED_DIR.exists() else 0
-    legacy_total = legacy_raw + legacy_normalized + legacy_compiled
+    legacy_total = count_raw(RAW_DIR) + count_markdown(NORMALIZED_DIR) + count_markdown(COMPILED_DIR)
     if legacy_total > 0:
         env_notes.append(f"Legacy layout backlog: {legacy_total} files (run migrate-source-layout)")
     parse_error_count = count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors"))

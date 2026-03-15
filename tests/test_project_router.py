@@ -1275,8 +1275,8 @@ def _write_triaged_note(root: Path, note_id: str, *, status: str = "classified",
             "routing_reason": "Keyword match.",
             "requires_user_confirmation": True,
             "review_status": review_status,
-            "canonical_path": str(note_path),
-            "raw_payload_path": str(root / "data" / "raw" / "voicenotes" / f"20260311T160000Z--{note_id}.json"),
+            "canonical_path": str(note_path.relative_to(root)),
+            "raw_payload_path": str((root / "data" / "raw" / "voicenotes" / f"20260311T160000Z--{note_id}.json").relative_to(root)),
             "note_type": "project-idea",
             "dispatched_to": [],
         },
@@ -1293,7 +1293,11 @@ class DecideCommandTests(unittest.TestCase):
             root = Path(tmp)
             prepare_repo(root)
             write_registry(root)
-            _write_triaged_note(root, "vn_d1", status="pending_project", project=None)
+            note_path = _write_triaged_note(root, "vn_d1", status="pending_project", project=None)
+            # Place a review copy so we can verify removal
+            review_copy_dir = root / "data" / "review" / "voicenotes" / "pending_project"
+            cli.write_note(review_copy_dir / note_path.name, {"source": "voicenotes", "source_note_id": "vn_d1", "status": "pending_project"}, "# Review\n")
+            self.assertTrue((review_copy_dir / note_path.name).exists())
             with patch_cli_paths(root):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d1", "decision": "approve", "final_project": "home_renovation",
@@ -1492,6 +1496,7 @@ class CompileCommandTests(unittest.TestCase):
                     cli.compile_command(type("Args", (), {"note_ids": None, "source": "all"})())
             output = parse_print_json(mock_print)
             self.assertEqual(output["compiled_written"], 0)
+            self.assertEqual(output["compiled_updated"], 0)
             self.assertEqual(output["skipped"], 1)
 
 
@@ -1530,9 +1535,8 @@ class DiscoverCommandTests(unittest.TestCase):
             output = parse_print_json(mock_print)
             self.assertEqual(output["pending_project_notes"], 2)
             # With shared keywords (garden), these should cluster together
-            all_cluster_notes = sum(c["note_count"] for c in output["clusters"])
-            singleton_count = len(output.get("singleton_notes", []))
-            self.assertEqual(all_cluster_notes + singleton_count, 2)
+            self.assertGreater(len(output["clusters"]), 0, "Expected at least one cluster to form")
+            self.assertEqual(output["clusters"][0]["note_count"], 2)
 
     def test_discover_filters_system_notes(self) -> None:
         with temporary_repo_dir() as tmp:
