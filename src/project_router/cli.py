@@ -36,7 +36,7 @@ REGISTRY_EXAMPLE_PATH = ROOT / "projects" / "registry.example.json"
 ENV_LOCAL_PATH = ROOT / ".env.local"
 ENV_PATH = ROOT / ".env"
 DISCOVERY_REPORT_PATH = DISCOVERIES_DIR / "pending_project_latest.json"
-LOCAL_ROUTER_DIR = ROOT / "project-router"
+LOCAL_ROUTER_DIR = ROOT / "router"
 NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 VOICE_SOURCE = "voicenotes"
 PROJECT_ROUTER_SOURCE = "project_router"
@@ -2739,7 +2739,7 @@ def structural_preflight(target: Path) -> None:
     if (target / ".git").exists():
         raise SystemExit(
             f"Target is a repository root, not a project-router directory. "
-            f"Did you mean '{target / 'project-router'}'?"
+            f"Did you mean '{target / 'router'}'?"
         )
     if target.exists() and not target.is_dir():
         raise SystemExit(f"--router-root must be a directory, not a file: {target}")
@@ -2901,12 +2901,13 @@ def resolve_adoption_state(
         if target.name == "inbox":
             target = target.parent
     elif project_rule.inbox_path and not has_placeholder_path(project_rule.inbox_path):
-        if project_rule.inbox_path.parent.name == "project-router":
-            target = project_rule.inbox_path.parent
+        candidate_parent = project_rule.inbox_path.parent
+        if (candidate_parent / "router-contract.json").exists():
+            target = candidate_parent
         else:
             raise SystemExit(
-                f"Cannot infer router root: inbox_path parent is '{project_rule.inbox_path.parent.name}', "
-                f"expected 'project-router'. Use --router-root."
+                f"Cannot infer router root: no router-contract.json found in '{candidate_parent}'. "
+                f"Use --router-root."
             )
     else:
         raise SystemExit(
@@ -3965,12 +3966,12 @@ def build_parser() -> argparse.ArgumentParser:
     decide.set_defaults(func=decide_command)
 
     scan_outboxes = subparsers.add_parser("scan-outboxes", help="Read downstream project outboxes without mutating them.")
-    scan_outboxes.add_argument("--include-self", action="store_true", help="Also scan this repository's local project-router/outbox if configured.")
+    scan_outboxes.add_argument("--include-self", action="store_true", help="Also scan this repository's local router/outbox if configured.")
     scan_outboxes.add_argument("--strict", action="store_true", help="Treat protocol warnings as hard failures while scanning.")
     scan_outboxes.set_defaults(func=scan_outboxes_command)
 
-    doctor = subparsers.add_parser("doctor", help="Validate a project-router contract and outbox surface.")
-    doctor.add_argument("--router-root", help="Direct path to a project-router root for local validation.")
+    doctor = subparsers.add_parser("doctor", help="Validate a router contract and outbox surface.")
+    doctor.add_argument("--router-root", help="Direct path to a router root for local validation.")
     doctor.add_argument("--project", help="Project key from the central registry for validation.")
     doctor.add_argument("--packet", help="Reserved flag for validating a single packet path.")
     doctor.add_argument("--strict", action="store_true", help="Treat warnings as errors.")
@@ -3989,9 +3990,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_source_argument(context)
     context.set_defaults(func=context_command)
 
-    init_rr = subparsers.add_parser("init-router-root", help="Create a downstream project-router scaffold.")
+    init_rr = subparsers.add_parser("init-router-root", help="Create a downstream router scaffold.")
     init_rr.add_argument("--project", required=True, help="Project key (must exist in registry.shared.json).")
-    init_rr.add_argument("--router-root", required=True, help="Absolute path to the project-router directory.")
+    init_rr.add_argument("--router-root", required=True, help="Absolute path to the router directory.")
     init_rr.add_argument("--packet-types", help="Comma-separated packet types (default: improvement_proposal,question,insight).")
     init_rr.set_defaults(func=init_router_root_command)
 

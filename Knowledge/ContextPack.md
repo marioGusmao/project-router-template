@@ -30,7 +30,7 @@ For a live project briefing in the terminal, run `python3 scripts/project_router
 | Roadmap | `Knowledge/Roadmap.md` | Template milestones |
 | Template promotion | `scripts/bootstrap_private_repo.py` | Promotes a derived copy into private operational repo |
 | Local config bootstrap | `scripts/bootstrap_local.py` | Creates `.env.local` and `registry.local.json` |
-| Downstream scaffold | `init-router-root` subcommand | Creates a fresh downstream `project-router/` directory |
+| Downstream scaffold | `init-router-root` subcommand | Creates a fresh downstream `router/` directory |
 | Router root adoption | `adopt-router-root` subcommand | Migrates a project from legacy `inbox_path` to `router_root_path` |
 | Design specs | `docs/superpowers/specs/` | Detailed implementation designs |
 | Knowledge sync model | `Knowledge/README.md` | Explains Knowledge directory structure and sync rules |

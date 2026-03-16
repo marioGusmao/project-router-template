@@ -87,7 +87,7 @@
       "sync_policy": "template_sync"
     },
     {
-      "pattern": "project-router/**",
+      "pattern": "router/**",
       "ownership": "shared_review",
       "sync_policy": "review_required"
     },

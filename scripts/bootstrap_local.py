@@ -54,7 +54,7 @@ def ensure_claude_settings(force: bool) -> str:
 
 
 def prompt_for_path(project_key: str, existing_value: str | None) -> str | None:
-    prompt = f"Absolute project-router root path for {project_key}"
+    prompt = f"Absolute router root path for {project_key}"
     if existing_value:
         prompt += f" [{existing_value}]"
     prompt += " (leave blank to keep inactive): "

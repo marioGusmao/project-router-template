@@ -366,7 +366,7 @@
       "validator_hooks": []
     },
     {
-      "pattern": "project-router/**",
+      "pattern": "router/**",
       "ownership": "shared_review",
       "sync_policy": "review_required",
       "customization_model": "skip",

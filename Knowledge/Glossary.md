@@ -31,7 +31,7 @@
 
 - **registry overlay**: Three-layer project configuration. `registry.shared.json` (committed, common metadata) + `registry.local.json` (gitignored, machine-local paths) + `registry.example.json` (committed, starter template). Classification runs from shared alone; dispatch requires local.
 - **router_root_path**: Absolute filesystem path to a downstream project's root directory. Defined in `registry.local.json`. Must be absolute; placeholder paths trigger validation errors.
-- **project-router protocol**: The interface downstream projects expose: `project-router/router-contract.json` (capabilities and schema), `project-router/inbox/` (receives dispatched notes), `project-router/outbox/` (emits status back), `project-router/conformance/` (validation artifacts).
+- **project-router protocol**: The interface downstream projects expose: `router/router-contract.json` (capabilities and schema), `router/inbox/` (receives dispatched notes), `router/outbox/` (emits status back), `router/conformance/` (validation artifacts).
 
 ## Ownership and Governance
 

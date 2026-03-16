@@ -76,7 +76,7 @@ def patch_cli_paths(root: Path) -> ExitStack:
         "REGISTRY_EXAMPLE_PATH": root / "projects" / "registry.example.json",
         "ENV_LOCAL_PATH": root / ".env.local",
         "ENV_PATH": root / ".env",
-        "LOCAL_ROUTER_DIR": root / "project-router",
+        "LOCAL_ROUTER_DIR": root / "router",
     }
     for key, value in patches.items():
         stack.enter_context(mock.patch.object(cli, key, value))
@@ -514,7 +514,7 @@ class ProjectRouterFlowTests(unittest.TestCase):
             prepare_repo(root)
             (root / "projects" / "registry.shared.json").write_text(json.dumps({"defaults": {}, "projects": {}}), encoding="utf-8")
             (root / "projects" / "registry.local.json").write_text(json.dumps({"projects": {}}), encoding="utf-8")
-            router_root = root / "project-router"
+            router_root = root / "router"
             write_router_contract(router_root, project_key="project_router_template")
             write_outbox_packet(router_root, "self_pkt", "# Self\n\nBody\n", project_key="project_router_template")
             with patch_cli_paths(root):
@@ -2588,8 +2588,16 @@ def write_registry_legacy(root: Path) -> Path:
             }
         },
     }
-    inbox_path = root / "repos" / "home-renovation" / "project-router" / "inbox"
+    router_root = root / "repos" / "home-renovation" / "router"
+    inbox_path = router_root / "inbox"
     inbox_path.mkdir(parents=True, exist_ok=True)
+    # Content-based inference needs router-contract.json in the parent
+    (router_root / "router-contract.json").write_text(
+        json.dumps({"schema_version": "1", "project_key": "home_renovation",
+                     "default_language": "en", "supported_packet_types": ["improvement_proposal", "question", "insight"]},
+                    indent=2) + "\n",
+        encoding="utf-8",
+    )
     local = {
         "projects": {
             "home_renovation": {
@@ -2617,7 +2625,9 @@ class AdoptRouterRootTests(unittest.TestCase):
             report = parse_print_json(mock_print)
             self.assertEqual(report["mode"], "preview")
             self.assertEqual(report["status"], "legacy")
-            self.assertFalse((inbox_path.parent / "router-contract.json").exists())
+            # Preview should not create new scaffold dirs
+            self.assertFalse((inbox_path.parent / "outbox").exists())
+            self.assertFalse((inbox_path.parent / "conformance").exists())
 
     def test_adopt_confirm_legacy(self) -> None:
         """Full adoption: scaffold created, registry rewritten, backup, doctor ok, journal written."""
@@ -2742,11 +2752,11 @@ class AdoptRouterRootTests(unittest.TestCase):
                     cli.main(["adopt-router-root", "--project", "home_renovation", "--router-root", "/ABSOLUTE/PATH/TO/project-router"])
 
     def test_adopt_unsafe_inference_aborts(self) -> None:
-        """inbox_path parent not 'project-router' → SystemExit."""
+        """inbox_path parent without router-contract.json → SystemExit."""
         with temporary_repo_dir() as tmp:
             root = Path(tmp)
             prepare_repo(root)
-            # Write registry where inbox_path parent is NOT project-router
+            # Write registry where inbox_path parent has no router-contract.json
             shared = {
                 "defaults": {"min_keyword_hits": 2},
                 "projects": {
@@ -2882,6 +2892,34 @@ class AdoptRouterRootTests(unittest.TestCase):
             # Registry should point to the normalized path
             reg = json.loads((root / "projects" / "registry.local.json").read_text(encoding="utf-8"))
             self.assertEqual(reg["projects"]["home_renovation"]["router_root_path"], str(router_root))
+
+    def test_adopt_infers_from_custom_named_parent(self) -> None:
+        """inbox_path inside a non-standard-named parent with router-contract.json → inferred."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            router_root = root / "repos" / "home-renovation" / "MyRouter"
+            inbox = router_root / "inbox"
+            inbox.mkdir(parents=True, exist_ok=True)
+            (router_root / "router-contract.json").write_text(
+                json.dumps({"schema_version": "1", "project_key": "home_renovation",
+                             "default_language": "en", "supported_packet_types": ["insight"]}),
+                encoding="utf-8",
+            )
+            shared = {
+                "defaults": {"min_keyword_hits": 2},
+                "projects": {"home_renovation": {"display_name": "Home Renovation", "language": "en",
+                                                  "note_type": "project-idea", "keywords": ["renovation"]}},
+            }
+            local = {"projects": {"home_renovation": {"inbox_path": str(inbox)}}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local, indent=2), encoding="utf-8")
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertEqual(rc, 0)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["target_router_root"], str(router_root))
 
     def test_init_rejects_file_target(self) -> None:
         """--router-root pointing to a file → clean SystemExit, not traceback."""

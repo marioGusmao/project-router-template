@@ -22,3 +22,9 @@ data/dispatched/*
 !data/dispatched/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+
+# Router inbox/outbox packets are runtime artifacts
+router/inbox/*
+!router/inbox/.gitkeep
+router/outbox/*
+!router/outbox/.gitkeep

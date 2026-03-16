@@ -30,8 +30,8 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/project_router.py discover` | discover | Cluster `pending_project` notes to identify potential new destinations | Notes in pending_project queue |
 | `scripts/project_router.py status` | status | Show current queue counts across all stages | None |
 | `scripts/project_router.py scan-outboxes` | scan-outboxes | Read-only ingestion of downstream project outbox directories | `registry.local.json` with valid `router_root_path` values |
-| `scripts/project_router.py doctor` | doctor | Validate a downstream project's protocol compliance | `--project` flag; downstream project has `project-router/` directory |
-| `scripts/project_router.py init-router-root` | init-router-root | Create a fresh downstream `project-router/` scaffold (contract, dirs, fixtures) | `--project` (must exist in shared registry) and `--router-root` (absolute path) |
+| `scripts/project_router.py doctor` | doctor | Validate a downstream project's protocol compliance | `--project` flag; downstream project has `router/` directory |
+| `scripts/project_router.py init-router-root` | init-router-root | Create a fresh downstream `router/` scaffold (contract, dirs, fixtures) | `--project` (must exist in shared registry) and `--router-root` (absolute path) |
 | `scripts/project_router.py adopt-router-root` | adopt-router-root | Migrate from legacy `inbox_path` to `router_root_path` with scaffold repair | `--project` or `--all`; `--confirm` to apply; optional `--router-root` for explicit target |
 | `scripts/project_router.py context` | context | Generate a live project briefing in the terminal from current state | None |
 
