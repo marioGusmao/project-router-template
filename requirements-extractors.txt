@@ -1,0 +1,4 @@
+# Optional dependencies for content extraction.
+# When pyproject.toml is added, migrate to [project.optional-dependencies.extractors]
+pymupdf>=1.24.0
+python-docx>=1.1.0

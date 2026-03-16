@@ -26,16 +26,25 @@ def prepare_repo(root: Path) -> None:
     for path in (
         root / "data" / "raw" / "voicenotes",
         root / "data" / "raw" / "project_router",
+        root / "data" / "raw" / "filesystem" / "default" / "manifests",
+        root / "data" / "raw" / "filesystem" / "default" / "artifacts",
         root / "data" / "normalized" / "voicenotes",
         root / "data" / "normalized" / "project_router",
+        root / "data" / "normalized" / "filesystem",
         root / "data" / "compiled" / "voicenotes",
         root / "data" / "compiled" / "project_router",
+        root / "data" / "compiled" / "filesystem",
         root / "data" / "review" / "voicenotes" / "ambiguous",
         root / "data" / "review" / "voicenotes" / "needs_review",
         root / "data" / "review" / "voicenotes" / "pending_project",
         root / "data" / "review" / "project_router" / "parse_errors",
         root / "data" / "review" / "project_router" / "needs_review",
         root / "data" / "review" / "project_router" / "pending_project",
+        root / "data" / "review" / "filesystem" / "parse_errors",
+        root / "data" / "review" / "filesystem" / "needs_extraction",
+        root / "data" / "review" / "filesystem" / "needs_review",
+        root / "data" / "review" / "filesystem" / "ambiguous",
+        root / "data" / "review" / "filesystem" / "pending_project",
         root / "data" / "dispatched",
         root / "data" / "processed",
         root / "projects",
@@ -43,6 +52,7 @@ def prepare_repo(root: Path) -> None:
         root / "state" / "discoveries",
         root / "state" / "project_router",
         root / "state" / "project_router" / "adoptions",
+        root / "state" / "filesystem_ingest",
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -3181,6 +3191,398 @@ class BootstrapLocalTests(unittest.TestCase):
 
             demo = payload["projects"]["demo"]
             self.assertEqual(demo["router_root_path"], str(root / "repos" / "demo" / "project-router"))
+
+
+class FilesystemSourceTests(unittest.TestCase):
+    """Tests for filesystem source ingestion, extraction, and pipeline integration."""
+
+    def _setup(self):
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        prepare_repo(root)
+        stack = patch_cli_paths(root)
+        write_registry(root)
+        return td, root, stack
+
+    def _write_manifest(self, root, note_id="fs_20260316T143000Z_a1b2c3", text="Hello world", needs_extraction=False):
+        manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
+        ts = "20260316T143000Z"
+        manifest = {
+            "manifest_version": 1,
+            "source": "filesystem",
+            "source_note_id": note_id,
+            "inbox_key": "default",
+            "evidence": {
+                "ingest_event_id": "evt_test",
+                "content_hash": "sha256:test123",
+                "original_path_snapshot": "/tmp/test.txt",
+                "file_stat": {"size_bytes": 100, "mtime": "2026-03-16T10:00:00Z", "mode": "0644"},
+                "canonical_blob_ref": f"artifacts/{ts}--{note_id}.txt",
+                "ingested_at": "2026-03-16T14:30:00Z",
+                "duplicate_of": None,
+                "same_content_as": [],
+                "archive_status": "archived",
+                "archive_path_snapshot": "/tmp/processed/test.txt",
+                "extractor_attempts": [{"method": "stdlib_read", "timestamp": "2026-03-16T14:30:00Z", "success": True, "needs_ai": needs_extraction}],
+                "errors": [],
+            },
+            "interpretation": {
+                "extracted_text": text if not needs_extraction else "",
+                "extraction_method": "stdlib_read" if not needs_extraction else None,
+                "text_quality": "good" if not needs_extraction else "needs_extraction",
+                "observations": {},
+                "routing_hints": {},
+                "confidence": 0.8 if not needs_extraction else 0.0,
+                "review_annotations": {},
+                "updated_at": "2026-03-16T14:30:00Z",
+            },
+        }
+        path = manifests_dir / f"{ts}--{note_id}.manifest.json"
+        path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        return path
+
+    def test_parse_source_filter_filesystem(self):
+        self.assertEqual(cli.parse_source_filter("filesystem"), {"filesystem"})
+        self.assertEqual(cli.parse_source_filter("fs"), {"filesystem"})
+
+    def test_parse_source_filter_all_includes_filesystem(self):
+        result = cli.parse_source_filter("all")
+        self.assertIn("filesystem", result)
+        self.assertIn("voicenotes", result)
+        self.assertIn("project_router", result)
+
+    def test_normalize_filesystem_text_file(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, text="Test content here")
+            result = cli.main(["normalize", "--source", "filesystem"])
+            self.assertEqual(result, 0)
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, body = cli.read_note(normalized[0])
+            self.assertEqual(metadata["source"], "filesystem")
+            self.assertIn("Test content here", body)
+            self.assertEqual(metadata["extraction_status"], "complete")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_normalize_filesystem_binary_placeholder(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, needs_extraction=True)
+            result = cli.main(["normalize", "--source", "filesystem"])
+            self.assertEqual(result, 0)
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, body = cli.read_note(normalized[0])
+            self.assertEqual(metadata["extraction_status"], "needs_extraction")
+            self.assertIn("extraction pending", body)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_manifest_evidence_immutability(self):
+        """Evidence survives interpretation updates."""
+        td, root, stack = self._setup()
+        try:
+            manifest_path = self._write_manifest(root)
+            original = cli.read_manifest(manifest_path)
+            original_hash = original["evidence"]["content_hash"]
+            new_interp = {
+                "extracted_text": "Updated text",
+                "extraction_method": "ai_assisted",
+                "text_quality": "good",
+                "observations": {},
+                "routing_hints": {},
+                "confidence": 0.9,
+                "review_annotations": {},
+                "updated_at": "2026-03-16T15:00:00Z",
+            }
+            cli.update_manifest_interpretation(manifest_path, new_interp, {"method": "ai_assisted", "timestamp": "2026-03-16T15:00:00Z", "success": True, "needs_ai": False})
+            updated = cli.read_manifest(manifest_path)
+            self.assertEqual(updated["evidence"]["content_hash"], original_hash)
+            self.assertEqual(updated["interpretation"]["extracted_text"], "Updated text")
+            self.assertEqual(len(updated["evidence"]["extractor_attempts"]), 2)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_manifest_interpretation_replaceable(self):
+        """Re-extraction overwrites interpretation cleanly."""
+        td, root, stack = self._setup()
+        try:
+            manifest_path = self._write_manifest(root)
+            cli.update_manifest_interpretation(manifest_path, {
+                "extracted_text": "New text",
+                "extraction_method": "ai_assisted",
+                "text_quality": "good",
+                "observations": {"lang": "en"},
+                "routing_hints": {},
+                "confidence": 0.9,
+                "review_annotations": {},
+                "updated_at": "2026-03-16T16:00:00Z",
+            }, {"method": "ai_assisted", "timestamp": "2026-03-16T16:00:00Z", "success": True, "needs_ai": False})
+            manifest = cli.read_manifest(manifest_path)
+            self.assertEqual(manifest["interpretation"]["extracted_text"], "New text")
+            self.assertEqual(manifest["interpretation"]["observations"]["lang"], "en")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_triage_routes_filesystem_note(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, text="renovation contractor budget ideas")
+            cli.main(["normalize", "--source", "filesystem"])
+            result = cli.main(["triage", "--source", "filesystem"])
+            self.assertEqual(result, 0)
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, _ = cli.read_note(normalized[0])
+            self.assertIn(metadata["status"], ("classified", "ambiguous", "needs_review", "pending_project"))
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_status_includes_filesystem_counts(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root)
+            cli.main(["normalize", "--source", "filesystem"])
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["status"])
+            output = json.loads(buf.getvalue())
+            self.assertIn("filesystem", output["raw"])
+            self.assertEqual(output["raw"]["filesystem"], 1)
+            self.assertEqual(output["normalized"]["filesystem"], 1)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_command_list_mode(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["extract", "--source", "filesystem"])
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["count"], 1)
+            self.assertEqual(output["pending_extraction"][0]["source_note_id"], "fs_20260316T143000Z_a1b2c3")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_command_write_mode(self):
+        td, root, stack = self._setup()
+        try:
+            manifest_path = self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            result = cli.main(["extract", "--note-id", "fs_20260316T143000Z_a1b2c3", "--text", "Extracted by AI"])
+            self.assertEqual(result, 0)
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            metadata, body = cli.read_note(normalized[0])
+            self.assertEqual(metadata["extraction_status"], "complete")
+            self.assertIn("Extracted by AI", body)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_appends_to_evidence_attempts(self):
+        td, root, stack = self._setup()
+        try:
+            manifest_path = self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            cli.main(["extract", "--note-id", "fs_20260316T143000Z_a1b2c3", "--text", "AI text"])
+            manifest = cli.read_manifest(manifest_path)
+            self.assertEqual(len(manifest["evidence"]["extractor_attempts"]), 2)
+            self.assertEqual(manifest["evidence"]["extractor_attempts"][1]["method"], "ai_assisted")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_remove_review_copies_includes_filesystem(self):
+        td, root, stack = self._setup()
+        try:
+            review_dir = root / "data" / "review" / "filesystem" / "needs_extraction"
+            test_file = review_dir / "test-note.md"
+            test_file.write_text("---\ntitle: test\n---\ntest", encoding="utf-8")
+            cli.remove_review_copies("test-note.md")
+            self.assertFalse(test_file.exists())
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_dry_run(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "test.txt").write_text("hello", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = cli.main(["ingest", "--integration", "filesystem", "--dry-run"])
+            self.assertEqual(result, 0)
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["ingested"], 1)
+            self.assertTrue((inbox / "test.txt").exists(), "dry run should not move file")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_creates_manifest_and_blob(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "test.txt").write_text("hello world", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = cli.main(["ingest", "--integration", "filesystem"])
+            self.assertEqual(result, 0)
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["ingested"], 1)
+            manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
+            manifests = list(manifests_dir.glob("*.manifest.json"))
+            self.assertEqual(len(manifests), 1)
+            artifacts_dir = root / "data" / "raw" / "filesystem" / "default" / "artifacts"
+            artifacts = list(artifacts_dir.glob("*"))
+            self.assertEqual(len(artifacts), 1)
+            self.assertFalse((inbox / "test.txt").exists(), "original should be archived")
+            processed = list((inbox / "processed").rglob("test.txt"))
+            self.assertEqual(len(processed), 1)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_dedupe_by_content_hash_without_collapsing_events(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "a.txt").write_text("same content", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["ingest", "--integration", "filesystem"])
+            # Ingest a second file with same content
+            (inbox / "b.txt").write_text("same content", encoding="utf-8")
+            buf2 = io.StringIO()
+            with redirect_stdout(buf2):
+                cli.main(["ingest", "--integration", "filesystem"])
+            manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
+            manifests = list(manifests_dir.glob("*.manifest.json"))
+            self.assertEqual(len(manifests), 2, "Two events even for same content")
+            m1 = json.loads(manifests[0].read_text(encoding="utf-8"))
+            m2 = json.loads(manifests[1].read_text(encoding="utf-8"))
+            self.assertNotEqual(m1["source_note_id"], m2["source_note_id"])
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_bootstrap_writes_sources_section(self):
+        """bootstrap_local.py writes sources section when env var is set."""
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            import importlib
+            mod = importlib.import_module("scripts.bootstrap_local")
+            (root / "projects").mkdir(parents=True, exist_ok=True)
+            shared = {"projects": {"demo": {"display_name": "Demo"}}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            original_shared = mod.REGISTRY_SHARED_PATH
+            original_local = mod.REGISTRY_LOCAL_PATH
+            try:
+                mod.REGISTRY_SHARED_PATH = root / "projects" / "registry.shared.json"
+                mod.REGISTRY_LOCAL_PATH = root / "projects" / "registry.local.json"
+                with mock.patch.dict(os.environ, {"VN_ROUTER_ROOT_DEMO": str(root / "repos" / "demo"), "VN_FILESYSTEM_INBOX_DEFAULT": str(root / "inbox")}):
+                    payload, warnings, status = mod.build_registry_local(force=True)
+            finally:
+                mod.REGISTRY_SHARED_PATH = original_shared
+                mod.REGISTRY_LOCAL_PATH = original_local
+            self.assertIn("sources", payload)
+            self.assertIn("filesystem_inboxes", payload["sources"])
+            self.assertEqual(payload["sources"]["filesystem_inboxes"]["default"]["inbox_path"], str(root / "inbox"))
+        finally:
+            td.cleanup()
+
+    def test_extractor_markdown(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.md"
+            test_file.write_text("# Hello\n\nWorld", encoding="utf-8")
+            result = extract(test_file)
+            self.assertEqual(result.text, "# Hello\n\nWorld")
+            self.assertEqual(result.extraction_method, "stdlib_read")
+            self.assertFalse(result.needs_ai_extraction)
+        finally:
+            td.cleanup()
+
+    def test_extractor_image(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.png"
+            # Minimal valid PNG header
+            import struct
+            header = b"\x89PNG\r\n\x1a\n"
+            ihdr_data = struct.pack(">II", 100, 200) + b"\x08\x02\x00\x00\x00"
+            import zlib
+            ihdr_crc = zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF
+            ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + struct.pack(">I", ihdr_crc)
+            test_file.write_bytes(header + ihdr)
+            result = extract(test_file)
+            self.assertTrue(result.needs_ai_extraction)
+            self.assertEqual(result.extraction_method, "metadata_only")
+            self.assertEqual(result.metadata.get("width"), 100)
+            self.assertEqual(result.metadata.get("height"), 200)
+        finally:
+            td.cleanup()
+
+    def test_extractor_graceful_degradation_missing_dep(self):
+        """PDF extractor returns needs_ai when pymupdf missing."""
+        from src.project_router.extractors._pdf import extract_pdf, _HAS_PYMUPDF
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.pdf"
+            test_file.write_bytes(b"%PDF-1.4 fake")
+            if not _HAS_PYMUPDF:
+                result = extract_pdf(test_file)
+                self.assertTrue(result.needs_ai_extraction)
+                self.assertEqual(result.extraction_method, "unavailable")
+        finally:
+            td.cleanup()
 
 
 if __name__ == "__main__":

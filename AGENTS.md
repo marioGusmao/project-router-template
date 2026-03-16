@@ -104,6 +104,8 @@
 - `python3 scripts/project_router.py init-router-root --project <key> --router-root <path>`
 - `python3 scripts/project_router.py adopt-router-root --project <key>`
 - `python3 scripts/project_router.py migrate-source-layout --dry-run`
+- `python3 scripts/project_router.py ingest --integration filesystem`
+- `python3 scripts/project_router.py extract --source filesystem`
 - `python3 scripts/project_router.py decide --note-id vn_123 --decision approve`
 - `python3 scripts/project_router.py dispatch --dry-run`
 - `python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123`

@@ -463,6 +463,17 @@
       "agent_load_rule": null,
       "migration_policy": "silent_ok",
       "validator_hooks": []
+    },
+    {
+      "pattern": "requirements-extractors.txt",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
     }
   ]
 }

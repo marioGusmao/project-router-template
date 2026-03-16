@@ -215,6 +215,11 @@
       "pattern": "state/**",
       "ownership": "local_only",
       "sync_policy": "blocked"
+    },
+    {
+      "pattern": "requirements-extractors.txt",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
     }
   ]
 }

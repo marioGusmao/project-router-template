@@ -30,9 +30,15 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`
-5. Run `python3 scripts/project_router.py review`.
-6. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`.
-7. Stop there and ask the user what to approve, reject, or refine.
+5. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
+   - `python3 scripts/project_router.py ingest --integration filesystem`
+   - `python3 scripts/project_router.py normalize --source filesystem`
+   - `python3 scripts/project_router.py extract --source filesystem` (list pending, then extract each)
+   - `python3 scripts/project_router.py triage --source filesystem`
+   - `python3 scripts/project_router.py compile --source filesystem`
+6. Run `python3 scripts/project_router.py review`.
+7. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`.
+8. Stop there and ask the user what to approve, reject, or refine.
 
 ## Downstream Setup
 

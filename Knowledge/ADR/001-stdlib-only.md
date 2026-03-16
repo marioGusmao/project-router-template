@@ -30,3 +30,4 @@ Zero external package dependencies. All code uses Python standard library only.
 ## Related
 
 - ADR-004: Fail-closed dispatch (also motivated by simplicity and safety)
+- ADR-007: Optional extractor dependencies (amends this ADR for the extractors boundary)

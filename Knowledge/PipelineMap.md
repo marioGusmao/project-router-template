@@ -93,6 +93,26 @@ data/dispatched/20260314T120000Z--vn_abc123.md
 
 Moves the compiled package to `data/dispatched/` and copies it into the downstream project's inbox. Requires explicit user approval. Fails closed if configuration is missing or invalid.
 
+## Filesystem Source: Ingest + Extract
+
+The filesystem source adds two pipeline stages before normalize:
+
+**Ingest** (`python3 scripts/project_router.py ingest --integration filesystem`):
+1. Scans configured inbox directories for new files
+2. Computes SHA-256 content hash for dedup detection
+3. Copies blob to `data/raw/filesystem/<inbox_key>/artifacts/`
+4. Runs deterministic extractor (text, PDF, image, etc.)
+5. Writes `.manifest.json` to `data/raw/filesystem/<inbox_key>/manifests/`
+6. Archives original to `inbox/processed/YYYY-MM-DD/`
+
+**Extract** (`python3 scripts/project_router.py extract --source filesystem`):
+1. Lists notes with `extraction_status: needs_extraction`
+2. Agent reads each file (multimodal) and provides extracted text
+3. `extract --note-id <id> --text "..." --observations '{...}'`
+4. Updates manifest interpretation + normalized note
+
+**Full pipeline:** `ingest → normalize → extract → triage → compile → review/decide → dispatch`
+
 ## Source-Aware Directory Structure
 
 ```
@@ -101,14 +121,20 @@ data/
     voicenotes/          # Raw JSON from VoiceNotes API
     project_router/      # Raw from other project-router sources
       {project}/
+    filesystem/          # Ingested local files
+      {inbox_key}/
+        manifests/       # Pipeline entry points (.manifest.json)
+        artifacts/       # Blob storage (never traversed by pipeline iterators)
   normalized/
     voicenotes/          # Normalized markdown (source of truth for metadata)
     project_router/
       {project}/
+    filesystem/          # Normalized from manifest interpretation
   compiled/
     voicenotes/          # Compiled briefs ready for dispatch
     project_router/
       {project}/
+    filesystem/
   review/
     voicenotes/          # Queue views (not source of truth)
       ambiguous/
@@ -118,7 +144,15 @@ data/
       parse_errors/
       needs_review/
       pending_project/
+    filesystem/
+      parse_errors/
+      needs_extraction/  # Notes needing AI-assisted extraction
+      needs_review/
+      ambiguous/
+      pending_project/
   dispatched/            # Successfully dispatched packages
 state/
   decisions/             # User decision packets (JSON)
+  filesystem_ingest/     # Crash recovery state per inbox
+    {inbox_key}/
 ```

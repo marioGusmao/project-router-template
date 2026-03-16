@@ -50,6 +50,12 @@ python3 scripts/project_router.py init-router-root --project home_renovation --r
 python3 scripts/project_router.py adopt-router-root --project home_renovation  # migrate inbox_path → router_root_path
 python3 scripts/project_router.py migrate-source-layout --dry-run  # preview legacy migration
 
+# Filesystem ingestion
+python3 scripts/project_router.py ingest --integration filesystem  # ingest files from local inbox
+python3 scripts/project_router.py ingest --integration filesystem --dry-run  # preview ingest
+python3 scripts/project_router.py extract --source filesystem  # list notes needing extraction
+python3 scripts/project_router.py extract --note-id fs_xxx --text "..." --observations '{}'  # update extraction
+
 # Record user decisions
 python3 scripts/project_router.py decide --note-id vn_123 --decision approve
 
@@ -91,13 +97,16 @@ No linter or formatter is configured. No build step required.
 
 **Single-module CLI:** All logic lives in `src/project_router/cli.py`. No external dependencies — stdlib only.
 
-**Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`, plus read-only downstream intake via `scan-outboxes`
+**Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`, plus read-only downstream intake via `scan-outboxes`, and `ingest → normalize → extract → triage → compile → dispatch` for the filesystem source.
 
 Each stage reads from the previous stage's source-aware output directory:
 - `data/raw/voicenotes/` → `normalize --source voicenotes` → `data/normalized/voicenotes/`
 - `data/raw/project_router/<project>/` → `normalize --source project_router` → `data/normalized/project_router/<project>/`
+- `data/raw/filesystem/<inbox_key>/manifests/` → `normalize --source filesystem` → `data/normalized/filesystem/`
 - `data/normalized/...` → `triage` / `compile` → source-aware `data/review/...` and `data/compiled/...`
 - `data/compiled/...` → `dispatch` → `data/dispatched/` + downstream inbox mirror
+
+**Extractors:** Modular content extraction in `src/project_router/extractors/`. Stdlib-only for text formats; optional `pymupdf` and `python-docx` for binary formats (see `requirements-extractors.txt`). Core pipeline remains zero-dep per ADR-001; extractors gracefully degrade when optional deps are missing.
 
 **State directory** (`state/`, gitignored): sync checkpoints, user decision packets (JSON), discovery reports.
 
@@ -149,9 +158,15 @@ At the beginning of a session:
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`
-5. Run `python3 scripts/project_router.py review`
-6. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`
-7. Stop there and ask the user what to approve, reject, or refine
+5. If filesystem inboxes are configured, run:
+   - `python3 scripts/project_router.py ingest --integration filesystem`
+   - `python3 scripts/project_router.py normalize --source filesystem`
+   - `python3 scripts/project_router.py extract --source filesystem` (list pending, then extract each)
+   - `python3 scripts/project_router.py triage --source filesystem`
+   - `python3 scripts/project_router.py compile --source filesystem`
+6. Run `python3 scripts/project_router.py review`
+7. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`
+8. Stop there and ask the user what to approve, reject, or refine
 
 If `.env.local` is missing, skip `sync` and explain that the local VoiceNotes token is not configured on this machine.
 

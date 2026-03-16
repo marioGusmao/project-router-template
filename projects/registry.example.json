@@ -1,4 +1,11 @@
 {
+  "sources": {
+    "filesystem_inboxes": {
+      "default": {
+        "inbox_path": "/ABSOLUTE/PATH/TO/LOCAL/INBOX"
+      }
+    }
+  },
   "projects": {
     "home_renovation": {
       "router_root_path": "/ABSOLUTE/PATH/TO/HOME_RENOVATION/router"
