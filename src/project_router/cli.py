@@ -2741,7 +2741,9 @@ def structural_preflight(target: Path) -> None:
             f"Target is a repository root, not a project-router directory. "
             f"Did you mean '{target / 'project-router'}'?"
         )
-    if target.exists() and any(target.iterdir()):
+    if target.exists() and not target.is_dir():
+        raise SystemExit(f"--router-root must be a directory, not a file: {target}")
+    if target.exists() and target.is_dir() and any(target.iterdir()):
         protocol_markers = {"inbox", "outbox", "conformance", "router-contract.json"}
         contents = {p.name for p in target.iterdir()}
         if not contents & protocol_markers:
@@ -2895,6 +2897,9 @@ def resolve_adoption_state(
         structural_preflight(target)
     elif project_rule.router_root_path and not has_placeholder_path(project_rule.router_root_path):
         target = project_rule.router_root_path
+        # Normalize corrupted router_root_path ending in /inbox
+        if target.name == "inbox":
+            target = target.parent
     elif project_rule.inbox_path and not has_placeholder_path(project_rule.inbox_path):
         if project_rule.inbox_path.parent.name == "project-router":
             target = project_rule.inbox_path.parent

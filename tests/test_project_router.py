@@ -2849,6 +2849,53 @@ class AdoptRouterRootTests(unittest.TestCase):
                     cli.main(["adopt-router-root", "--all", "--confirm"])
             self.assertIn("not supported in v1", str(ctx.exception))
 
+    def test_adopt_normalizes_corrupted_router_root(self) -> None:
+        """Corrupted router_root_path ending in /inbox is normalized before adoption."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            corrupted = router_root / "inbox"
+            shared = {
+                "defaults": {"min_keyword_hits": 2},
+                "projects": {
+                    "home_renovation": {
+                        "display_name": "Home Renovation",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["renovation"],
+                    }
+                },
+            }
+            local = {"projects": {"home_renovation": {"router_root_path": str(corrupted)}}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local, indent=2), encoding="utf-8")
+            corrupted.mkdir(parents=True, exist_ok=True)
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertEqual(rc, 0)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["mode"], "executed")
+            # Target should be the parent, not the /inbox dir
+            self.assertEqual(report["target_router_root"], str(router_root))
+            # Registry should point to the normalized path
+            reg = json.loads((root / "projects" / "registry.local.json").read_text(encoding="utf-8"))
+            self.assertEqual(reg["projects"]["home_renovation"]["router_root_path"], str(router_root))
+
+    def test_init_rejects_file_target(self) -> None:
+        """--router-root pointing to a file → clean SystemExit, not traceback."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "some-file"
+            target.write_text("not a directory", encoding="utf-8")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target)])
+            self.assertIn("not a file", str(ctx.exception).lower())
+
 
 # =====================================================================
 #  Parser/help coverage tests (Phase 4)
