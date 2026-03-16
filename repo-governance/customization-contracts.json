@@ -219,7 +219,7 @@
       "private_overlay": null,
       "bootstrap_source": null,
       "agent_load_rule": null,
-      "migration_policy": "silent_ok",
+      "migration_policy": "requires_release_note",
       "validator_hooks": []
     },
     {
@@ -329,7 +329,7 @@
       "private_overlay": null,
       "bootstrap_source": null,
       "agent_load_rule": null,
-      "migration_policy": "silent_ok",
+      "migration_policy": "requires_release_note",
       "validator_hooks": []
     },
     {

@@ -22,7 +22,7 @@ Each repository surface is assigned a `customization_model` that determines its 
 | `full_overwrite_preserve_contract` | Full overwrite, then restore `customization-contract` managed block from local backup | `CLAUDE.md`, `AGENTS.md` |
 | `managed_blocks` | Replace content inside `begin`/`end` markers; preserve content outside | `README.md`, `README.pt-PT.md` |
 | `extensible_directory` | `rsync -a` without `--delete` — template skills update, local additions preserved | `.claude/skills/`, `.codex/skills/`, `.agents/` |
-| `diff_only` | No overwrite — generate diff in PR body for manual review | `.gitignore`, `CONTRIBUTING.md` |
+| `diff_only` | No overwrite — generate diff outside the repo and render it into the PR body for manual review | `.gitignore`, `CONTRIBUTING.md`, `.github/pull_request_template.md` |
 | `skip` | Never synced | `projects/registry.shared.json`, `.claude/settings.local.json`, `Knowledge/local/` |
 
 ### AI file ownership
@@ -39,7 +39,7 @@ Skill directories use the `extensible_directory` model. Template skills update v
 
 ### Contract registry
 
-`repo-governance/customization-contracts.json` is the normative source of truth. It declares ownership, sync_policy, customization_model, private_overlay, bootstrap_source, agent_load_rule, migration_policy, and validator_hooks for each surface. `check_customization_contracts.py` validates the registry against the ownership manifest and the repository state.
+`repo-governance/customization-contracts.json` is the normative source of truth. It declares ownership, sync_policy, customization_model, private_overlay, bootstrap_source, agent_load_rule, migration_policy, and validator_hooks for each surface. `check_customization_contracts.py` validates the registry against the ownership manifest and the repository state, fails on unresolved conflict artifacts, and enforces `CHANGELOG.md` updates when changed paths touch `requires_release_note` surfaces.
 
 ### Sync workflow (7 steps: passes 0 through 5, including 0.5)
 
@@ -49,7 +49,7 @@ Skill directories use the `extensible_directory` model. Template skills update v
 4. **Pass 2 — Restore:** Restore `customization-contract` blocks in AI files from the pre-overwrite backup
 5. **Pass 3 — Managed blocks:** Update content inside markers in READMEs
 6. **Pass 4 — Extensible:** Sync skill directories without `--delete`
-7. **Pass 5 — Diff-only:** Generate diffs for manual review
+7. **Pass 5 — Diff-only:** Generate diff-only output outside the repo and render it into the PR body for manual review
 
 ## Consequences
 
@@ -69,7 +69,8 @@ Skill directories use the `extensible_directory` model. Template skills update v
 ### Trade-offs
 
 - Upstream skill renames/deletes leave orphaned local copies (acceptable for v1; v2 can detect and warn).
-- `.gitignore` and `CONTRIBUTING.md` are diff-only — manual review burden, but these change rarely.
+- `.gitignore`, `CONTRIBUTING.md`, and `.github/pull_request_template.md` are diff-only — manual review burden, but these change rarely.
+- Changes to `repo-governance/**` and `.github/workflows/template-upstream-sync.yml` require a `CHANGELOG.md` entry so derived repos get an explicit migration breadcrumb.
 - Full overwrite of AI files means any accidental edits by the user are lost — by design, since the overlay model provides the correct escape hatch.
 
 ## Related

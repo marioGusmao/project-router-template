@@ -228,19 +228,21 @@ jobs:
         run: |
           set -euo pipefail
           upstream="$RUNNER_TEMP/upstream-template"
+          diff_file="$RUNNER_TEMP/template-sync-diffs.diff"
+          echo "DIFF_ONLY_FILE=$diff_file" >> "$GITHUB_ENV"
           diff_paths=(
             .gitignore
             CONTRIBUTING.md
             .github/pull_request_template.md
           )
-          : > sync-diffs.txt
+          : > "$diff_file"
           for path in "${diff_paths[@]}"; do
             if [ -e "$upstream/$path" ] && [ -e "$path" ]; then
-              diff -u "$path" "$upstream/$path" >> sync-diffs.txt 2>/dev/null || true
+              diff -u "$path" "$upstream/$path" >> "$diff_file" 2>/dev/null || true
             fi
           done
-          if [ -s sync-diffs.txt ]; then
-            echo "::notice::Diff-only paths have upstream changes — review sync-diffs.txt in the PR."
+          if [ -s "$diff_file" ]; then
+            echo "::notice::Diff-only paths have upstream changes — review the Diff-only review section in the PR."
           fi
 
       - name: Capture changed files
@@ -294,6 +296,17 @@ jobs:
           EOF
           python3 scripts/check_repo_ownership.py --mode template-sync "${args[@]}"
 
+      - name: Check customization contract policy
+        if: steps.release.outputs.update_required == 'true' && steps.changes.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_paths_file="$RUNNER_TEMP/template-sync-changed-paths.txt"
+          cat > "$changed_paths_file" <<'EOF'
+          ${{ steps.changes.outputs.changed_files }}
+          EOF
+          python3 scripts/check_customization_contracts.py --changed-path-file "$changed_paths_file"
+
       - name: Update template base metadata
         if: steps.release.outputs.update_required == 'true' && steps.changes.outputs.has_changes == 'true'
         shell: bash
@@ -343,6 +356,20 @@ jobs:
           git commit -m "chore(template-sync): update template to ${{ steps.release.outputs.latest_tag }}"
           git push --force --set-upstream origin "$SYNC_BRANCH"
 
+      - name: Render PR body
+        if: steps.release.outputs.update_required == 'true' && steps.changes.outputs.has_changes == 'true'
+        id: pr_body
+        shell: bash
+        run: |
+          set -euo pipefail
+          body_file="$RUNNER_TEMP/template-sync-pr-body.md"
+          python3 scripts/render_template_sync_pr_body.py \
+            --release-tag "${{ steps.release.outputs.latest_tag }}" \
+            --release-url "${{ steps.release.outputs.release_url }}" \
+            --diff-file "$DIFF_ONLY_FILE" \
+            --output "$body_file"
+          echo "body_file=$body_file" >> "$GITHUB_OUTPUT"
+
       - name: Create or update draft PR
         if: steps.release.outputs.update_required == 'true' && steps.changes.outputs.has_changes == 'true'
         env:
@@ -351,9 +378,8 @@ jobs:
         run: |
           set -euo pipefail
           existing="$(gh pr list --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')"
-          body="Template upstream update from [${{ steps.release.outputs.latest_tag }}](${{ steps.release.outputs.release_url }})."
           if [ -n "$existing" ]; then
-            gh pr edit "$existing" --title "chore(template-sync): update template to ${{ steps.release.outputs.latest_tag }}" --body "$body"
+            gh pr edit "$existing" --title "chore(template-sync): update template to ${{ steps.release.outputs.latest_tag }}" --body-file "${{ steps.pr_body.outputs.body_file }}"
           else
-            gh pr create --draft --head "$SYNC_BRANCH" --title "chore(template-sync): update template to ${{ steps.release.outputs.latest_tag }}" --body "$body"
+            gh pr create --draft --head "$SYNC_BRANCH" --title "chore(template-sync): update template to ${{ steps.release.outputs.latest_tag }}" --body-file "${{ steps.pr_body.outputs.body_file }}"
           fi

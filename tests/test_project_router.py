@@ -852,6 +852,7 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             shutil.copy2(REPO_ROOT / "scripts" / "check_repo_ownership.py", root / "scripts" / "check_repo_ownership.py")
             shutil.copy2(REPO_ROOT / "scripts" / "check_sync_manifest_alignment.py", root / "scripts" / "check_sync_manifest_alignment.py")
             shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
+            shutil.copy2(REPO_ROOT / "repo-governance" / "customization-contracts.json", root / "repo-governance" / "customization-contracts.json")
             (root / ".github" / "workflows" / "template-upstream-sync.yml").write_text(
                 "paths=(\n"
                 "  Knowledge/README.md\n"

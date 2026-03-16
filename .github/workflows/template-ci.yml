@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run tests
-        run: python3 -m pytest tests/test_project_router.py -q
+        run: python3 -m pytest tests/test_project_router.py tests/test_template_governance.py -q
 
   agent-surface-parity:
     runs-on: ubuntu-latest

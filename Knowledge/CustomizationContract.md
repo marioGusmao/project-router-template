@@ -1,6 +1,6 @@
 # Customization Contract
 
-This document describes how each repository surface is owned, synced, and customized during template upgrades. It is generated from `repo-governance/customization-contracts.json` — the normative source of truth.
+This document describes how each repository surface is owned, synced, and customized during template upgrades. It is kept aligned with `repo-governance/customization-contracts.json` — the normative source of truth.
 
 For the architectural rationale, see [ADR-006](ADR/006-template-upgrade-process.md). For the practical merge guide, see [UpgradeGuide.md](UpgradeGuide.md).
 
@@ -49,7 +49,7 @@ For the architectural rationale, see [ADR-006](ADR/006-template-upgrade-process.
 
 | Surface | Ownership | Sync Model | Where to Customize |
 |---------|-----------|------------|--------------------|
-| `repo-governance/**` | template_owned | overwrite | Do not customize — changes are overwritten |
+| `repo-governance/**` | template_owned | overwrite | Do not customize — changes are overwritten; changes require `CHANGELOG.md` |
 | `parity.manifest.json` | template_owned | overwrite | Do not customize — changes are overwritten |
 | `VERSION` | template_owned | overwrite | Do not customize — changes are overwritten |
 | `CHANGELOG.md` | template_owned | overwrite | Do not customize — changes are overwritten |
@@ -60,7 +60,7 @@ For the architectural rationale, see [ADR-006](ADR/006-template-upgrade-process.
 | `.claude/settings.example.json` | template_owned | overwrite | Do not customize — changes are overwritten |
 | `projects/registry.example.json` | template_owned | overwrite | Do not customize — changes are overwritten |
 | `.github/workflows/template-release.yml` | template_owned | overwrite | Do not customize — changes are overwritten |
-| `.github/workflows/template-upstream-sync.yml` | template_owned | overwrite | Do not customize — changes are overwritten |
+| `.github/workflows/template-upstream-sync.yml` | template_owned | overwrite | Do not customize — changes are overwritten; changes require `CHANGELOG.md` |
 | `.github/workflows/template-ci.yml` | template_owned | overwrite | Do not customize — changes are overwritten |
 | `.github/ISSUE_TEMPLATE/**` | shared_review | overwrite | Do not customize — changes are overwritten |
 
@@ -104,13 +104,14 @@ For the architectural rationale, see [ADR-006](ADR/006-template-upgrade-process.
 3. **Skill directories are extensible** — local additions survive, but template skills update.
 4. **Local extras do not need parity** — a custom `.claude/skills/my-tool/` does not need mirrors in `.codex/` or `.agents/`.
 5. **The contract registry is normative** — run `check_customization_contracts.py` to validate.
+6. **Upgrade-contract changes need release notes** — changes to `repo-governance/**` and `.github/workflows/template-upstream-sync.yml` must land with a `CHANGELOG.md` update.
 
 ## Validators
 
 | Script | What it checks |
 |--------|----------------|
 | `check_managed_blocks.py` | All managed block markers exist in matched begin/end pairs |
-| `check_customization_contracts.py` | Registry ↔ manifest consistency, @import presence, overlay safety |
+| `check_customization_contracts.py` | Registry ↔ manifest consistency, overlay safety, conflict marker checks, `*.rej` checks, and release-note policy |
 | `check_agent_surface_parity.py` | Required template skills present in all three surfaces |
 | `check_repo_ownership.py` | All files classified, no sync violations |
-| `check_sync_manifest_alignment.py` | Workflow sync paths match manifest rules |
+| `check_sync_manifest_alignment.py` | Workflow sync paths are covered by both the manifest and the contract registry |

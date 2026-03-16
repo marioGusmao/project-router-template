@@ -20,7 +20,7 @@ The workflow uses a 7-step approach (passes 0 through 5, including a 0.5 backup 
 4. **Pass 2 — Restore:** Restores the `customization-contract` block in CLAUDE.md and AGENTS.md from the pre-overwrite backup (preserving your `@import` references).
 5. **Pass 3 — Managed blocks:** Updates content inside `repository-mode` and `template-onboarding` markers in README files, preserving your branding and content outside the markers.
 6. **Pass 4 — Extensible:** Syncs skill directories without deleting your local additions.
-7. **Pass 5 — Diff-only:** Generates diffs for `.gitignore` and `CONTRIBUTING.md` — review manually.
+7. **Pass 5 — Diff-only:** Generates diffs for `.gitignore`, `CONTRIBUTING.md`, and `.github/pull_request_template.md`, then renders them into the PR body for manual review.
 
 ## Merging the Sync PR
 
@@ -30,7 +30,7 @@ The workflow uses a 7-step approach (passes 0 through 5, including a 0.5 backup 
    - New or modified scripts under `scripts/`.
    - New ADRs under `Knowledge/ADR/`.
 
-2. **Check the diff-only section.** If the PR body mentions diff-only changes, review `sync-diffs.txt` in the workflow logs for `.gitignore` and `CONTRIBUTING.md`.
+2. **Check the diff-only section.** Review the `Diff-only review` section in the PR body for `.gitignore`, `CONTRIBUTING.md`, and `.github/pull_request_template.md`.
 
 3. **Merge the PR.** The draft PR is ready to merge when you are satisfied with the changes.
 
@@ -71,7 +71,7 @@ For `shared_review` to provide real protection, enable branch protection on `mai
 - Require status checks to pass (CI jobs).
 - Do not allow direct pushes.
 
-This is a user responsibility — the template cannot enforce it, but `doctor` will warn if `.github/` lacks rulesets.
+This is a user responsibility — the template cannot enforce GitHub repository settings from `doctor`, so configure these protections directly in GitHub.
 
 ## Prerequisites
 
