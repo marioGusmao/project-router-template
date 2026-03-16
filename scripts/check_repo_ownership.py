@@ -35,6 +35,8 @@ def classify_path(path: str, rules: list[dict[str, str]]) -> dict[str, str] | No
         pattern = str(rule["pattern"]).rstrip("/")
         if fnmatch.fnmatch(normalized, pattern):
             return rule
+        if pattern.endswith("/**") and normalized == pattern[:-3].rstrip("/"):
+            return rule
     return None
 
 
@@ -69,19 +71,31 @@ def main() -> int:
             errors.append(f"Unknown ownership class in rule {rule!r}")
 
     required_paths = [
-        "src/voice_notes/cli.py",
-        "scripts/voicenotes_client.py",
+        "src/project_router/cli.py",
+        "scripts/project_router_client.py",
         "README.md",
         "AGENTS.md",
         "CLAUDE.md",
-        ".agents/skills/voicenotes-triage-review/SKILL.md",
-        ".codex/skills/voicenotes-triage-review/SKILL.md",
-        ".claude/skills/voicenotes-triage-review/SKILL.md",
+        ".agents/skills/project-router-triage-review/SKILL.md",
+        ".codex/skills/project-router-triage-review/SKILL.md",
+        ".claude/skills/project-router-triage-review/SKILL.md",
         "projects/registry.shared.json",
         "projects/registry.example.json",
+        "project-router/router-contract.json",
+        "project-router/conformance/valid-packet.example.md",
         ".env.local",
-        "data/raw",
-        "state/sync_state.json",
+        "data/raw/voicenotes",
+        "data/raw/project_router",
+        "state/project_router/outbox_scan_state.json",
+        "Knowledge/Templates/local/README.md",
+        "Knowledge/Templates/local/Roadmap.md",
+        "Knowledge/Templates/local/ADR/README.md",
+        "Knowledge/Templates/local/notes/README.md",
+        "Knowledge/Templates/local/AI/README.md",
+        "Knowledge/Templates/local/AI/claude.md",
+        "Knowledge/Templates/local/AI/codex.md",
+        ".claude/settings.example.json",
+        "repo-governance/customization-contracts.json",
     ]
     for path in required_paths:
         if classify_path(path, rules) is None:

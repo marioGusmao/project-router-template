@@ -1,4 +1,0 @@
-interface:
-  display_name: "VoiceNotes Session Opener"
-  short_description: "Open session and review pending notes"
-  default_prompt: "Use $mg-start-session-opener-voicenotes to start this VoiceNotes session, refresh safe state, and show me what needs review before any dispatch."

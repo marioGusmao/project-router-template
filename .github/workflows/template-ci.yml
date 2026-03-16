@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run tests
-        run: python3 -m pytest tests/test_voice_notes.py -q
+        run: python3 -m pytest tests/test_project_router.py tests/test_template_governance.py -q
 
   agent-surface-parity:
     runs-on: ubuntu-latest
@@ -36,6 +36,16 @@ jobs:
           python-version: "3.11"
       - name: Check repository ownership
         run: python3 scripts/check_repo_ownership.py
+
+  sync-manifest-alignment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check sync manifest alignment
+        run: python3 scripts/check_sync_manifest_alignment.py
 
   version-consistency:
     runs-on: ubuntu-latest
@@ -67,3 +77,43 @@ jobs:
           if errors:
               raise SystemExit("\n".join(errors))
           PY
+
+  managed-blocks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check managed block markers
+        run: python3 scripts/check_managed_blocks.py
+
+  customization-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check customization contracts
+        run: python3 scripts/check_customization_contracts.py
+
+  adr-related-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check ADR related links
+        run: python3 scripts/check_adr_related_links.py --mode block
+
+  knowledge-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check knowledge structure
+        run: python3 scripts/check_knowledge_structure.py --strict

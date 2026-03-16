@@ -2,40 +2,21 @@
 
 [English](README.md) | Português (Portugal)
 
-Project Router Template é o template base partilhável para um fluxo de triagem de VoiceNotes que funciona tanto com Codex como com Claude Code.
+<!-- repository-mode:begin -->
+Este repositório é um repositório operacional privado do Project Router for VoiceNotes derivado do upstream partilhado `project-router-template`.
 
-O template mantém no Git o pipeline comum, as regras de segurança, as ferramentas de validação e exemplos neutros de routing. Cada utilizador guarda fora do Git os seus segredos locais, caminhos locais e dados reais de notas. Depois disso, cada pessoa pode criar o seu próprio repositório privado derivado deste template e personalizá-lo.
+A relação com o upstream fica registada em `private.meta.json` e `template-base.json`, e as atualizações de `marioGusmao/project-router-template` devem entrar por pull requests revistos na branch `chore/template-sync`, não por copy-paste manual.
+<!-- repository-mode:end -->
 
-## Novo No GitHub Templates
+<!-- template-onboarding:begin -->
+## Primeiros Passos No Repositório Privado
 
-Um template repository do GitHub é um projeto base que podes copiar para criares o teu próprio repositório.
+Se esta cópia já é um repositório operacional privado derivado:
 
-Neste projeto, o template serve para te dar:
-
-- o workflow e os scripts de VoiceNotes
-- as regras de segurança e os checks de validação
-- exemplos neutros de routing
-- um ponto de partida público e limpo, sem notas privadas, tokens ou caminhos locais
-
-Usa um template quando queres a tua própria cópia do projeto para a personalizares com segurança.
-
-Neste caso, a configuração recomendada é:
-
-1. Abre este repositório no GitHub.
-2. Clica em `Use this template`.
-3. Escolhe `Create a new repository`.
-4. Cria o teu próprio repositório a partir deste template.
-5. Define o teu novo repositório como `Private`, a menos que queiras mesmo partilhar a tua versão derivada.
-6. Faz clone do teu novo repositório para a tua máquina.
-7. Corre `python3 scripts/bootstrap_local.py` na tua cópia.
-
-Diferenças importantes em relação a um fork:
-
-- um template dá-te um repositório novo e limpo
-- o teu repositório pode ser privado mesmo que este template seja público
-- os teus ficheiros locais `.env.local`, `data/` e `state/` ficam só na tua máquina
-
-Se só queres usar o workflow, cria um repositório a partir do template. Não precisas de contribuir de volta para este repositório upstream.
+1. Corre `python3 scripts/bootstrap_local.py`.
+2. Corre `python3 scripts/project_router.py context`.
+3. Revê `Knowledge/local/Roadmap.md` e adapta-o ao teu projeto.
+<!-- template-onboarding:end -->
 
 ## Modelo Do Repositório
 
@@ -60,14 +41,26 @@ O template é o upstream partilhado. O repositório privado é a casa operaciona
 ```text
 data/
   raw/
+    voicenotes/
+    project_router/
   normalized/
+    voicenotes/
+    project_router/
   compiled/
+    voicenotes/
+    project_router/
   review/
-    ambiguous/
-    needs_review/
-    pending_project/
+    voicenotes/
+    project_router/
   dispatched/
   processed/
+Knowledge/
+  ADR/
+  Templates/
+project-router/
+  inbox/
+  outbox/
+  conformance/
 projects/
   registry.shared.json
   registry.example.json
@@ -75,13 +68,24 @@ projects/
 repo-governance/
   ownership.manifest.json
 scripts/
+  apply_managed_block_sync.py
+  bootstrap_private_repo.py
   bootstrap_local.py
+  check_adr_related_links.py
   check_agent_surface_parity.py
+  check_customization_contracts.py
+  check_knowledge_structure.py
+  check_managed_blocks.py
   check_repo_ownership.py
-  voice_notes.py
-  voicenotes_client.py
+  check_sync_manifest_alignment.py
+  knowledge_local_scaffold.py
+  migrate_add_contract_block.py
+  project_router.py
+  project_router_client.py
+  refresh_knowledge_local.py
+  sync_ai_files.py
 src/
-  voice_notes/
+  project_router/
     cli.py
     sync_client.py
 .agents/skills/
@@ -93,7 +97,26 @@ CHANGELOG.md
 template.meta.json
 ```
 
+## Knowledge
+
+O diretório `Knowledge/` fornece documentação curada de onboarding, registos de decisões arquiteturais e um glossário. Lê `Knowledge/ContextPack.md` para um guia de navegação pelo código, ou corre `python3 scripts/project_router.py context` para um briefing ao vivo no terminal.
+
 ## Configuração Local
+
+Se criaste um repositório privado derivado, promove-o primeiro:
+
+```bash
+python3 scripts/bootstrap_private_repo.py
+```
+
+O bootstrap de promoção:
+
+- muda `README.md`, `README.pt-PT.md`, `AGENTS.md` e `CLAUDE.md` para postura de repositório privado através de blocos geridos
+- cria `private.meta.json` para metadata do repositório privado
+- cria `template-base.json` para que `.github/workflows/template-upstream-sync.yml` consiga resolver o upstream template
+- mantém inalteradas as regras de segurança e os comandos do pipeline
+
+Vê [docs/private-derived-bootstrap.md](docs/private-derived-bootstrap.md) para o contrato completo desta promoção.
 
 Num computador novo, começa por correr:
 
@@ -106,7 +129,7 @@ Comportamento do bootstrap:
 - cria `.env.local` a partir de `.env.example` apenas se ainda não existir
 - cria `projects/registry.local.json` apenas se ainda não existir, exceto com `--force`
 - lê `projects/registry.shared.json` para descobrir as chaves de projeto
-- respeita variáveis `VN_INBOX_<PROJECT_KEY>` antes de pedir input
+- respeita variáveis `VN_ROUTER_ROOT_<PROJECT_KEY>` antes de pedir input
 - permite deixar um projeto inativo nessa máquina
 
 Mantém estes ficheiros fora do Git:
@@ -121,10 +144,10 @@ Mantém estes ficheiros fora do Git:
 O registry de routing está dividido em três ficheiros:
 
 - `projects/registry.shared.json`: metadata comitada, keywords, thresholds e note types
-- `projects/registry.local.json`: caminhos locais de inbox e overrides locais, fora do Git
+- `projects/registry.local.json`: valores locais de `router_root_path` e overrides locais, fora do Git
 - `projects/registry.example.json`: template inicial para o overlay local
 
-O template inclui projetos de exemplo neutros, como `home_renovation` e `weekly_meal_prep`. Os caminhos reais de inbox existem apenas em `projects/registry.local.json`.
+O template inclui projetos de exemplo neutros, como `home_renovation` e `weekly_meal_prep`. Os `router_root_path` reais existem apenas em `projects/registry.local.json`.
 
 A classificação pode correr apenas com o registry partilhado. O dispatch real exige o overlay local.
 
@@ -132,26 +155,28 @@ A classificação pode correr apenas com o registry partilhado. O dispatch real 
 
 ```bash
 python3 scripts/bootstrap_local.py
-python3 scripts/voicenotes_client.py sync --output-dir ./data/raw
-python3 scripts/voice_notes.py normalize
-python3 scripts/voice_notes.py triage
-python3 scripts/voice_notes.py compile
-python3 scripts/voice_notes.py review
-python3 scripts/voice_notes.py dispatch --dry-run
-python3 scripts/voice_notes.py discover
+python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes
+python3 scripts/project_router.py normalize --source voicenotes
+python3 scripts/project_router.py triage --source voicenotes
+python3 scripts/project_router.py compile --source voicenotes
+python3 scripts/project_router.py review --source voicenotes
+python3 scripts/project_router.py dispatch --dry-run
+python3 scripts/project_router.py discover
+python3 scripts/project_router.py scan-outboxes
+python3 scripts/project_router.py doctor --project home_renovation
 ```
 
 O dispatch real exige sempre aprovação explícita por nota:
 
 ```bash
-python3 scripts/voice_notes.py dispatch --confirm-user-approval --note-id vn_123 --note-id vn_456
+python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123 --note-id vn_456
 ```
 
 O comportamento do dispatch é fail-closed:
 
 - sem `projects/registry.local.json`, o dispatch é bloqueado
-- sem `inbox_path` para um projeto candidato, esse candidato é saltado com uma razão explícita
-- um `inbox_path` local inválido bloqueia esse candidato
+- sem `router_root_path` para um projeto candidato, esse candidato é saltado com uma razão explícita
+- um inbox derivado de `router_root_path` mas inválido bloqueia esse candidato
 - packages compilados em falta ou stale bloqueiam esse candidato
 - a aprovação tem de nomear exatamente os `source_note_id` a despachar
 
@@ -180,7 +205,7 @@ O validador verifica:
 
 - se os skill IDs obrigatórios existem nas três superfícies
 - se todas as superfícies documentam as mesmas regras críticas de segurança
-- se todas usam `python3 scripts/voicenotes_client.py`
+- se todas usam `python3 scripts/project_router_client.py`
 - se a documentação partilhada não referencia caminhos internos `.codex/...`
 
 ## Governance E Sync
@@ -230,6 +255,14 @@ O workflow espera:
 - a variável de repositório `TEMPLATE_UPSTREAM_REPO` ou um `template-base.json` preenchido
 - opcionalmente o secret `TEMPLATE_UPSTREAM_TOKEN` quando o template upstream for privado
 
+Num repositório derivado novo, a sequência recomendada é:
+
+```bash
+python3 scripts/bootstrap_private_repo.py
+python3 scripts/bootstrap_local.py
+python3 scripts/refresh_knowledge_local.py
+```
+
 ## Garantias De Segurança
 
 - Nunca apagar ou sobrescrever o raw JSON canónico.
@@ -246,11 +279,16 @@ Antes de publicar o template:
 
 1. Corre `python3 scripts/check_agent_surface_parity.py --pre-publish`
 2. Corre `python3 scripts/check_repo_ownership.py`
-3. Confirma que `projects/registry.shared.json` só tem exemplos neutros
-4. Confirma que `.env.local`, `projects/registry.local.json`, `data/` e `state/` não estão tracked
-5. Confirma que `.agents/skills/`, `.codex/skills/` e `.claude/skills/` continuam alinhados
-6. Ativa o modo GitHub Template Repository no upstream
-7. Ativa branch protection e required checks para testes, parity, ownership e release automation
+3. Corre `python3 scripts/check_sync_manifest_alignment.py`
+4. Corre `python3 scripts/check_knowledge_structure.py --strict`
+5. Corre `python3 scripts/check_adr_related_links.py --mode block`
+6. Corre `python3 scripts/check_managed_blocks.py`
+7. Corre `python3 scripts/check_customization_contracts.py`
+8. Confirma que `projects/registry.shared.json` só tem exemplos neutros
+9. Confirma que `.env.local`, `projects/registry.local.json`, `data/` e `state/` não estão tracked
+10. Confirma que `.agents/skills/`, `.codex/skills/` e `.claude/skills/` continuam alinhados
+11. Ativa o modo GitHub Template Repository no upstream
+12. Ativa branch protection e required checks para testes, parity, ownership e release automation
 
 ## Contribuir
 

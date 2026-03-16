@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Router Session Opener"
+  short_description: "Open session and review pending notes"
+  default_prompt: "Use $project-router-session-opener to start this Project Router session for VoiceNotes captures, refresh safe state, and show me what needs review before any dispatch."

@@ -27,7 +27,7 @@ Run the relevant checks locally:
 ```bash
 python3 scripts/check_agent_surface_parity.py --pre-publish
 python3 scripts/check_repo_ownership.py
-python3 -m pytest tests/test_voice_notes.py -q
+python3 -m pytest tests/test_project_router.py -q
 ```
 
 If your change affects workflow documentation, skills, or safety rules, keep the `.agents/`, `.codex/skills/`, and `.claude/skills/` surfaces aligned.

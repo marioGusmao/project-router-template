@@ -1,0 +1,12 @@
+{
+  "repo_role": "private-derived",
+  "private_repo_name": "project-router-template",
+  "derived_from_template": "project-router-template",
+  "template_repo": "marioGusmao/project-router-template",
+  "template_version_at_promotion": "0.1.0",
+  "promotion_script": "python3 scripts/bootstrap_private_repo.py",
+  "promoted_at": "2026-03-14T21:30:55Z",
+  "last_promoted_at": "2026-03-14T21:30:55Z",
+  "upstream_sync_branch": "chore/template-sync",
+  "upstream_sync_workflow": ".github/workflows/template-upstream-sync.yml"
+}

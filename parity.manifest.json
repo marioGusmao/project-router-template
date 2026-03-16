@@ -1,48 +1,65 @@
 {
   "required_skills": [
-    "mg-start-session-opener-voicenotes",
-    "voicenotes-direct-sync",
-    "voicenotes-triage-review"
+    "project-router-session-opener",
+    "project-router-direct-sync",
+    "project-router-triage-review"
   ],
   "required_commands": [
-    "python3 scripts/voicenotes_client.py sync --output-dir ./data/raw",
-    "python3 scripts/voice_notes.py normalize",
-    "python3 scripts/voice_notes.py triage",
-    "python3 scripts/voice_notes.py compile",
-    "python3 scripts/voice_notes.py review",
-    "python3 scripts/voice_notes.py dispatch --dry-run",
-    "python3 scripts/voice_notes.py discover",
-    "python3 scripts/voice_notes.py status"
+    "python3 scripts/bootstrap_private_repo.py",
+    "python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes",
+    "python3 scripts/project_router.py normalize",
+    "python3 scripts/project_router.py triage",
+    "python3 scripts/project_router.py compile",
+    "python3 scripts/project_router.py review",
+    "python3 scripts/project_router.py dispatch --dry-run",
+    "python3 scripts/project_router.py discover",
+    "python3 scripts/project_router.py status",
+    "python3 scripts/project_router.py scan-outboxes",
+    "python3 scripts/project_router.py doctor",
+    "python3 scripts/check_knowledge_structure.py",
+    "python3 scripts/check_managed_blocks.py",
+    "python3 scripts/check_customization_contracts.py",
+    "python3 scripts/project_router.py context",
+    "python3 scripts/bootstrap_local.py",
+    "python3 scripts/refresh_knowledge_local.py",
+    "python3 scripts/project_router.py decide --note-id",
+    "python3 scripts/project_router.py dispatch --confirm-user-approval --note-id",
+    "python3 scripts/check_agent_surface_parity.py",
+    "python3 scripts/check_repo_ownership.py",
+    "python3 scripts/check_sync_manifest_alignment.py",
+    "python3 scripts/check_adr_related_links.py",
+    "python3 scripts/project_router.py migrate-source-layout --dry-run"
   ],
   "required_phrases": [
     "Never auto-dispatch",
     "Treat confirmation as note-specific",
     "Never dispatch a normalized note directly",
     "Compiled packages must be fresh",
-    "python3 scripts/voicenotes_client.py"
+    "python3 scripts/project_router_client.py",
+    "Knowledge/ContextPack"
   ],
   "forbidden_path_fragments": [
-    ".codex/skills/voicenotes-direct-sync/scripts/voicenotes_client.py",
-    ".claude/skills/voicenotes-direct-sync/scripts/voicenotes_client.py"
+    ".codex/skills/project-router-direct-sync/scripts/project_router_client.py",
+    ".claude/skills/project-router-direct-sync/scripts/project_router_client.py"
   ],
   "surface_files": {
     "agents": [
       ".agents/README.md",
-      ".agents/skills/mg-start-session-opener-voicenotes/SKILL.md",
-      ".agents/skills/voicenotes-direct-sync/SKILL.md",
-      ".agents/skills/voicenotes-triage-review/SKILL.md"
+      ".agents/skills/project-router-session-opener/SKILL.md",
+      ".agents/skills/project-router-direct-sync/SKILL.md",
+      ".agents/skills/project-router-triage-review/SKILL.md"
     ],
     "codex": [
       "AGENTS.md",
-      ".codex/skills/mg-start-session-opener-voicenotes/SKILL.md",
-      ".codex/skills/voicenotes-direct-sync/SKILL.md",
-      ".codex/skills/voicenotes-triage-review/SKILL.md"
+      ".codex/skills/project-router-session-opener/SKILL.md",
+      ".codex/skills/project-router-direct-sync/SKILL.md",
+      ".codex/skills/project-router-triage-review/SKILL.md"
     ],
     "claude": [
       "CLAUDE.md",
-      ".claude/skills/mg-start-session-opener-voicenotes/SKILL.md",
-      ".claude/skills/voicenotes-direct-sync/SKILL.md",
-      ".claude/skills/voicenotes-triage-review/SKILL.md"
+      ".claude/skills/project-router-session-opener/SKILL.md",
+      ".claude/skills/project-router-direct-sync/SKILL.md",
+      ".claude/skills/project-router-triage-review/SKILL.md"
     ]
   }
 }

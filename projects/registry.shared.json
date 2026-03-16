@@ -1,6 +1,5 @@
 {
   "defaults": {
-    "auto_dispatch_threshold": 0.9,
     "min_keyword_hits": 2
   },
   "projects": {
@@ -8,7 +7,6 @@
       "display_name": "Home Renovation",
       "language": "en",
       "note_type": "project-idea",
-      "auto_dispatch_threshold": 0.9,
       "keywords": [
         "renovation",
         "contractor",
@@ -26,7 +24,6 @@
       "display_name": "Weekly Meal Prep",
       "language": "en",
       "note_type": "daily-ops",
-      "auto_dispatch_threshold": 0.9,
       "keywords": [
         "meal prep",
         "groceries",

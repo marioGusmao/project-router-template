@@ -27,6 +27,31 @@
       "sync_policy": "template_sync"
     },
     {
+      "pattern": "Knowledge/local/**",
+      "ownership": "private_owned",
+      "sync_policy": "blocked"
+    },
+    {
+      "pattern": "Knowledge/Templates/**",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
+      "pattern": "Knowledge/ADR/*.md",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
+      "pattern": "Knowledge/*.md",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
+      "pattern": "Knowledge/**",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
+    },
+    {
       "pattern": ".release-please-config.json",
       "ownership": "template_owned",
       "sync_policy": "template_sync"
@@ -60,6 +85,11 @@
       "pattern": "repo-governance/**",
       "ownership": "template_owned",
       "sync_policy": "template_sync"
+    },
+    {
+      "pattern": "project-router/**",
+      "ownership": "shared_review",
+      "sync_policy": "review_required"
     },
     {
       "pattern": "projects/registry.example.json",
@@ -140,6 +170,16 @@
       "pattern": ".claude/skills/**",
       "ownership": "shared_review",
       "sync_policy": "review_required"
+    },
+    {
+      "pattern": ".claude/settings.local.json",
+      "ownership": "local_only",
+      "sync_policy": "blocked"
+    },
+    {
+      "pattern": ".claude/settings.example.json",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
     },
     {
       "pattern": "projects/registry.shared.json",

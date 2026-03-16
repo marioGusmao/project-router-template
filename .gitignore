@@ -4,6 +4,7 @@
 !.env.example
 firebase-debug.log
 
+.claude/settings.local.json
 projects/registry.local.json
 state/*
 !state/.gitkeep
@@ -15,12 +16,8 @@ data/normalized/*
 !data/normalized/.gitkeep
 data/compiled/*
 !data/compiled/.gitkeep
-data/review/ambiguous/*
-!data/review/ambiguous/.gitkeep
-data/review/needs_review/*
-!data/review/needs_review/.gitkeep
-data/review/pending_project/*
-!data/review/pending_project/.gitkeep
+data/review/*
+!data/review/.gitkeep
 data/dispatched/*
 !data/dispatched/.gitkeep
 data/processed/*
