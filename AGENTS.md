@@ -65,7 +65,7 @@
 - Prefer `python3 scripts/bootstrap_local.py` when setting up a new machine or validating starter hygiene.
 - Prefer the repository entrypoint `python3 scripts/project_router_client.py ...` for direct VoiceNotes API access in project-facing docs and workflows.
 - Prefer `python3 scripts/project_router.py scan-outboxes` when pulling project-router packets from downstream repositories.
-- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `project-router/` surface.
+- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `router/` surface.
 - Prefer `python3 scripts/project_router.py migrate-source-layout --dry-run` before changing or auditing old local starter copies that still use the flat pre-source-aware layout.
 - Prefer `python3 scripts/project_router.py discover` when the `pending_project` queue starts to accumulate notes.
 - Prefer `python3 scripts/project_router.py compile` before any real dispatch so downstream projects receive a richer brief than the raw transcript.
@@ -101,6 +101,8 @@
 - `python3 scripts/project_router.py discover`
 - `python3 scripts/project_router.py scan-outboxes`
 - `python3 scripts/project_router.py doctor`
+- `python3 scripts/project_router.py init-router-root --project <key> --router-root <path>`
+- `python3 scripts/project_router.py adopt-router-root --project <key>`
 - `python3 scripts/project_router.py migrate-source-layout --dry-run`
 - `python3 scripts/project_router.py decide --note-id vn_123 --decision approve`
 - `python3 scripts/project_router.py dispatch --dry-run`

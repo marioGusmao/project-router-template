@@ -31,7 +31,7 @@
 
 - **registry overlay**: Three-layer project configuration. `registry.shared.json` (committed, common metadata) + `registry.local.json` (gitignored, machine-local paths) + `registry.example.json` (committed, starter template). Classification runs from shared alone; dispatch requires local.
 - **router_root_path**: Absolute filesystem path to a downstream project's root directory. Defined in `registry.local.json`. Must be absolute; placeholder paths trigger validation errors.
-- **project-router protocol**: The interface downstream projects expose: `project-router/router-contract.json` (capabilities and schema), `project-router/inbox/` (receives dispatched notes), `project-router/outbox/` (emits status back), `project-router/conformance/` (validation artifacts).
+- **project-router protocol**: The interface downstream projects expose: `router/router-contract.json` (capabilities and schema), `router/inbox/` (receives dispatched notes), `router/outbox/` (emits status back), `router/conformance/` (validation artifacts).
 
 ## Ownership and Governance
 
@@ -49,3 +49,5 @@
 - **outbox/**: Directory where downstream projects emit status updates or responses. Read-only from the router's perspective.
 - **conformance/**: Directory for validation artifacts that verify a downstream project meets the protocol.
 - **doctor command**: `python3 scripts/project_router.py doctor --project <name>` validates a downstream project's protocol compliance.
+- **adoption journal**: JSON record written to `state/project_router/adoptions/{project_key}.json` after `adopt-router-root --confirm`, capturing detected inputs, chosen target, operations executed, config diff, doctor result, and follow-up items.
+- **router root adoption**: The process of migrating a project from legacy `inbox_path` to the `router_root_path` convention via `adopt-router-root`. Creates or repairs the downstream scaffold, rewrites the local registry, and runs doctor validation.

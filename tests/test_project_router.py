@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -41,6 +42,7 @@ def prepare_repo(root: Path) -> None:
         root / "state" / "decisions",
         root / "state" / "discoveries",
         root / "state" / "project_router",
+        root / "state" / "project_router" / "adoptions",
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -67,13 +69,14 @@ def patch_cli_paths(root: Path) -> ExitStack:
         "PROJECT_ROUTER_STATE_DIR": state / "project_router",
         "OUTBOX_SCAN_STATE_PATH": state / "project_router" / "outbox_scan_state.json",
         "OUTBOX_SCAN_LOCK_PATH": state / "project_router" / "scan.lock",
+        "ADOPTIONS_DIR": state / "project_router" / "adoptions",
         "DISCOVERY_REPORT_PATH": state / "discoveries" / "pending_project_latest.json",
         "REGISTRY_LOCAL_PATH": root / "projects" / "registry.local.json",
         "REGISTRY_SHARED_PATH": root / "projects" / "registry.shared.json",
         "REGISTRY_EXAMPLE_PATH": root / "projects" / "registry.example.json",
         "ENV_LOCAL_PATH": root / ".env.local",
         "ENV_PATH": root / ".env",
-        "LOCAL_ROUTER_DIR": root / "project-router",
+        "LOCAL_ROUTER_DIR": root / "router",
     }
     for key, value in patches.items():
         stack.enter_context(mock.patch.object(cli, key, value))
@@ -511,7 +514,7 @@ class ProjectRouterFlowTests(unittest.TestCase):
             prepare_repo(root)
             (root / "projects" / "registry.shared.json").write_text(json.dumps({"defaults": {}, "projects": {}}), encoding="utf-8")
             (root / "projects" / "registry.local.json").write_text(json.dumps({"projects": {}}), encoding="utf-8")
-            router_root = root / "project-router"
+            router_root = root / "router"
             write_router_contract(router_root, project_key="project_router_template")
             write_outbox_packet(router_root, "self_pkt", "# Self\n\nBody\n", project_key="project_router_template")
             with patch_cli_paths(root):
@@ -774,6 +777,23 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("005-safety-invariants.md", result.stderr)
+
+    def test_strict_validator_requires_repo_native_plan_file(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "repo-governance").mkdir()
+            shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
+            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
+            shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
+            (root / "Knowledge" / "runbooks" / "plans" / "router-root-migration-and-scaffold.plan.md").unlink()
+
+            result = subprocess.run(
+                ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Knowledge/runbooks/plans/router-root-migration-and-scaffold.plan.md", result.stderr)
 
     def test_strict_validator_fails_when_template_scaffold_source_missing(self) -> None:
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
@@ -2388,6 +2408,779 @@ class TemplateSyncTests(unittest.TestCase):
         self.assertTrue(len(errors) > 0)
         error_text = "\n".join(errors)
         self.assertIn("invalid ownership", error_text)
+
+
+# =====================================================================
+#  init-router-root tests (Phase 1)
+# =====================================================================
+
+
+class InitRouterRootTests(unittest.TestCase):
+
+    def test_init_creates_scaffold(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream" / "project-router"
+            with patch_cli_paths(root):
+                rc = cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target)])
+            self.assertEqual(rc, 0)
+            self.assertTrue((target / "router-contract.json").exists())
+            self.assertTrue((target / "inbox").is_dir())
+            self.assertTrue((target / "outbox").is_dir())
+            self.assertTrue((target / "conformance").is_dir())
+            self.assertTrue((target / "conformance" / "valid-packet.example.md").exists())
+            self.assertTrue((target / "conformance" / "invalid-packet.example.md").exists())
+            contract = json.loads((target / "router-contract.json").read_text(encoding="utf-8"))
+            self.assertEqual(contract["project_key"], "home_renovation")
+            errors = cli.validate_router_contract(contract, expected_project_key="home_renovation")
+            self.assertEqual(errors, [])
+
+    def test_init_refuses_overwrite(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream" / "project-router"
+            target.mkdir(parents=True)
+            (target / "router-contract.json").write_text("{}", encoding="utf-8")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target)])
+            self.assertIn("already exists", str(ctx.exception))
+
+    def test_init_uses_registry_language(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            shared = {
+                "defaults": {"min_keyword_hits": 2},
+                "projects": {
+                    "home_renovation": {
+                        "display_name": "Renovação Casa",
+                        "language": "pt",
+                        "note_type": "project-idea",
+                        "keywords": ["renovação"],
+                    }
+                },
+            }
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(
+                json.dumps({"projects": {"home_renovation": {"router_root_path": str(root / "repos" / "hr" / "project-router")}}}),
+                encoding="utf-8",
+            )
+            target = root / "downstream" / "project-router"
+            with patch_cli_paths(root):
+                rc = cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target)])
+            self.assertEqual(rc, 0)
+            contract = json.loads((target / "router-contract.json").read_text(encoding="utf-8"))
+            self.assertEqual(contract["default_language"], "pt")
+
+    def test_init_rejects_unknown_project(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream" / "project-router"
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["init-router-root", "--project", "nonexistent", "--router-root", str(target)])
+            self.assertIn("not found", str(ctx.exception))
+
+    def test_init_rejects_relative_path(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit):
+                    cli.main(["init-router-root", "--project", "home_renovation", "--router-root", "relative/path"])
+
+    def test_init_rejects_repo_root(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream"
+            target.mkdir(parents=True, exist_ok=True)
+            (target / ".git").mkdir()
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target)])
+            self.assertIn("repository root", str(ctx.exception))
+
+    def test_init_rejects_non_protocol_dir(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream"
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "random_file.txt").write_text("hello", encoding="utf-8")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target)])
+            self.assertIn("non-protocol content", str(ctx.exception))
+
+    def test_init_custom_packet_types(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream" / "project-router"
+            with patch_cli_paths(root):
+                rc = cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target), "--packet-types", "insight,task"])
+            self.assertEqual(rc, 0)
+            contract = json.loads((target / "router-contract.json").read_text(encoding="utf-8"))
+            self.assertEqual(contract["supported_packet_types"], ["insight", "task"])
+
+    def test_init_rejects_empty_packet_types(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream" / "project-router"
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target), "--packet-types", ",,,"])
+            self.assertIn("at least one non-empty packet type", str(ctx.exception))
+            self.assertFalse((target / "router-contract.json").exists())
+
+    def test_init_rejects_duplicate_packet_types(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream" / "project-router"
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(
+                        [
+                            "init-router-root",
+                            "--project",
+                            "home_renovation",
+                            "--router-root",
+                            str(target),
+                            "--packet-types",
+                            "insight,question,insight",
+                        ]
+                    )
+            self.assertIn("duplicate values", str(ctx.exception))
+            self.assertFalse((target / "router-contract.json").exists())
+
+
+# =====================================================================
+#  adopt-router-root tests (Phase 2)
+# =====================================================================
+
+
+def write_registry_legacy(root: Path) -> Path:
+    """Write a registry with only inbox_path (no router_root_path) for legacy testing."""
+    shared = {
+        "defaults": {"min_keyword_hits": 2},
+        "projects": {
+            "home_renovation": {
+                "display_name": "Home Renovation",
+                "language": "en",
+                "note_type": "project-idea",
+                "keywords": ["renovation", "contractor", "budget"],
+            }
+        },
+    }
+    router_root = root / "repos" / "home-renovation" / "router"
+    inbox_path = router_root / "inbox"
+    inbox_path.mkdir(parents=True, exist_ok=True)
+    # Content-based inference needs router-contract.json in the parent
+    (router_root / "router-contract.json").write_text(
+        json.dumps({"schema_version": "1", "project_key": "home_renovation",
+                     "default_language": "en", "supported_packet_types": ["improvement_proposal", "question", "insight"]},
+                    indent=2) + "\n",
+        encoding="utf-8",
+    )
+    local = {
+        "projects": {
+            "home_renovation": {
+                "inbox_path": str(inbox_path),
+            }
+        }
+    }
+    (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+    (root / "projects" / "registry.local.json").write_text(json.dumps(local, indent=2), encoding="utf-8")
+    return inbox_path
+
+
+class AdoptRouterRootTests(unittest.TestCase):
+
+    def test_adopt_preview_legacy(self) -> None:
+        """Preview mode shows operations but creates nothing on disk."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry_legacy(root)
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation"])
+            self.assertEqual(rc, 0)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["mode"], "preview")
+            self.assertEqual(report["status"], "legacy")
+            # Preview should not create new scaffold dirs
+            self.assertFalse((inbox_path.parent / "outbox").exists())
+            self.assertFalse((inbox_path.parent / "conformance").exists())
+
+    def test_adopt_confirm_legacy(self) -> None:
+        """Full adoption: scaffold created, registry rewritten, backup, doctor ok, journal written."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry_legacy(root)
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertEqual(rc, 0)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["mode"], "executed")
+            self.assertEqual(report["doctor_status"], "ok")
+            router_root = inbox_path.parent
+            self.assertTrue((router_root / "router-contract.json").exists())
+            self.assertTrue((router_root / "inbox").is_dir())
+            self.assertTrue((router_root / "outbox").is_dir())
+            self.assertTrue((router_root / "conformance").is_dir())
+            # Registry updated
+            local = json.loads((root / "projects" / "registry.local.json").read_text(encoding="utf-8"))
+            hr = local["projects"]["home_renovation"]
+            self.assertEqual(hr["router_root_path"], str(router_root))
+            self.assertNotIn("inbox_path", hr)
+            # Journal exists
+            journal_path = root / "state" / "project_router" / "adoptions" / "home_renovation.json"
+            self.assertTrue(journal_path.exists())
+            # Backup exists
+            backups = [f for f in (root / "projects").iterdir() if f.name.startswith("registry.local.json.pre-adopt")]
+            self.assertTrue(len(backups) >= 1)
+
+    def test_adopt_already_current(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root, include_router_root=True)
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            write_router_contract(router_root)
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation"])
+            self.assertEqual(rc, 0)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["status"], "already_current")
+
+    def test_adopt_partial_scaffold(self) -> None:
+        """Missing conformance pieces are created."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry_legacy(root)
+            router_root = inbox_path.parent
+            # Create partial scaffold: contract + inbox + outbox, but no conformance fixtures
+            (router_root / "outbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "conformance").mkdir(parents=True, exist_ok=True)
+            contract = {
+                "schema_version": "1",
+                "project_key": "home_renovation",
+                "default_language": "en",
+                "supported_packet_types": ["improvement_proposal", "question", "insight"],
+            }
+            (router_root / "router-contract.json").write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertEqual(rc, 0)
+            self.assertTrue((router_root / "conformance" / "valid-packet.example.md").exists())
+            self.assertTrue((router_root / "conformance" / "invalid-packet.example.md").exists())
+
+    def test_adopt_explicit_router_root(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry_legacy(root)
+            target = root / "new-target" / "project-router"
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--router-root", str(target), "--confirm"])
+            self.assertEqual(rc, 0)
+            self.assertTrue((target / "router-contract.json").exists())
+            local = json.loads((root / "projects" / "registry.local.json").read_text(encoding="utf-8"))
+            self.assertEqual(local["projects"]["home_renovation"]["router_root_path"], str(target))
+
+    def test_adopt_preserves_inbox_content(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry_legacy(root)
+            # Put files in old inbox
+            (inbox_path / "note1.md").write_text("# Note 1\n", encoding="utf-8")
+            (inbox_path / "note2.md").write_text("# Note 2\n", encoding="utf-8")
+            # Use a different target
+            target = root / "new-loc" / "project-router"
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print"):
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--router-root", str(target), "--confirm"])
+            self.assertEqual(rc, 0)
+            self.assertEqual((target / "inbox" / "note1.md").read_text(encoding="utf-8"), "# Note 1\n")
+            self.assertEqual((target / "inbox" / "note2.md").read_text(encoding="utf-8"), "# Note 2\n")
+
+    def test_adopt_inbox_collision_aborts(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry_legacy(root)
+            (inbox_path / "note.md").write_text("old content", encoding="utf-8")
+            target = root / "new-loc" / "project-router"
+            (target / "inbox").mkdir(parents=True, exist_ok=True)
+            (target / "inbox" / "note.md").write_text("different content", encoding="utf-8")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["adopt-router-root", "--project", "home_renovation", "--router-root", str(target), "--confirm"])
+            self.assertIn("collision", str(ctx.exception).lower())
+
+    def test_adopt_rejects_placeholder(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root, include_router_root=True)
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit):
+                    cli.main(["adopt-router-root", "--project", "home_renovation", "--router-root", "/ABSOLUTE/PATH/TO/project-router"])
+
+    def test_adopt_unsafe_inference_aborts(self) -> None:
+        """inbox_path parent without router-contract.json → SystemExit."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            # Write registry where inbox_path parent has no router-contract.json
+            shared = {
+                "defaults": {"min_keyword_hits": 2},
+                "projects": {
+                    "home_renovation": {
+                        "display_name": "Home Renovation",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["renovation"],
+                    }
+                },
+            }
+            inbox_path = root / "repos" / "home-renovation" / "custom-dir" / "inbox"
+            inbox_path.mkdir(parents=True, exist_ok=True)
+            local = {"projects": {"home_renovation": {"inbox_path": str(inbox_path)}}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local, indent=2), encoding="utf-8")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertIn("Cannot infer", str(ctx.exception))
+
+    def test_adopt_rejects_non_protocol_dir(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry_legacy(root)
+            target = root / "existing-stuff"
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "random.txt").write_text("hello", encoding="utf-8")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["adopt-router-root", "--project", "home_renovation", "--router-root", str(target), "--confirm"])
+            self.assertIn("non-protocol content", str(ctx.exception))
+
+    def test_adopt_journal_content(self) -> None:
+        """Journal has all required fields."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry_legacy(root)
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print"):
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertEqual(rc, 0)
+            journal_path = root / "state" / "project_router" / "adoptions" / "home_renovation.json"
+            journal = json.loads(journal_path.read_text(encoding="utf-8"))
+            self.assertIn("detected_inputs", journal)
+            self.assertIn("chosen_target", journal)
+            self.assertIn("operations_executed", journal)
+            self.assertIn("config_diff", journal)
+            self.assertIn("doctor_result", journal)
+            self.assertIn("downstream_agent_config", journal)
+            self.assertIn("manual_follow_ups", journal)
+            self.assertIn("registry_backup", journal)
+
+    def test_adopt_doctor_failure_still_journals(self) -> None:
+        """Outbox with invalid packet → exit 1, journal still written."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            inbox_path = write_registry_legacy(root)
+            router_root = inbox_path.parent
+            # Create an invalid outbox packet that will fail doctor
+            (router_root / "outbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "outbox" / "20260313T100000Z--bad_packet.md").write_text(
+                "---\nschema_version: \"1\"\npacket_id: \"bad_packet\"\n---\n\nBroken\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertEqual(rc, 1)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["doctor_status"], "error")
+            journal_path = root / "state" / "project_router" / "adoptions" / "home_renovation.json"
+            self.assertTrue(journal_path.exists())
+
+    def test_adopt_all_preview(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root, include_router_root=True)
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            write_router_contract(router_root)
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--all"])
+            self.assertEqual(rc, 0)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["mode"], "fleet_preview")
+            self.assertIn("projects", report)
+
+    def test_adopt_all_confirm_blocked(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root, include_router_root=True)
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["adopt-router-root", "--all", "--confirm"])
+            self.assertIn("not supported in v1", str(ctx.exception))
+
+    def test_adopt_normalizes_corrupted_router_root(self) -> None:
+        """Corrupted router_root_path ending in /inbox is normalized before adoption."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            corrupted = router_root / "inbox"
+            shared = {
+                "defaults": {"min_keyword_hits": 2},
+                "projects": {
+                    "home_renovation": {
+                        "display_name": "Home Renovation",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["renovation"],
+                    }
+                },
+            }
+            local = {"projects": {"home_renovation": {"router_root_path": str(corrupted)}}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local, indent=2), encoding="utf-8")
+            corrupted.mkdir(parents=True, exist_ok=True)
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertEqual(rc, 0)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["mode"], "executed")
+            # Target should be the parent, not the /inbox dir
+            self.assertEqual(report["target_router_root"], str(router_root))
+            # Registry should point to the normalized path
+            reg = json.loads((root / "projects" / "registry.local.json").read_text(encoding="utf-8"))
+            self.assertEqual(reg["projects"]["home_renovation"]["router_root_path"], str(router_root))
+
+    def test_adopt_infers_from_custom_named_parent(self) -> None:
+        """inbox_path inside a non-standard-named parent with router-contract.json → inferred."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            router_root = root / "repos" / "home-renovation" / "MyRouter"
+            inbox = router_root / "inbox"
+            inbox.mkdir(parents=True, exist_ok=True)
+            (router_root / "router-contract.json").write_text(
+                json.dumps({"schema_version": "1", "project_key": "home_renovation",
+                             "default_language": "en", "supported_packet_types": ["insight"]}),
+                encoding="utf-8",
+            )
+            shared = {
+                "defaults": {"min_keyword_hits": 2},
+                "projects": {"home_renovation": {"display_name": "Home Renovation", "language": "en",
+                                                  "note_type": "project-idea", "keywords": ["renovation"]}},
+            }
+            local = {"projects": {"home_renovation": {"inbox_path": str(inbox)}}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local, indent=2), encoding="utf-8")
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    rc = cli.main(["adopt-router-root", "--project", "home_renovation", "--confirm"])
+            self.assertEqual(rc, 0)
+            report = parse_print_json(mock_print)
+            self.assertEqual(report["target_router_root"], str(router_root))
+
+    def test_init_rejects_file_target(self) -> None:
+        """--router-root pointing to a file → clean SystemExit, not traceback."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "some-file"
+            target.write_text("not a directory", encoding="utf-8")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target)])
+            self.assertIn("not a file", str(ctx.exception).lower())
+
+
+# =====================================================================
+#  Parser/help coverage tests (Phase 4)
+# =====================================================================
+
+
+class ParserHelpTests(unittest.TestCase):
+
+    def test_init_router_root_appears_in_help(self) -> None:
+        result = subprocess.run(
+            ["python3", str(Path(__file__).resolve().parents[1] / "scripts" / "project_router.py"), "--help"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("init-router-root", result.stdout)
+
+    def test_adopt_router_root_appears_in_help(self) -> None:
+        result = subprocess.run(
+            ["python3", str(Path(__file__).resolve().parents[1] / "scripts" / "project_router.py"), "--help"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("adopt-router-root", result.stdout)
+
+    def test_init_router_root_subcommand_help(self) -> None:
+        result = subprocess.run(
+            ["python3", str(Path(__file__).resolve().parents[1] / "scripts" / "project_router.py"), "init-router-root", "--help"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--project", result.stdout)
+        self.assertIn("--router-root", result.stdout)
+
+    def test_adopt_router_root_subcommand_help(self) -> None:
+        result = subprocess.run(
+            ["python3", str(Path(__file__).resolve().parents[1] / "scripts" / "project_router.py"), "adopt-router-root", "--help"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--project", result.stdout)
+        self.assertIn("--all", result.stdout)
+
+
+# =====================================================================
+#  Error message hint tests (Phase 3)
+# =====================================================================
+
+
+class ErrorMessageHintTests(unittest.TestCase):
+
+    def test_doctor_suggests_adopt(self) -> None:
+        """Doctor error for missing router_root_path suggests adopt-router-root."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            # Registry with inbox_path only (no router_root_path)
+            shared = {
+                "defaults": {},
+                "projects": {
+                    "demo": {
+                        "display_name": "Demo",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["demo"],
+                    }
+                },
+            }
+            local = {"projects": {"demo": {"inbox_path": str(root / "repos" / "demo" / "project-router" / "inbox")}}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local), encoding="utf-8")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["doctor", "--project", "demo"])
+            self.assertIn("adopt-router-root", str(ctx.exception))
+
+    def test_dispatch_suggests_adopt(self) -> None:
+        """Dispatch skip reason contains adopt-router-root hint."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            # Registry with no paths at all
+            shared = {
+                "defaults": {"min_keyword_hits": 1},
+                "projects": {
+                    "demo": {
+                        "display_name": "Demo",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["demo"],
+                    }
+                },
+            }
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(json.dumps({"projects": {"demo": {}}}), encoding="utf-8")
+            # Create a note that would dispatch to demo
+            norm = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_test.md"
+            norm.write_text(
+                "---\n"
+                'source: "voicenotes"\n'
+                'source_note_id: "vn_test"\n'
+                'status: "classified"\n'
+                'review_status: "approved"\n'
+                'project: "demo"\n'
+                'title: "Test note"\n'
+                'created_at: "2026-03-11T16:00:00Z"\n'
+                "---\n\nBody\n",
+                encoding="utf-8",
+            )
+            # Create compiled artifact
+            comp_dir = root / "data" / "compiled" / "voicenotes"
+            comp_dir.mkdir(parents=True, exist_ok=True)
+            comp = comp_dir / "20260311T160000Z--vn_test.md"
+            comp.write_text(
+                "---\n"
+                'source: "voicenotes"\n'
+                'source_note_id: "vn_test"\n'
+                'status: "classified"\n'
+                'review_status: "approved"\n'
+                'project: "demo"\n'
+                'title: "Test note"\n'
+                'created_at: "2026-03-11T16:00:00Z"\n'
+                'compiled_at: "2026-03-11T17:00:00Z"\n'
+                "---\n\nCompiled body\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                with mock.patch("builtins.print") as mock_print:
+                    cli.main(["dispatch", "--dry-run"])
+            output = mock_print.call_args[0][0]
+            self.assertIn("adopt-router-root", output)
+
+    def test_load_registry_suggests_bootstrap(self) -> None:
+        """Missing registry.local.json error suggests bootstrap_local.py."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            shared = {"defaults": {}, "projects": {}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            # No registry.local.json
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.load_registry(require_local=True)
+            self.assertIn("bootstrap_local.py", str(ctx.exception))
+
+
+# =====================================================================
+#  Bootstrap path normalization tests (Phase 0)
+# =====================================================================
+
+
+class BootstrapLocalTests(unittest.TestCase):
+
+    def _load_bootstrap(self):
+        import importlib.util
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "bootstrap_local.py"
+        spec = importlib.util.spec_from_file_location("bootstrap_local", str(script_path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_bootstrap_normalizes_legacy_inbox_path(self) -> None:
+        """inbox_path ending in /inbox → router_root_path with parent."""
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "projects").mkdir()
+            shared = {
+                "projects": {
+                    "demo": {
+                        "display_name": "Demo",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["demo"],
+                    }
+                }
+            }
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            # Existing local has legacy inbox_path only
+            existing_local = {
+                "projects": {
+                    "demo": {
+                        "inbox_path": str(root / "repos" / "demo" / "project-router" / "inbox")
+                    }
+                }
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(existing_local), encoding="utf-8")
+
+            mod = self._load_bootstrap()
+            original_shared = mod.REGISTRY_SHARED_PATH
+            original_local = mod.REGISTRY_LOCAL_PATH
+            try:
+                mod.REGISTRY_SHARED_PATH = root / "projects" / "registry.shared.json"
+                mod.REGISTRY_LOCAL_PATH = root / "projects" / "registry.local.json"
+                # force=False: existing_value is used (not env). File exists so
+                # we must set force=True but supply the existing value via env.
+                # Simpler: use force=False — the file exists so it would return early.
+                # Instead, pass force=True and set the env var to the inbox_path value.
+                inbox = str(root / "repos" / "demo" / "project-router" / "inbox")
+                with mock.patch.dict(os.environ, {"VN_ROUTER_ROOT_DEMO": inbox}):
+                    payload, warnings, status = mod.build_registry_local(force=True)
+            finally:
+                mod.REGISTRY_SHARED_PATH = original_shared
+                mod.REGISTRY_LOCAL_PATH = original_local
+
+            demo = payload["projects"]["demo"]
+            self.assertEqual(demo["router_root_path"], str(root / "repos" / "demo" / "project-router"))
+            self.assertNotIn("inbox_path", demo)
+
+    def test_bootstrap_normalizes_corrupted_router_root(self) -> None:
+        """router_root_path ending in /inbox → normalized to parent."""
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "projects").mkdir()
+            shared = {
+                "projects": {
+                    "demo": {
+                        "display_name": "Demo",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["demo"],
+                    }
+                }
+            }
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            existing_local = {
+                "projects": {
+                    "demo": {
+                        "router_root_path": str(root / "repos" / "demo" / "project-router" / "inbox")
+                    }
+                }
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(existing_local), encoding="utf-8")
+
+            mod = self._load_bootstrap()
+            original_shared = mod.REGISTRY_SHARED_PATH
+            original_local = mod.REGISTRY_LOCAL_PATH
+            try:
+                mod.REGISTRY_SHARED_PATH = root / "projects" / "registry.shared.json"
+                mod.REGISTRY_LOCAL_PATH = root / "projects" / "registry.local.json"
+                corrupted = str(root / "repos" / "demo" / "project-router" / "inbox")
+                with mock.patch.dict(os.environ, {"VN_ROUTER_ROOT_DEMO": corrupted}):
+                    payload, warnings, status = mod.build_registry_local(force=True)
+            finally:
+                mod.REGISTRY_SHARED_PATH = original_shared
+                mod.REGISTRY_LOCAL_PATH = original_local
+
+            demo = payload["projects"]["demo"]
+            self.assertEqual(demo["router_root_path"], str(root / "repos" / "demo" / "project-router"))
 
 
 if __name__ == "__main__":

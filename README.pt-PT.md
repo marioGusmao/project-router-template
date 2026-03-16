@@ -57,7 +57,7 @@ data/
 Knowledge/
   ADR/
   Templates/
-project-router/
+router/
   inbox/
   outbox/
   conformance/
@@ -164,6 +164,8 @@ python3 scripts/project_router.py dispatch --dry-run
 python3 scripts/project_router.py discover
 python3 scripts/project_router.py scan-outboxes
 python3 scripts/project_router.py doctor --project home_renovation
+python3 scripts/project_router.py init-router-root --project home_renovation --router-root /path/to/router
+python3 scripts/project_router.py adopt-router-root --project home_renovation
 ```
 
 O dispatch real exige sempre aprovação explícita por nota:

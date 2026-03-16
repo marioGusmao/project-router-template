@@ -1,10 +1,10 @@
 {
   "projects": {
     "home_renovation": {
-      "router_root_path": "/ABSOLUTE/PATH/TO/HOME_RENOVATION/project-router"
+      "router_root_path": "/ABSOLUTE/PATH/TO/HOME_RENOVATION/router"
     },
     "weekly_meal_prep": {
-      "router_root_path": "/ABSOLUTE/PATH/TO/WEEKLY_MEAL_PREP/project-router"
+      "router_root_path": "/ABSOLUTE/PATH/TO/WEEKLY_MEAL_PREP/router"
     }
   }
 }

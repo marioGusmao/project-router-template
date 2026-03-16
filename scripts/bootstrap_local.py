@@ -54,7 +54,7 @@ def ensure_claude_settings(force: bool) -> str:
 
 
 def prompt_for_path(project_key: str, existing_value: str | None) -> str | None:
-    prompt = f"Absolute project-router root path for {project_key}"
+    prompt = f"Absolute router root path for {project_key}"
     if existing_value:
         prompt += f" [{existing_value}]"
     prompt += " (leave blank to keep inactive): "
@@ -89,6 +89,12 @@ def build_registry_local(force: bool) -> tuple[dict[str, Any] | None, list[str],
         selected = existing_value if existing_value and not force else env_value
         if selected is None and os.isatty(0):
             selected = prompt_for_path(key, existing_value if force else None)
+        # Normalize: if the value ends in /inbox, it's either a legacy inbox_path
+        # or a previously-corrupted router_root_path. Strip to get the real root.
+        if selected:
+            candidate = Path(selected)
+            if candidate.name == "inbox":
+                selected = str(candidate.parent)
         if selected:
             projects_payload[key] = {"router_root_path": selected}
 

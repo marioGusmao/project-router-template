@@ -88,7 +88,7 @@ data/dispatched/20260314T120000Z--vn_abc123.md
 
 **Writes to downstream:**
 ```
-{router_root_path}/project-router/inbox/20260314T120000Z--vn_abc123.md
+{router_root_path}/inbox/20260314T120000Z--vn_abc123.md
 ```
 
 Moves the compiled package to `data/dispatched/` and copies it into the downstream project's inbox. Requires explicit user approval. Fails closed if configuration is missing or invalid.

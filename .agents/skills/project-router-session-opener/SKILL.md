@@ -34,6 +34,13 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
 6. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`.
 7. Stop there and ask the user what to approve, reject, or refine.
 
+## Downstream Setup
+
+If a project needs a new downstream scaffold, use `init-router-root`. If a project still uses legacy `inbox_path`, use `adopt-router-root` to migrate:
+
+- `python3 scripts/project_router.py init-router-root --project <key> --router-root <path>`
+- `python3 scripts/project_router.py adopt-router-root --project <key>`
+
 ## Output Format
 
 Keep the opener summary short, then group notes into these sections when they exist:

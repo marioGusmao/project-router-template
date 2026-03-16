@@ -40,6 +40,13 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
    - `python3 scripts/project_router.py discover`
 6. Stop there and ask the user what to approve, reject, or refine.
 
+## Downstream Setup
+
+If a project needs a new downstream scaffold, use `init-router-root`. If a project still uses legacy `inbox_path`, use `adopt-router-root` to migrate:
+
+- `python3 scripts/project_router.py init-router-root --project <key> --router-root <path>`
+- `python3 scripts/project_router.py adopt-router-root --project <key>`
+
 ## Default Behavior
 
 If the user says “start the session” or invokes this skill without further detail:

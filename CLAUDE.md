@@ -46,6 +46,8 @@ python3 scripts/project_router.py discover       # cluster pending_project notes
 python3 scripts/project_router.py status         # queue counts
 python3 scripts/project_router.py scan-outboxes  # ingest downstream outboxes read-only
 python3 scripts/project_router.py doctor --project home_renovation   # validate a downstream contract
+python3 scripts/project_router.py init-router-root --project home_renovation --router-root /path/to/router  # scaffold downstream
+python3 scripts/project_router.py adopt-router-root --project home_renovation  # migrate inbox_path → router_root_path
 python3 scripts/project_router.py migrate-source-layout --dry-run  # preview legacy migration
 
 # Record user decisions
@@ -109,7 +111,7 @@ Classification can run from the shared registry alone. Real dispatch requires th
 
 **Project-router protocol:**
 
-- Downstream repositories expose `project-router/router-contract.json`, `project-router/inbox/`, `project-router/outbox/`, and `project-router/conformance/`
+- Downstream repositories expose `router/router-contract.json`, `router/inbox/`, `router/outbox/`, and `router/conformance/`
 - `scan-outboxes` reads downstream `outbox/` directories without mutating them
 - `doctor` validates the contract and packet schema either repo-locally or from the central router
 
@@ -163,7 +165,7 @@ These are critical — never violate:
 - **Never dispatch a normalized note directly** — compile first and dispatch from the compiled artifact
 - **Compiled packages must be fresh** relative to the canonical normalized note before dispatch
 - **Never write to a downstream project during session opening or review analysis** — stop at `review` and ask the user what to approve
-- **Never mutate downstream `project-router/outbox/` content during scan or review** — `scan-outboxes` is read-only
+- **Never mutate downstream `router/outbox/` content during scan or review** — `scan-outboxes` is read-only
 - **Send uncertain notes to the source-aware review queues** under `data/review/voicenotes/` or `data/review/project_router/` when no current project/rule exists yet
 - **Registry paths must be absolute** — `router_root_path` and `inbox_path` in the registry use absolute paths; placeholder paths trigger validation errors during dispatch. Internal metadata paths (`canonical_path`, `raw_payload_path`, `compiled_from_path`) use project-relative paths.
 - **Fail closed** when local config is missing or uses placeholder paths
@@ -197,7 +199,7 @@ These are critical — never violate:
 ## Workflow Preferences
 
 - Prefer `python3 scripts/project_router_client.py` for direct VoiceNotes API access — do not use ad-hoc `curl`
-- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `project-router/` surface
+- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `router/` surface
 - Prefer `python3 scripts/project_router.py migrate-source-layout --dry-run` before changing or auditing old local copies that still use the flat pre-source-aware layout
 - Validate with focused commands first, then broader checks if the repository grows more tooling later
 

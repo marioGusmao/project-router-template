@@ -77,7 +77,7 @@ For the architectural rationale, see [ADR-006](ADR/006-template-upgrade-process.
 | Surface | Ownership | Sync Model | Where to Customize |
 |---------|-----------|------------|--------------------|
 | `template-base.json` | shared_review | skip | No sync — reviewed manually when template version changes |
-| `project-router/**` | shared_review | skip | No sync — reviewed manually when contract changes |
+| `router/**` | shared_review | skip | No sync — reviewed manually when contract changes |
 
 ### Private Owned (never synced)
 

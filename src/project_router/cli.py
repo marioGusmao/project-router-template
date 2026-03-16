@@ -36,7 +36,7 @@ REGISTRY_EXAMPLE_PATH = ROOT / "projects" / "registry.example.json"
 ENV_LOCAL_PATH = ROOT / ".env.local"
 ENV_PATH = ROOT / ".env"
 DISCOVERY_REPORT_PATH = DISCOVERIES_DIR / "pending_project_latest.json"
-LOCAL_ROUTER_DIR = ROOT / "project-router"
+LOCAL_ROUTER_DIR = ROOT / "router"
 NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 VOICE_SOURCE = "voicenotes"
 PROJECT_ROUTER_SOURCE = "project_router"
@@ -449,7 +449,8 @@ def merge_registry_configs(shared: dict[str, Any], local: dict[str, Any]) -> dic
 def load_registry(*, require_local: bool = False) -> tuple[dict[str, Any], dict[str, ProjectRule]]:
     if require_local and not REGISTRY_LOCAL_PATH.exists():
         raise SystemExit(
-            "projects/registry.local.json is required for dispatch. Copy the example and set real local router_root_path values first."
+            "projects/registry.local.json is required for dispatch. "
+            "Run: python3 scripts/bootstrap_local.py"
         )
 
     if REGISTRY_SHARED_PATH.exists():
@@ -1860,7 +1861,10 @@ def dispatch_filename(metadata: dict[str, Any], title: str) -> str:
 def resolve_dispatch_destination(project: ProjectRule, metadata: dict[str, Any]) -> tuple[Path | None, str | None]:
     inbox_path = inbox_path_for_project(project)
     if inbox_path is None:
-        return None, f"no local router_root_path or inbox_path for project '{project.key}'"
+        return None, (
+            f"no local router_root_path or inbox_path for project '{project.key}'. "
+            f"Run: python3 scripts/project_router.py adopt-router-root --project {project.key}"
+        )
 
     try:
         ensure_safe_inbox_path(inbox_path, project_key=project.key, registry_path=REGISTRY_LOCAL_PATH)
@@ -2643,6 +2647,666 @@ def outbox_packet_paths(router_root: Path) -> list[Path]:
     return sorted(path for path in outbox_dir.iterdir() if path.is_file() and path.suffix == ".md")
 
 
+# ---------------------------------------------------------------------------
+#  Shared scaffold utilities (used by init-router-root and adopt-router-root)
+# ---------------------------------------------------------------------------
+
+DEFAULT_PACKET_TYPES = ["improvement_proposal", "question", "insight"]
+
+
+def write_scaffold_dirs(router_root: Path) -> list[Path]:
+    """Create inbox/, outbox/, conformance/. Return created dirs."""
+    created: list[Path] = []
+    for name in ("inbox", "outbox", "conformance"):
+        d = router_root / name
+        d.mkdir(parents=True, exist_ok=True)
+        created.append(d)
+    return created
+
+
+def write_contract_json(router_root: Path, project_key: str, language: str, packet_types: list[str]) -> Path:
+    """Write router-contract.json. Return path."""
+    contract = {
+        "schema_version": "1",
+        "project_key": project_key,
+        "default_language": language,
+        "supported_packet_types": packet_types,
+    }
+    path = router_root / "router-contract.json"
+    path.write_text(json.dumps(contract, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def write_conformance_fixtures(
+    router_root: Path,
+    project_key: str,
+    language: str,
+    packet_type: str,
+    *,
+    skip_existing: bool = False,
+) -> list[Path]:
+    """Write valid/invalid conformance fixtures. Return created paths."""
+    created: list[Path] = []
+    conformance = router_root / "conformance"
+    conformance.mkdir(parents=True, exist_ok=True)
+
+    valid_path = conformance / "valid-packet.example.md"
+    if not skip_existing or not valid_path.exists():
+        valid_path.write_text(
+            "---\n"
+            'schema_version: "1"\n'
+            f'packet_id: "template_{packet_type}_sample"\n'
+            f'created_at: "{iso_now()}"\n'
+            f'source_project: "{project_key}"\n'
+            f'packet_type: "{packet_type}"\n'
+            f'title: "Sample {packet_type.replace("_", " ")} packet"\n'
+            f'language: "{language}"\n'
+            'status: "open"\n'
+            "---\n\n"
+            f"# Sample {packet_type.replace('_', ' ')} packet\n\n"
+            "This is a valid conformance fixture.\n",
+            encoding="utf-8",
+        )
+        created.append(valid_path)
+
+    invalid_path = conformance / "invalid-packet.example.md"
+    if not skip_existing or not invalid_path.exists():
+        invalid_path.write_text(
+            "---\n"
+            'schema_version: "1"\n'
+            'packet_id: "invalid_example"\n'
+            "---\n\n"
+            "This fixture is intentionally invalid because it omits required packet fields.\n",
+            encoding="utf-8",
+        )
+        created.append(invalid_path)
+
+    return created
+
+
+def validate_router_root_path(router_root: Path) -> None:
+    """Validate that a router root path is absolute, has no placeholder, and no '..'."""
+    if not router_root.is_absolute():
+        raise SystemExit(f"--router-root must be an absolute path, got: {router_root}")
+    if has_placeholder_path(router_root):
+        raise SystemExit(f"--router-root contains a placeholder path: {router_root}")
+    if ".." in router_root.parts:
+        raise SystemExit(f"--router-root contains an unsafe '..' component: {router_root}")
+
+
+def structural_preflight(target: Path) -> None:
+    """Three-tier structural preflight for a target directory."""
+    if (target / ".git").exists():
+        raise SystemExit(
+            f"Target is a repository root, not a project-router directory. "
+            f"Did you mean '{target / 'router'}'?"
+        )
+    if target.exists() and not target.is_dir():
+        raise SystemExit(f"--router-root must be a directory, not a file: {target}")
+    if target.exists() and target.is_dir() and any(target.iterdir()):
+        protocol_markers = {"inbox", "outbox", "conformance", "router-contract.json"}
+        contents = {p.name for p in target.iterdir()}
+        if not contents & protocol_markers:
+            raise SystemExit(
+                "Target directory exists with non-protocol content. "
+                "Verify the path or use an empty directory."
+            )
+
+
+def parse_packet_types_arg(raw: str | None) -> list[str]:
+    """Parse and validate packet types for scaffold commands."""
+    if raw is None:
+        return list(DEFAULT_PACKET_TYPES)
+
+    packet_types = [token.strip() for token in raw.split(",") if token.strip()]
+    if not packet_types:
+        raise SystemExit("--packet-types must include at least one non-empty packet type.")
+
+    duplicates = sorted({packet_type for packet_type in packet_types if packet_types.count(packet_type) > 1})
+    if duplicates:
+        raise SystemExit(
+            f"--packet-types contains duplicate values: {', '.join(duplicates)}."
+        )
+
+    return packet_types
+
+
+def init_router_root_command(args: argparse.Namespace) -> int:
+    project_key = args.project
+    if not NOTE_ID_PATTERN.fullmatch(project_key):
+        raise SystemExit(f"Invalid project key '{project_key}'. Only letters, numbers, underscores, and hyphens are allowed.")
+
+    raw_root = Path(args.router_root)
+    if not raw_root.is_absolute():
+        raise SystemExit(f"--router-root must be an absolute path, got: {raw_root}")
+    router_root = raw_root.resolve()
+    validate_router_root_path(router_root)
+    structural_preflight(router_root)
+
+    # Project must exist in shared registry
+    if not REGISTRY_SHARED_PATH.exists():
+        raise SystemExit(f"Missing shared registry at {REGISTRY_SHARED_PATH}.")
+    shared_config = read_registry_config(REGISTRY_SHARED_PATH)
+    shared_projects = shared_config.get("projects") or {}
+    if project_key not in shared_projects:
+        raise SystemExit(
+            f"Project '{project_key}' not found in registry.shared.json. "
+            f"Available projects: {', '.join(sorted(shared_projects.keys()))}."
+        )
+
+    project_config = shared_projects[project_key]
+    language = project_config.get("language", "en")
+
+    # Parse packet types
+    packet_types = parse_packet_types_arg(args.packet_types)
+
+    # Fail if contract already exists (bootstrap-only)
+    contract_path = router_root / "router-contract.json"
+    if contract_path.exists():
+        raise SystemExit(
+            f"router-contract.json already exists at {contract_path}. "
+            "Use adopt-router-root for repair."
+        )
+
+    # Create scaffold
+    router_root.mkdir(parents=True, exist_ok=True)
+    created_dirs = write_scaffold_dirs(router_root)
+    contract = write_contract_json(router_root, project_key, language, packet_types)
+    fixtures = write_conformance_fixtures(router_root, project_key, language, packet_types[0])
+
+    # Validate what we just wrote
+    contract_data = json.loads(contract.read_text(encoding="utf-8"))
+    errors = validate_router_contract(contract_data, expected_project_key=project_key)
+    if errors:
+        raise SystemExit(f"Scaffold validation failed: {'; '.join(errors)}")
+
+    report = {
+        "status": "created",
+        "project_key": project_key,
+        "router_root": str(router_root),
+        "language": language,
+        "packet_types": packet_types,
+        "created_dirs": [str(d) for d in created_dirs],
+        "contract": str(contract),
+        "fixtures": [str(f) for f in fixtures],
+    }
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+#  adopt-router-root — transaction-style migration
+# ---------------------------------------------------------------------------
+
+ADOPTIONS_DIR = PROJECT_ROUTER_STATE_DIR / "adoptions"
+
+
+@dataclass
+class AdoptionState:
+    project_key: str
+    project_rule: ProjectRule
+    current_inbox_path: Path | None
+    current_router_root: Path | None
+    target_router_root: Path
+    inbox_content_count: int
+    inbox_naturally_preserved: bool
+    inbox_collisions: list[Path]
+    scaffold_exists: bool
+    scaffold_complete: bool
+    needs_registry_rewrite: bool
+    downstream_agent_config: Path | None
+    status: str  # "legacy" | "partial" | "already_current" | "no_path"
+
+
+@dataclass
+class AdoptionOperation:
+    kind: str  # "mkdir" | "write_file" | "write_json" | "backup_file" | "rewrite_registry" | "copy_file"
+    target: Path
+    description: str
+    source: Path | None = None
+    content: str | None = None
+
+
+def find_downstream_agent_config(target: Path) -> Path | None:
+    """Walk up from target to find .git, then check for AGENTS.md/CLAUDE.md."""
+    current = target
+    while current != current.parent:
+        if (current / ".git").exists():
+            for name in ("AGENTS.md", "CLAUDE.md"):
+                agent_path = current / name
+                if agent_path.exists():
+                    return agent_path
+            return None
+        current = current.parent
+    return None
+
+
+def resolve_adoption_state(
+    project_key: str,
+    project_rule: ProjectRule,
+    explicit_router_root: str | None,
+) -> AdoptionState:
+    """Resolve adoption state for a single project."""
+    # Determine target
+    if explicit_router_root:
+        raw_root = Path(explicit_router_root)
+        if not raw_root.is_absolute():
+            raise SystemExit(f"--router-root must be an absolute path, got: {raw_root}")
+        target = raw_root.resolve()
+        validate_router_root_path(target)
+        structural_preflight(target)
+    elif project_rule.router_root_path and not has_placeholder_path(project_rule.router_root_path):
+        target = project_rule.router_root_path
+        # Normalize corrupted router_root_path ending in /inbox
+        if target.name == "inbox":
+            target = target.parent
+    elif project_rule.inbox_path and not has_placeholder_path(project_rule.inbox_path):
+        candidate_parent = project_rule.inbox_path.parent
+        if (candidate_parent / "router-contract.json").exists():
+            target = candidate_parent
+        else:
+            raise SystemExit(
+                f"Cannot infer router root: no router-contract.json found in '{candidate_parent}'. "
+                f"Use --router-root."
+            )
+    else:
+        raise SystemExit(
+            f"No path available for project '{project_key}'. Use --router-root."
+        )
+
+    validate_router_root_path(target)
+
+    # Determine current state
+    current_inbox = project_rule.inbox_path
+    current_rr = project_rule.router_root_path
+    contract_exists = (target / "router-contract.json").exists()
+    inbox_dir = target / "inbox"
+    outbox_dir = target / "outbox"
+    conformance_dir = target / "conformance"
+
+    scaffold_exists = contract_exists or inbox_dir.exists() or outbox_dir.exists() or conformance_dir.exists()
+    scaffold_complete = (
+        contract_exists
+        and inbox_dir.exists()
+        and outbox_dir.exists()
+        and conformance_dir.exists()
+        and (conformance_dir / "valid-packet.example.md").exists()
+        and (conformance_dir / "invalid-packet.example.md").exists()
+    )
+
+    # Inbox content analysis
+    inbox_content_count = 0
+    inbox_naturally_preserved = True
+    inbox_collisions: list[Path] = []
+
+    old_inbox = current_inbox
+    new_inbox = target / "inbox"
+
+    if old_inbox and old_inbox.exists() and old_inbox.resolve() != new_inbox.resolve():
+        inbox_naturally_preserved = False
+        old_files = sorted(old_inbox.iterdir()) if old_inbox.is_dir() else []
+        inbox_content_count = len([f for f in old_files if f.is_file()])
+        if new_inbox.exists():
+            for old_file in old_files:
+                if not old_file.is_file():
+                    continue
+                new_file = new_inbox / old_file.name
+                if new_file.exists() and old_file.read_bytes() != new_file.read_bytes():
+                    inbox_collisions.append(old_file)
+    elif old_inbox and old_inbox.exists():
+        inbox_content_count = len([f for f in old_inbox.iterdir() if f.is_file()])
+
+    # Registry rewrite check
+    needs_rewrite = (current_rr is None) or (current_rr != target)
+
+    # Status: registry state takes priority over scaffold state
+    if current_rr and current_rr == target and scaffold_complete:
+        status = "already_current"
+    elif current_inbox and not current_rr:
+        status = "legacy"
+    elif not current_inbox and not current_rr:
+        status = "no_path"
+    elif scaffold_exists and not scaffold_complete:
+        status = "partial"
+    else:
+        status = "legacy"
+
+    downstream_config = find_downstream_agent_config(target)
+
+    return AdoptionState(
+        project_key=project_key,
+        project_rule=project_rule,
+        current_inbox_path=current_inbox,
+        current_router_root=current_rr,
+        target_router_root=target,
+        inbox_content_count=inbox_content_count,
+        inbox_naturally_preserved=inbox_naturally_preserved,
+        inbox_collisions=inbox_collisions,
+        scaffold_exists=scaffold_exists,
+        scaffold_complete=scaffold_complete,
+        needs_registry_rewrite=needs_rewrite,
+        downstream_agent_config=downstream_config,
+        status=status,
+    )
+
+
+def plan_adoption_operations(state: AdoptionState, shared_config: dict[str, Any]) -> list[AdoptionOperation]:
+    """Plan operations for adopting a project."""
+    ops: list[AdoptionOperation] = []
+    target = state.target_router_root
+    project_config = (shared_config.get("projects") or {}).get(state.project_key, {})
+    language = project_config.get("language", "en")
+    packet_types = list(DEFAULT_PACKET_TYPES)
+
+    # 1. Backup registry
+    if REGISTRY_LOCAL_PATH.exists():
+        timestamp = iso_now().replace(":", "").replace("-", "")
+        backup_path = REGISTRY_LOCAL_PATH.parent / f"registry.local.json.pre-adopt-{timestamp}"
+        ops.append(AdoptionOperation(
+            kind="backup_file",
+            target=backup_path,
+            description=f"Backup registry to {backup_path.name}",
+            source=REGISTRY_LOCAL_PATH,
+        ))
+
+    # 2. Scaffold dirs
+    for name in ("inbox", "outbox", "conformance"):
+        d = target / name
+        if not d.exists():
+            ops.append(AdoptionOperation(kind="mkdir", target=d, description=f"Create {name}/"))
+
+    # 3. Contract
+    if not (target / "router-contract.json").exists():
+        ops.append(AdoptionOperation(
+            kind="write_json",
+            target=target / "router-contract.json",
+            description="Write router-contract.json",
+            content=json.dumps({
+                "schema_version": "1",
+                "project_key": state.project_key,
+                "default_language": language,
+                "supported_packet_types": packet_types,
+            }, indent=2, ensure_ascii=False) + "\n",
+        ))
+
+    # 4. Conformance fixtures
+    conformance = target / "conformance"
+    if not (conformance / "valid-packet.example.md").exists():
+        packet_type = packet_types[0] if packet_types else "improvement_proposal"
+        ops.append(AdoptionOperation(
+            kind="write_file",
+            target=conformance / "valid-packet.example.md",
+            description="Write valid conformance fixture",
+            content=(
+                "---\n"
+                'schema_version: "1"\n'
+                f'packet_id: "template_{packet_type}_sample"\n'
+                f'created_at: "{iso_now()}"\n'
+                f'source_project: "{state.project_key}"\n'
+                f'packet_type: "{packet_type}"\n'
+                f'title: "Sample {packet_type.replace("_", " ")} packet"\n'
+                f'language: "{language}"\n'
+                'status: "open"\n'
+                "---\n\n"
+                f"# Sample {packet_type.replace('_', ' ')} packet\n\n"
+                "This is a valid conformance fixture.\n"
+            ),
+        ))
+    if not (conformance / "invalid-packet.example.md").exists():
+        ops.append(AdoptionOperation(
+            kind="write_file",
+            target=conformance / "invalid-packet.example.md",
+            description="Write invalid conformance fixture",
+            content=(
+                "---\n"
+                'schema_version: "1"\n'
+                'packet_id: "invalid_example"\n'
+                "---\n\n"
+                "This fixture is intentionally invalid because it omits required packet fields.\n"
+            ),
+        ))
+
+    # 5. Copy inbox content
+    if not state.inbox_naturally_preserved and state.current_inbox_path and state.current_inbox_path.exists():
+        new_inbox = target / "inbox"
+        for f in sorted(state.current_inbox_path.iterdir()):
+            if not f.is_file():
+                continue
+            dest = new_inbox / f.name
+            if dest.exists() and f.read_bytes() == dest.read_bytes():
+                continue
+            ops.append(AdoptionOperation(
+                kind="copy_file",
+                target=dest,
+                description=f"Copy inbox file {f.name}",
+                source=f,
+            ))
+
+    # 6. Rewrite registry
+    if state.needs_registry_rewrite:
+        ops.append(AdoptionOperation(
+            kind="rewrite_registry",
+            target=REGISTRY_LOCAL_PATH,
+            description=f"Set router_root_path, remove inbox_path for {state.project_key}",
+        ))
+
+    return ops
+
+
+def execute_adoption(state: AdoptionState, operations: list[AdoptionOperation]) -> None:
+    """Execute planned adoption operations."""
+    for op in operations:
+        if op.kind == "mkdir":
+            op.target.mkdir(parents=True, exist_ok=True)
+        elif op.kind == "write_file":
+            op.target.parent.mkdir(parents=True, exist_ok=True)
+            op.target.write_text(op.content, encoding="utf-8")
+        elif op.kind == "write_json":
+            op.target.parent.mkdir(parents=True, exist_ok=True)
+            op.target.write_text(op.content, encoding="utf-8")
+        elif op.kind == "backup_file":
+            if op.source and op.source.exists():
+                shutil.copy2(op.source, op.target)
+        elif op.kind == "copy_file":
+            op.target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(op.source, op.target)
+        elif op.kind == "rewrite_registry":
+            _rewrite_registry_for_adopt(state)
+
+
+def _rewrite_registry_for_adopt(state: AdoptionState) -> None:
+    """Update registry.local.json: set router_root_path, remove inbox_path."""
+    if REGISTRY_LOCAL_PATH.exists():
+        local = json.loads(REGISTRY_LOCAL_PATH.read_text(encoding="utf-8"))
+    else:
+        local = {"projects": {}}
+    projects = local.setdefault("projects", {})
+    entry = projects.setdefault(state.project_key, {})
+    entry["router_root_path"] = str(state.target_router_root)
+    entry.pop("inbox_path", None)
+    REGISTRY_LOCAL_PATH.write_text(json.dumps(local, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def run_full_doctor_validation(router_root: Path, project_key: str) -> dict[str, Any]:
+    """Run the same validation as doctor_command."""
+    contract_path = router_root / "router-contract.json"
+    if not contract_path.exists():
+        return {"status": "error", "errors": [f"Missing router contract: {contract_path}"], "warnings": [], "packets": []}
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    errors = validate_router_contract(contract, expected_project_key=project_key)
+    warnings: list[str] = []
+    for name in ("inbox", "outbox", "conformance"):
+        if not (router_root / name).exists():
+            errors.append(f"Missing required router directory: {router_root / name}")
+    for fixture_name in ("valid-packet.example.md", "invalid-packet.example.md"):
+        if not (router_root / "conformance" / fixture_name).exists():
+            errors.append(f"Missing conformance fixture: {router_root / 'conformance' / fixture_name}")
+    packet_ids: set[str] = set()
+    packets_report: list[dict[str, Any]] = []
+    for path in outbox_packet_paths(router_root):
+        metadata, body, packet_errors, normalized = parse_outbox_packet(path, expected_project_key=str(contract.get("project_key") or project_key))
+        packet_id = normalized.get("source_note_id")
+        if packet_id in packet_ids:
+            packet_errors.append(f"{path.name}: duplicate packet_id '{packet_id}' in outbox.")
+        if packet_id:
+            packet_ids.add(packet_id)
+        packets_report.append({"path": str(path), "packet_id": packet_id, "status": "ok" if not packet_errors else "invalid", "errors": packet_errors})
+        errors.extend(packet_errors)
+    return {"status": "ok" if not errors else "error", "errors": errors, "warnings": warnings, "packets": packets_report}
+
+
+def adoption_follow_ups(state: AdoptionState) -> list[str]:
+    """Generate follow-up suggestions."""
+    follow_ups: list[str] = []
+    if state.downstream_agent_config:
+        follow_ups.append(f"Review downstream agent config: {state.downstream_agent_config}")
+    if not state.inbox_naturally_preserved and state.inbox_content_count > 0:
+        follow_ups.append(f"Verify {state.inbox_content_count} inbox files were preserved at {state.target_router_root / 'inbox'}")
+    return follow_ups
+
+
+def write_adoption_journal(
+    state: AdoptionState,
+    operations: list[AdoptionOperation],
+    doctor_result: dict[str, Any],
+    follow_ups: list[str],
+) -> Path:
+    """Persist adoption journal to state/project_router/adoptions/."""
+    ADOPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    journal = {
+        "schema_version": "1",
+        "project_key": state.project_key,
+        "adopted_at": iso_now(),
+        "detected_inputs": {
+            "inbox_path": str(state.current_inbox_path) if state.current_inbox_path else None,
+            "router_root_path": str(state.current_router_root) if state.current_router_root else None,
+            "inbox_content_count": state.inbox_content_count,
+        },
+        "chosen_target": str(state.target_router_root),
+        "operations_executed": [
+            {"kind": op.kind, "target": str(op.target), "description": op.description}
+            for op in operations
+        ],
+        "config_diff": {
+            "before": {
+                "inbox_path": str(state.current_inbox_path) if state.current_inbox_path else None,
+                "router_root_path": str(state.current_router_root) if state.current_router_root else None,
+            },
+            "after": {"router_root_path": str(state.target_router_root)},
+        },
+        "doctor_result": doctor_result,
+        "downstream_agent_config": str(state.downstream_agent_config) if state.downstream_agent_config else None,
+        "manual_follow_ups": follow_ups,
+        "registry_backup": next(
+            (str(op.target) for op in operations if op.kind == "backup_file"),
+            None,
+        ),
+    }
+    path = ADOPTIONS_DIR / f"{state.project_key}.json"
+    path.write_text(json.dumps(journal, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def adopt_router_root_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    ADOPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+    use_all = getattr(args, "all", False)
+    project_key = getattr(args, "project", None)
+    confirm = getattr(args, "confirm", False)
+    dry_run = getattr(args, "dry_run", False)
+    explicit_router_root = getattr(args, "router_root", None)
+
+    defaults, projects = load_registry(require_local=True)
+
+    # Load shared config for language/packet_types
+    shared_config = read_registry_config(REGISTRY_SHARED_PATH) if REGISTRY_SHARED_PATH.exists() else {}
+
+    if use_all:
+        if confirm:
+            raise SystemExit("--all --confirm is not supported in v1. Adopt projects individually.")
+        # Fleet preview
+        summary: list[dict[str, Any]] = []
+        for key, rule in sorted(projects.items()):
+            try:
+                state = resolve_adoption_state(key, rule, None)
+                summary.append({
+                    "project_key": key,
+                    "status": state.status,
+                    "current_inbox_path": str(state.current_inbox_path) if state.current_inbox_path else None,
+                    "current_router_root": str(state.current_router_root) if state.current_router_root else None,
+                    "target_router_root": str(state.target_router_root),
+                    "inbox_content_count": state.inbox_content_count,
+                    "scaffold_exists": state.scaffold_exists,
+                    "scaffold_complete": state.scaffold_complete,
+                })
+            except SystemExit as exc:
+                summary.append({
+                    "project_key": key,
+                    "status": "error",
+                    "error": str(exc),
+                })
+        counts = Counter(item["status"] for item in summary)
+        report = {"mode": "fleet_preview", "projects": summary, "counts": dict(counts)}
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+
+    # Per-project mode
+    if not project_key:
+        raise SystemExit("Either --project or --all is required.")
+    rule = projects.get(project_key)
+    if not rule:
+        raise SystemExit(f"Project '{project_key}' not found in registry.")
+
+    state = resolve_adoption_state(project_key, rule, explicit_router_root)
+
+    if state.status == "already_current":
+        print(json.dumps({"status": "already_current", "project_key": project_key, "router_root": str(state.target_router_root)}, indent=2))
+        return 0
+
+    if state.inbox_collisions:
+        collision_names = [str(p.name) for p in state.inbox_collisions]
+        raise SystemExit(
+            f"Inbox collision detected for {len(state.inbox_collisions)} file(s): "
+            f"{', '.join(collision_names)}. Resolve manually before adopting."
+        )
+
+    operations = plan_adoption_operations(state, shared_config)
+
+    if not confirm or dry_run:
+        preview = {
+            "mode": "preview",
+            "project_key": project_key,
+            "status": state.status,
+            "target_router_root": str(state.target_router_root),
+            "inbox_content_count": state.inbox_content_count,
+            "inbox_naturally_preserved": state.inbox_naturally_preserved,
+            "operations": [{"kind": op.kind, "target": str(op.target), "description": op.description} for op in operations],
+            "downstream_agent_config": str(state.downstream_agent_config) if state.downstream_agent_config else None,
+        }
+        print(json.dumps(preview, indent=2, ensure_ascii=False))
+        return 0
+
+    # Execute
+    execute_adoption(state, operations)
+    doctor_result = run_full_doctor_validation(state.target_router_root, project_key)
+    follow_ups = adoption_follow_ups(state)
+    journal_path = write_adoption_journal(state, operations, doctor_result, follow_ups)
+
+    report = {
+        "mode": "executed",
+        "project_key": project_key,
+        "target_router_root": str(state.target_router_root),
+        "operations_count": len(operations),
+        "doctor_status": doctor_result["status"],
+        "doctor_errors": doctor_result.get("errors", []),
+        "follow_ups": follow_ups,
+        "journal": str(journal_path),
+    }
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+    return 0 if doctor_result["status"] == "ok" else 1
+
+
 def resolve_doctor_target(args: argparse.Namespace) -> tuple[Path, str, dict[str, Any] | None]:
     if getattr(args, "router_root", None):
         router_root = Path(args.router_root).resolve()
@@ -2650,9 +3314,20 @@ def resolve_doctor_target(args: argparse.Namespace) -> tuple[Path, str, dict[str
         return router_root, str(contract.get("project_key") or ""), None
     defaults, projects = load_registry(require_local=True)
     if getattr(args, "project", None):
-        project = projects.get(args.project)
-        if not project or project.router_root_path is None:
-            raise SystemExit(f"Project '{args.project}' is missing router_root_path in projects/registry.local.json.")
+        key = args.project
+        project = projects.get(key)
+        if not project:
+            raise SystemExit(f"Project '{key}' not found. Check spelling or registry.shared.json.")
+        if project.router_root_path is None:
+            if project.inbox_path is not None:
+                raise SystemExit(
+                    f"Project '{key}' has inbox_path but no router_root_path. "
+                    f"Run: python3 scripts/project_router.py adopt-router-root --project {key}"
+                )
+            raise SystemExit(
+                f"Project '{key}' has no router_root_path configured. "
+                f"Run: python3 scripts/project_router.py adopt-router-root --project {key} --router-root <path>"
+            )
         return project.router_root_path, project.key, defaults
     raise SystemExit("doctor requires either --router-root or --project.")
 
@@ -3291,12 +3966,12 @@ def build_parser() -> argparse.ArgumentParser:
     decide.set_defaults(func=decide_command)
 
     scan_outboxes = subparsers.add_parser("scan-outboxes", help="Read downstream project outboxes without mutating them.")
-    scan_outboxes.add_argument("--include-self", action="store_true", help="Also scan this repository's local project-router/outbox if configured.")
+    scan_outboxes.add_argument("--include-self", action="store_true", help="Also scan this repository's local router/outbox if configured.")
     scan_outboxes.add_argument("--strict", action="store_true", help="Treat protocol warnings as hard failures while scanning.")
     scan_outboxes.set_defaults(func=scan_outboxes_command)
 
-    doctor = subparsers.add_parser("doctor", help="Validate a project-router contract and outbox surface.")
-    doctor.add_argument("--router-root", help="Direct path to a project-router root for local validation.")
+    doctor = subparsers.add_parser("doctor", help="Validate a router contract and outbox surface.")
+    doctor.add_argument("--router-root", help="Direct path to a router root for local validation.")
     doctor.add_argument("--project", help="Project key from the central registry for validation.")
     doctor.add_argument("--packet", help="Reserved flag for validating a single packet path.")
     doctor.add_argument("--strict", action="store_true", help="Treat warnings as errors.")
@@ -3314,6 +3989,24 @@ def build_parser() -> argparse.ArgumentParser:
     context = subparsers.add_parser("context", help="Generate a live project briefing from repo state.")
     add_source_argument(context)
     context.set_defaults(func=context_command)
+
+    init_rr = subparsers.add_parser("init-router-root", help="Create a downstream router scaffold.")
+    init_rr.add_argument("--project", required=True, help="Project key (must exist in registry.shared.json).")
+    init_rr.add_argument("--router-root", required=True, help="Absolute path to the router directory.")
+    init_rr.add_argument("--packet-types", help="Comma-separated packet types (default: improvement_proposal,question,insight).")
+    init_rr.set_defaults(func=init_router_root_command)
+
+    adopt = subparsers.add_parser(
+        "adopt-router-root",
+        help="Migrate a project from legacy inbox_path to router_root_path with downstream scaffold.",
+    )
+    adopt_target = adopt.add_mutually_exclusive_group(required=True)
+    adopt_target.add_argument("--project", help="Project key to adopt.")
+    adopt_target.add_argument("--all", action="store_true", help="Preview adoption status for all projects (no mutation).")
+    adopt.add_argument("--router-root", help="Explicit router root (inferred from inbox_path if safe).")
+    adopt.add_argument("--dry-run", action="store_true", help="Alias for preview mode.")
+    adopt.add_argument("--confirm", action="store_true", help="Required to apply changes.")
+    adopt.set_defaults(func=adopt_router_root_command)
 
     return parser
 

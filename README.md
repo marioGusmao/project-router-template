@@ -57,7 +57,7 @@ data/
 Knowledge/
   ADR/
   Templates/
-project-router/
+router/
   inbox/
   outbox/
   conformance/
@@ -155,10 +155,10 @@ Classification can run from the shared registry alone. Real dispatch requires th
 
 Each participating repository should expose:
 
-- `project-router/router-contract.json`
-- `project-router/inbox/`
-- `project-router/outbox/`
-- `project-router/conformance/`
+- `router/router-contract.json`
+- `router/inbox/`
+- `router/outbox/`
+- `router/conformance/`
 
 The central router reads downstream `outbox/` folders in read-only mode via `scan-outboxes`. It never moves or rewrites files in downstream repositories during scan or review.
 
@@ -175,6 +175,8 @@ python3 scripts/project_router.py dispatch --dry-run
 python3 scripts/project_router.py discover
 python3 scripts/project_router.py scan-outboxes
 python3 scripts/project_router.py doctor --project home_renovation
+python3 scripts/project_router.py init-router-root --project home_renovation --router-root /path/to/router
+python3 scripts/project_router.py adopt-router-root --project home_renovation
 ```
 
 Real dispatch always requires note-specific approval:
@@ -194,7 +196,7 @@ Dispatch behavior is intentionally fail-closed:
 Outbox scanning is intentionally read-only:
 
 - `scan-outboxes` never writes into downstream repositories
-- invalid packets stay in the downstream `project-router/outbox/`
+- invalid packets stay in the downstream `router/outbox/`
 - parse errors are recorded locally under `data/review/project_router/parse_errors/`
 - ingest status is tracked locally in `state/project_router/outbox_scan_state.json`
 
