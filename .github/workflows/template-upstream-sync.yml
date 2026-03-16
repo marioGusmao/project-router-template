@@ -143,7 +143,7 @@ jobs:
             projects/registry.example.json
             .claude/settings.example.json
             .env.example
-            VERSION
+            version.txt
             CHANGELOG.md
             template.meta.json
             .release-please-config.json

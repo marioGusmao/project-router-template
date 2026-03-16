@@ -4,6 +4,13 @@ All notable changes to the shared Project Router starter will be documented in t
 
 ## Unreleased
 
+- Renamed `VERSION` → `version.txt` so release-please `simple` type recognizes the file extension; updated all CI, governance, and documentation references.
+- Removed `VERSION` from `extra-files` in `.release-please-config.json` (now the primary version file for `simple` type).
+- Fixed `Knowledge/TLDR.md` to use neutral repo-mode phrasing and include the filesystem pipeline.
+- Added deprecation note to design spec section 6 (upstream sync) documenting implementation drift.
+- Added `template-base.json` and `private.meta.json` to README layout blocks (both languages).
+- Realigned Codex `session-flow.md` with canonical skill: 8-step opener, filesystem pipeline, `pending_project` field name, `dispatch --dry-run` moved out of opener.
+- Removed unused `import subprocess` from `cli.py`.
 - Fixed template sync diff-only handling so review output lives outside the repo and is rendered in the sync PR body.
 - Tightened contract validation with conflict-marker detection, reject-file detection, and release-note enforcement for upgrade-governance surfaces.
 - Added regression tests for template sync governance tooling.

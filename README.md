@@ -92,9 +92,11 @@ src/
 .codex/skills/
 .claude/skills/
 .github/workflows/
-VERSION
+version.txt
 CHANGELOG.md
 template.meta.json
+template-base.json
+private.meta.json
 ```
 
 ## Knowledge
@@ -251,7 +253,7 @@ In a private repo, template sync must never touch `private_owned` or `local_only
 
 The template is versioned with semantic releases:
 
-- `VERSION`
+- `version.txt`
 - `CHANGELOG.md`
 - `template.meta.json`
 - `.github/workflows/template-release.yml`

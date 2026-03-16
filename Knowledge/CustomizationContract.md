@@ -51,7 +51,7 @@ For the architectural rationale, see [ADR-006](ADR/006-template-upgrade-process.
 |---------|-----------|------------|--------------------|
 | `repo-governance/**` | template_owned | overwrite | Do not customize — changes are overwritten; changes require `CHANGELOG.md` |
 | `parity.manifest.json` | template_owned | overwrite | Do not customize — changes are overwritten |
-| `VERSION` | template_owned | overwrite | Do not customize — changes are overwritten |
+| `version.txt` | template_owned | overwrite | Do not customize — changes are overwritten |
 | `CHANGELOG.md` | template_owned | overwrite | Do not customize — changes are overwritten |
 | `template.meta.json` | template_owned | overwrite | Do not customize — changes are overwritten |
 | `.release-please-config.json` | template_owned | overwrite | Do not customize — changes are overwritten |

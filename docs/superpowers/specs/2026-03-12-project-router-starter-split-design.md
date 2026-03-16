@@ -35,7 +35,7 @@ Contains only shared, reusable assets:
 - `projects/registry.example.json` (local overlay template)
 - `.env.example`
 - `.github/workflows/` (release + upstream sync)
-- `VERSION`, `CHANGELOG.md`, `template.meta.json`
+- `version.txt`, `CHANGELOG.md`, `template.meta.json`
 - `scripts/bootstrap_local.py`, `scripts/check_agent_surface_parity.py`
 
 Works out-of-the-box for: `bootstrap → status → normalize → triage → compile → review → discover`. Dispatch requires local config.
@@ -163,7 +163,7 @@ Implementation: stdlib only. ~100-150 lines.
 
 **Semantic versioning** driven by Conventional Commits:
 
-- `VERSION` file at repo root (single line, e.g. `0.1.0`)
+- `version.txt` file at repo root (single line, e.g. `0.1.0`)
 - `CHANGELOG.md` auto-generated from commit messages
 - `template.meta.json`: machine-readable metadata for derived repos
 
@@ -181,9 +181,11 @@ Implementation: stdlib only. ~100-150 lines.
 - Creates GitHub Release with changelog
 - Tags with semver
 
-**Files to create:** `VERSION`, `CHANGELOG.md`, `template.meta.json`, `.github/workflows/template-release.yml`
+**Files to create:** `version.txt`, `CHANGELOG.md`, `template.meta.json`, `.github/workflows/template-release.yml`
 
 ### 6. Upstream Sync Workflow
+
+> **Note (2026-03-16):** This section is partially outdated. The implementation stores the base template version in `template-base.json` (not `template.meta.json`), and resolves the upstream via GitHub API rather than requiring a configured `upstream` remote. Kept as historical design record; refer to the actual workflow file for current behavior.
 
 **Inherited workflow** (`.github/workflows/template-upstream-sync.yml`):
 - Included in template, inherited by derived repos
@@ -262,7 +264,7 @@ In `project-router-template-work`:
 3. Update wrapper in `scripts/project_router_client.py`
 4. Create `scripts/bootstrap_local.py`
 5. Create `scripts/check_agent_surface_parity.py`
-6. Add version metadata (`VERSION`, `CHANGELOG.md`, `template.meta.json`)
+6. Add version metadata (`version.txt`, `CHANGELOG.md`, `template.meta.json`)
 7. Add GitHub Actions workflows (release + upstream sync)
 8. Update documentation (README, AGENTS, CLAUDE)
 9. Neutralize skill wording in both surfaces
@@ -324,7 +326,7 @@ In `project-router-template-work`:
 
 ### Versioning and Sync
 - Release workflow creates GitHub Release with correct semver tag
-- `template.meta.json` version matches `VERSION` file
+- `template.meta.json` version matches `version.txt` file
 - Upstream sync workflow detects new release and opens PR
 - Sync workflow does not auto-merge
 

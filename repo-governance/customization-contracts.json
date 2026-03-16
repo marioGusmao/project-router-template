@@ -245,7 +245,7 @@
       "validator_hooks": []
     },
     {
-      "pattern": "VERSION",
+      "pattern": "version.txt",
       "ownership": "template_owned",
       "sync_policy": "template_sync",
       "customization_model": "overwrite",

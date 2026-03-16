@@ -92,9 +92,11 @@ src/
 .codex/skills/
 .claude/skills/
 .github/workflows/
-VERSION
+version.txt
 CHANGELOG.md
 template.meta.json
+template-base.json
+private.meta.json
 ```
 
 ## Knowledge
@@ -233,7 +235,7 @@ Num repositório privado derivado, o sync do template nunca deve tocar em caminh
 
 O template é versionado com semantic releases:
 
-- `VERSION`
+- `version.txt`
 - `CHANGELOG.md`
 - `template.meta.json`
 - `.github/workflows/template-release.yml`
