@@ -48,6 +48,8 @@ def extract_docx(path: Path) -> ExtractionResult:
             extraction_method="python_docx",
             metadata=meta,
         )
+    except (MemoryError, RecursionError):
+        raise
     except Exception as exc:
         return ExtractionResult(
             content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

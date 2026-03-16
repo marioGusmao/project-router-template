@@ -3571,17 +3571,252 @@ class FilesystemSourceTests(unittest.TestCase):
 
     def test_extractor_graceful_degradation_missing_dep(self):
         """PDF extractor returns needs_ai when pymupdf missing."""
-        from src.project_router.extractors._pdf import extract_pdf, _HAS_PYMUPDF
+        from src.project_router.extractors._pdf import _HAS_PYMUPDF
+        if _HAS_PYMUPDF:
+            return  # Cannot test missing-dep path when dep is installed
+        from src.project_router.extractors._pdf import extract_pdf
         td = temporary_repo_dir()
         root = Path(td.name)
         try:
             test_file = root / "test.pdf"
             test_file.write_bytes(b"%PDF-1.4 fake")
-            if not _HAS_PYMUPDF:
-                result = extract_pdf(test_file)
-                self.assertTrue(result.needs_ai_extraction)
-                self.assertEqual(result.extraction_method, "unavailable")
+            result = extract_pdf(test_file)
+            self.assertTrue(result.needs_ai_extraction)
+            self.assertEqual(result.extraction_method, "unavailable")
         finally:
+            td.cleanup()
+
+    def test_extractor_unsupported_extension(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.xyz"
+            test_file.write_text("mystery", encoding="utf-8")
+            result = extract(test_file)
+            self.assertTrue(result.needs_ai_extraction)
+            self.assertEqual(result.extraction_method, "unsupported")
+        finally:
+            td.cleanup()
+
+    def test_extractor_csv(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.csv"
+            test_file.write_text("a,b,c\n1,2,3\n", encoding="utf-8")
+            result = extract(test_file)
+            self.assertIn("a, b, c", result.text)
+            self.assertEqual(result.extraction_method, "stdlib_csv")
+            self.assertFalse(result.needs_ai_extraction)
+        finally:
+            td.cleanup()
+
+    def test_extractor_json(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.json"
+            test_file.write_text('{"key": "value"}', encoding="utf-8")
+            result = extract(test_file)
+            self.assertIn('"key"', result.text)
+            self.assertEqual(result.extraction_method, "stdlib_json")
+        finally:
+            td.cleanup()
+
+    def test_extractor_html(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.html"
+            test_file.write_text("<p>Hello <b>world</b></p>", encoding="utf-8")
+            result = extract(test_file)
+            self.assertIn("Hello world", result.text)
+            self.assertNotIn("<p>", result.text)
+            self.assertEqual(result.extraction_method, "stdlib_html_strip")
+        finally:
+            td.cleanup()
+
+    def test_load_filesystem_inboxes_rejects_relative_path(self):
+        config = {"sources": {"filesystem_inboxes": {"default": {"inbox_path": "relative/path"}}}}
+        with self.assertRaises(SystemExit) as ctx:
+            cli.load_filesystem_inboxes(config)
+        self.assertIn("absolute path", str(ctx.exception))
+
+    def test_load_filesystem_inboxes_rejects_traversal(self):
+        config = {"sources": {"filesystem_inboxes": {"default": {"inbox_path": "/tmp/../etc/passwd"}}}}
+        with self.assertRaises(SystemExit) as ctx:
+            cli.load_filesystem_inboxes(config)
+        self.assertIn("unsafe path", str(ctx.exception))
+
+    def test_load_filesystem_inboxes_rejects_unsafe_key(self):
+        config = {"sources": {"filesystem_inboxes": {"../../etc": {"inbox_path": "/tmp/inbox"}}}}
+        with self.assertRaises(SystemExit) as ctx:
+            cli.load_filesystem_inboxes(config)
+        self.assertIn("invalid", str(ctx.exception))
+
+    def test_ingest_no_configured_inboxes(self):
+        td, root, stack = self._setup()
+        try:
+            (root / "projects" / "registry.local.json").write_text(json.dumps({"projects": {}}), encoding="utf-8")
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(["ingest", "--integration", "filesystem"])
+            self.assertIn("No filesystem inboxes configured", str(ctx.exception))
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_missing_inbox_path_reports_error(self):
+        td, root, stack = self._setup()
+        try:
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(root / "nonexistent")}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout, redirect_stderr
+            buf = io.StringIO()
+            err_buf = io.StringIO()
+            with redirect_stdout(buf), redirect_stderr(err_buf):
+                result = cli.main(["ingest", "--integration", "filesystem"])
+            self.assertEqual(result, 0)
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["errors"], 1)
+            self.assertIn("error_details", output)
+            self.assertIn("does not exist", err_buf.getvalue())
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_skips_hidden_files_and_dirs(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / ".DS_Store").write_text("", encoding="utf-8")
+            (inbox / "subdir").mkdir()
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["ingest", "--integration", "filesystem", "--dry-run"])
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["ingested"], 0)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_invalid_note_id_fails(self):
+        td, root, stack = self._setup()
+        try:
+            with self.assertRaises(SystemExit):
+                cli.main(["extract", "--note-id", "nonexistent_note", "--text", "hello"])
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_invalid_observations_json_fails(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(["extract", "--note-id", "fs_20260316T143000Z_a1b2c3", "--text", "hello", "--observations", "not{json"])
+            self.assertIn("Invalid --observations JSON", str(ctx.exception))
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_dedupe_asserts_same_content_as_field(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "a.txt").write_text("same content", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["ingest", "--integration", "filesystem"])
+            (inbox / "b.txt").write_text("same content", encoding="utf-8")
+            buf2 = io.StringIO()
+            with redirect_stdout(buf2):
+                cli.main(["ingest", "--integration", "filesystem"])
+            manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
+            manifests = sorted(manifests_dir.glob("*.manifest.json"))
+            self.assertEqual(len(manifests), 2)
+            # The second-ingested manifest links back; check either since sort order isn't guaranteed
+            all_same = []
+            for mp in manifests:
+                m = json.loads(mp.read_text(encoding="utf-8"))
+                all_same.extend(m["evidence"]["same_content_as"])
+            self.assertTrue(len(all_same) > 0, "At least one manifest should reference same_content_as")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_compile_filesystem_note(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, text="renovation contractor budget ideas for the home")
+            cli.main(["normalize", "--source", "filesystem"])
+            cli.main(["triage", "--source", "filesystem"])
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = cli.main(["compile", "--source", "filesystem"])
+            self.assertEqual(result, 0)
+            compiled = list((root / "data" / "compiled" / "filesystem").iterdir())
+            self.assertEqual(len(compiled), 1)
+            metadata, _ = cli.read_note(compiled[0])
+            self.assertEqual(metadata.get("source"), "filesystem")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_normalize_needs_extraction_populates_review_queue(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            review_dir = root / "data" / "review" / "filesystem" / "needs_extraction"
+            entries = list(review_dir.iterdir())
+            self.assertEqual(len(entries), 1)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_inbox_key_specific(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "test.txt").write_text("hello", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(["ingest", "--integration", "filesystem", "--inbox", "nonexistent"])
+            self.assertIn("Unknown inbox key", str(ctx.exception))
+        finally:
+            stack.close()
             td.cleanup()
 
 

@@ -32,13 +32,20 @@ def extract_plaintext(path: Path) -> ExtractionResult:
     except UnicodeDecodeError:
         try:
             text = path.read_text(encoding="latin-1")
-        except Exception as exc:
+        except OSError as exc:
             return ExtractionResult(
                 content_type=guess_content_type(path),
                 extraction_method="stdlib_read",
                 metadata=basic_file_metadata(path),
                 error=str(exc),
             )
+    except OSError as exc:
+        return ExtractionResult(
+            content_type=guess_content_type(path),
+            extraction_method="stdlib_read",
+            metadata=basic_file_metadata(path),
+            error=str(exc),
+        )
     return ExtractionResult(
         text=text,
         content_type=guess_content_type(path),
@@ -53,7 +60,22 @@ def extract_csv(path: Path) -> ExtractionResult:
     try:
         raw = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        raw = path.read_text(encoding="latin-1")
+        try:
+            raw = path.read_text(encoding="latin-1")
+        except OSError as exc:
+            return ExtractionResult(
+                content_type="text/csv",
+                extraction_method="stdlib_csv",
+                metadata=basic_file_metadata(path),
+                error=str(exc),
+            )
+    except OSError as exc:
+        return ExtractionResult(
+            content_type="text/csv",
+            extraction_method="stdlib_csv",
+            metadata=basic_file_metadata(path),
+            error=str(exc),
+        )
     try:
         reader = csv.reader(io.StringIO(raw))
         rows = list(reader)
@@ -81,7 +103,7 @@ def extract_json(path: Path) -> ExtractionResult:
         raw = path.read_text(encoding="utf-8")
         data = json.loads(raw)
         text = json.dumps(data, indent=2, ensure_ascii=False)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         return ExtractionResult(
             content_type="application/json",
             extraction_method="stdlib_json",
@@ -102,7 +124,22 @@ def extract_html(path: Path) -> ExtractionResult:
     try:
         raw = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        raw = path.read_text(encoding="latin-1")
+        try:
+            raw = path.read_text(encoding="latin-1")
+        except OSError as exc:
+            return ExtractionResult(
+                content_type="text/html",
+                extraction_method="stdlib_html_strip",
+                metadata=basic_file_metadata(path),
+                error=str(exc),
+            )
+    except OSError as exc:
+        return ExtractionResult(
+            content_type="text/html",
+            extraction_method="stdlib_html_strip",
+            metadata=basic_file_metadata(path),
+            error=str(exc),
+        )
     text = _strip_html(raw)
     return ExtractionResult(
         text=text,

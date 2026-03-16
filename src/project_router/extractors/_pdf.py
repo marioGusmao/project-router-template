@@ -51,6 +51,8 @@ def extract_pdf(path: Path) -> ExtractionResult:
             extraction_method="pymupdf",
             metadata=meta,
         )
+    except (MemoryError, RecursionError):
+        raise
     except Exception as exc:
         return ExtractionResult(
             content_type="application/pdf",

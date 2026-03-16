@@ -480,6 +480,8 @@ def load_filesystem_inboxes(config: dict[str, Any]) -> dict[str, Path]:
     raw_inboxes = (config.get("sources") or {}).get("filesystem_inboxes") or {}
     result: dict[str, Path] = {}
     for key, entry in raw_inboxes.items():
+        if not NOTE_ID_PATTERN.fullmatch(key):
+            raise SystemExit(f"Filesystem inbox key '{key}' is invalid. Only letters, numbers, underscores, and hyphens are allowed.")
         if not isinstance(entry, dict):
             continue
         raw_path = entry.get("inbox_path")
@@ -759,7 +761,7 @@ def generate_filesystem_note_id() -> str:
     """Generate an event-based note ID for filesystem ingestion."""
     import secrets
 
-    ts = iso_now().replace("-", "").replace(":", "").replace("Z", "Z")
+    ts = iso_now().replace("-", "").replace(":", "")
     suffix = secrets.token_hex(3)
     return f"fs_{ts}_{suffix}"
 
@@ -790,7 +792,10 @@ def create_manifest(
 
 
 def read_manifest(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise SystemExit(f"Failed to read manifest {path}: {exc}")
 
 
 def update_manifest_interpretation(
@@ -813,7 +818,8 @@ def find_manifest_by_content_hash(manifests_dir: Path, content_hash: str) -> Pat
                 m = json.loads(f.read_text(encoding="utf-8"))
                 if m.get("evidence", {}).get("content_hash") == content_hash:
                     return f
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError) as exc:
+                print(f"warning: skipping unreadable manifest {f}: {exc}", file=sys.stderr)
                 continue
     return None
 
@@ -823,10 +829,14 @@ def _ingest_state_dir(inbox_key: str) -> Path:
 
 
 def _read_ingest_state(inbox_key: str, note_id: str) -> dict[str, Any] | None:
+    """Read ingest state for crash recovery. Returns None if missing or corrupt."""
     path = _ingest_state_dir(inbox_key) / f"{note_id}.json"
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def _write_ingest_state(inbox_key: str, note_id: str, state: dict[str, Any]) -> None:
@@ -849,31 +859,47 @@ def ingest_file(file_path: Path, inbox_key: str, inbox_path: Path) -> dict[str, 
     same_content_as: list[str] = []
     existing = find_manifest_by_content_hash(manifests_dir, content_hash)
     if existing is not None:
-        existing_manifest = read_manifest(existing)
-        same_content_as.append(existing_manifest.get("source_note_id", ""))
+        try:
+            existing_manifest = read_manifest(existing)
+            same_content_as.append(existing_manifest.get("source_note_id", ""))
+        except SystemExit:
+            pass
 
     note_id = generate_filesystem_note_id()
     timestamp = iso_now()
     ts_prefix = normalize_timestamp(timestamp)
     ext = file_path.suffix
 
-    _write_ingest_state(inbox_key, note_id, {
-        "first_seen_at": timestamp,
-        "last_seen_at": timestamp,
-        "status": "ingesting",
-        "manifest_path": None,
-        "artifact_path": None,
-        "archive_status": "pending",
-        "error_code": None,
-        "error_detail": None,
-        "content_hash": content_hash,
-    })
+    def _state(status: str, *, error_code: str | None = None, error_detail: str | None = None,
+               manifest_path_val: str | None = None, artifact_path_val: str | None = None,
+               archive_status: str = "pending") -> dict[str, Any]:
+        return {
+            "first_seen_at": timestamp, "last_seen_at": iso_now(), "status": status,
+            "manifest_path": manifest_path_val, "artifact_path": artifact_path_val,
+            "archive_status": archive_status, "error_code": error_code,
+            "error_detail": error_detail, "content_hash": content_hash,
+        }
+
+    _write_ingest_state(inbox_key, note_id, _state("ingesting"))
 
     blob_name = f"{ts_prefix}--{note_id}{ext}"
     blob_path = artifacts_dir / blob_name
-    shutil.copy2(str(file_path), str(blob_path))
+    try:
+        shutil.copy2(str(file_path), str(blob_path))
+    except OSError as exc:
+        _write_ingest_state(inbox_key, note_id, _state("error", error_code="blob_copy_failed", error_detail=str(exc)))
+        raise
 
-    result = run_extractor(blob_path)
+    try:
+        result = run_extractor(blob_path)
+    except (MemoryError, RecursionError):
+        _write_ingest_state(inbox_key, note_id, _state("error", error_code="extraction_fatal", error_detail="MemoryError or RecursionError",
+                                                         artifact_path_val=str(blob_path.relative_to(ROOT))))
+        raise
+    except Exception as exc:
+        _write_ingest_state(inbox_key, note_id, _state("error", error_code="extraction_failed", error_detail=str(exc),
+                                                         artifact_path_val=str(blob_path.relative_to(ROOT))))
+        raise
 
     from datetime import datetime, timezone
     file_stat = file_path.stat()
@@ -924,40 +950,31 @@ def ingest_file(file_path: Path, inbox_key: str, inbox_path: Path) -> dict[str, 
     manifest_path = manifests_dir / manifest_name
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    _write_ingest_state(inbox_key, note_id, {
-        "first_seen_at": timestamp,
-        "last_seen_at": timestamp,
-        "status": "ingested",
-        "manifest_path": str(manifest_path.relative_to(ROOT)),
-        "artifact_path": str(blob_path.relative_to(ROOT)),
-        "archive_status": "pending",
-        "error_code": None,
-        "error_detail": None,
-        "content_hash": content_hash,
-    })
+    rel_manifest = str(manifest_path.relative_to(ROOT))
+    rel_artifact = str(blob_path.relative_to(ROOT))
+    _write_ingest_state(inbox_key, note_id, _state("ingested", manifest_path_val=rel_manifest, artifact_path_val=rel_artifact))
 
     # Archive: move original to inbox_path/processed/YYYY-MM-DD/
     archive_dir = inbox_path / "processed" / timestamp[:10]
     archive_dir.mkdir(parents=True, exist_ok=True)
     archive_dest = archive_dir / file_path.name
-    shutil.move(str(file_path), str(archive_dest))
+    # Handle collision: append note_id suffix if destination exists
+    if archive_dest.exists():
+        archive_dest = archive_dir / f"{file_path.stem}--{note_id}{file_path.suffix}"
+    try:
+        shutil.move(str(file_path), str(archive_dest))
+    except OSError as exc:
+        _write_ingest_state(inbox_key, note_id, _state("ingested", error_code="archive_failed", error_detail=str(exc),
+                                                         manifest_path_val=rel_manifest, artifact_path_val=rel_artifact))
+        raise
 
     evidence["archive_status"] = "archived"
     evidence["archive_path_snapshot"] = str(archive_dest)
     manifest["evidence"] = evidence
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    _write_ingest_state(inbox_key, note_id, {
-        "first_seen_at": timestamp,
-        "last_seen_at": timestamp,
-        "status": "ingested",
-        "manifest_path": str(manifest_path.relative_to(ROOT)),
-        "artifact_path": str(blob_path.relative_to(ROOT)),
-        "archive_status": "archived",
-        "error_code": None,
-        "error_detail": None,
-        "content_hash": content_hash,
-    })
+    _write_ingest_state(inbox_key, note_id, _state("ingested", manifest_path_val=rel_manifest,
+                                                     artifact_path_val=rel_artifact, archive_status="archived"))
 
     return {
         "note_id": note_id,
@@ -993,19 +1010,21 @@ def ingest_command(args: argparse.Namespace) -> int:
         raise SystemExit("No filesystem inboxes configured. Run: python3 scripts/bootstrap_local.py")
 
     dry_run = getattr(args, "dry_run", False)
+    error_details: list[dict[str, str]] = []
     results: dict[str, Any] = {"ingested": 0, "skipped": 0, "errors": 0, "needs_extraction": 0, "inboxes_processed": []}
 
     for inbox_key, inbox_path in sorted(inboxes.items()):
         if not inbox_path.exists():
             results["errors"] += 1
+            detail = {"inbox": inbox_key, "path": str(inbox_path), "error": "inbox path does not exist"}
+            error_details.append(detail)
+            print(f"error: inbox '{inbox_key}' path does not exist: {inbox_path}", file=sys.stderr)
             continue
         results["inboxes_processed"].append(inbox_key)
         for item in sorted(inbox_path.iterdir()):
             if not item.is_file():
                 continue
             if item.name.startswith("."):
-                continue
-            if item.parent.name == "processed":
                 continue
             if dry_run:
                 results["ingested"] += 1
@@ -1015,10 +1034,21 @@ def ingest_command(args: argparse.Namespace) -> int:
                 results["ingested"] += 1
                 if summary.get("needs_extraction"):
                     results["needs_extraction"] += 1
+            except (MemoryError, RecursionError):
+                raise
+            except OSError as exc:
+                results["errors"] += 1
+                detail = {"file": str(item), "inbox": inbox_key, "error": str(exc)}
+                error_details.append(detail)
+                print(f"error: failed to ingest {item}: {exc}", file=sys.stderr)
             except Exception as exc:
                 results["errors"] += 1
+                detail = {"file": str(item), "inbox": inbox_key, "error": f"{type(exc).__name__}: {exc}"}
+                error_details.append(detail)
                 print(f"error: failed to ingest {item}: {exc}", file=sys.stderr)
 
+    if error_details:
+        results["error_details"] = error_details
     print(json.dumps(results, indent=2, ensure_ascii=False))
     return 0
 
@@ -1063,6 +1093,9 @@ def extract_command(args: argparse.Namespace) -> int:
         candidate = ROOT / raw_path_str if not Path(raw_path_str).is_absolute() else Path(raw_path_str)
         if candidate.exists():
             manifest_path = candidate
+
+    if manifest_path is None:
+        print(f"warning: manifest not found for note {note_id} (raw_payload_path={raw_path_str}). Extraction history will not be recorded.", file=sys.stderr)
 
     if manifest_path:
         timestamp = iso_now()
@@ -2151,6 +2184,9 @@ def normalize_command(args: argparse.Namespace) -> int:
             continue
 
         write_note(normalized_path, metadata, body)
+        if metadata.get("extraction_status") == "needs_extraction" and detected_source == FILESYSTEM_SOURCE:
+            needs_ext_dir = review_dir_for(FILESYSTEM_SOURCE, "needs_extraction")
+            write_note(needs_ext_dir / normalized_path.name, metadata, body)
         written += 1
 
     print(
@@ -4138,7 +4174,7 @@ def migrate_source_layout_command(args: argparse.Namespace) -> int:
     for src, dest in operations:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(src), str(dest))
-    for note_path in iter_normalized_files_by_source({VOICE_SOURCE, PROJECT_ROUTER_SOURCE}) + iter_compiled_files_by_source({VOICE_SOURCE, PROJECT_ROUTER_SOURCE}):
+    for note_path in iter_normalized_files_by_source(set(KNOWN_SOURCES)) + iter_compiled_files_by_source(set(KNOWN_SOURCES)):
         migrate_note_references(note_path, replacements)
     for packet_path in sorted(DECISIONS_DIR.glob("*.json")):
         migrate_decision_packet(packet_path, replacements)
