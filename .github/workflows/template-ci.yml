@@ -16,6 +16,8 @@ jobs:
           python-version: "3.11"
       - name: Install test dependencies
         run: pip install pytest
+      - name: Materialize Knowledge/local scaffold
+        run: python3 scripts/refresh_knowledge_local.py --apply-missing
       - name: Run tests
         run: python3 -m pytest tests/test_project_router.py tests/test_template_governance.py -q
 
