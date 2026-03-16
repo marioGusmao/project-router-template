@@ -8,6 +8,13 @@ All notable changes to the shared Project Router starter will be documented in t
 - Tightened contract validation with conflict-marker detection, reject-file detection, and release-note enforcement for upgrade-governance surfaces.
 - Added regression tests for template sync governance tooling.
 
+## [0.4.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.3.0...project-router-template-v0.4.0) (2026-03-16)
+
+
+### Features
+
+* add init-router-root and adopt-router-root commands ([#5](https://github.com/marioGusmao/project-router-template/issues/5)) ([cf92547](https://github.com/marioGusmao/project-router-template/commit/cf9254797e9c369cb1c69acf51c9a2c75aeaa1ea))
+
 ## [0.3.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.2.0...project-router-template-v0.3.0) (2026-03-16)
 
 
