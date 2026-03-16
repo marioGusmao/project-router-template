@@ -778,6 +778,23 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("005-safety-invariants.md", result.stderr)
 
+    def test_strict_validator_requires_repo_native_plan_file(self) -> None:
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "repo-governance").mkdir()
+            shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
+            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
+            shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
+            (root / "Knowledge" / "runbooks" / "plans" / "router-root-migration-and-scaffold.plan.md").unlink()
+
+            result = subprocess.run(
+                ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
+                capture_output=True, text=True, cwd=str(root),
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Knowledge/runbooks/plans/router-root-migration-and-scaffold.plan.md", result.stderr)
+
     def test_strict_validator_fails_when_template_scaffold_source_missing(self) -> None:
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
             root = Path(tmp)
@@ -2517,6 +2534,40 @@ class InitRouterRootTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             contract = json.loads((target / "router-contract.json").read_text(encoding="utf-8"))
             self.assertEqual(contract["supported_packet_types"], ["insight", "task"])
+
+    def test_init_rejects_empty_packet_types(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream" / "project-router"
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(["init-router-root", "--project", "home_renovation", "--router-root", str(target), "--packet-types", ",,,"])
+            self.assertIn("at least one non-empty packet type", str(ctx.exception))
+            self.assertFalse((target / "router-contract.json").exists())
+
+    def test_init_rejects_duplicate_packet_types(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            target = root / "downstream" / "project-router"
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main(
+                        [
+                            "init-router-root",
+                            "--project",
+                            "home_renovation",
+                            "--router-root",
+                            str(target),
+                            "--packet-types",
+                            "insight,question,insight",
+                        ]
+                    )
+            self.assertIn("duplicate values", str(ctx.exception))
+            self.assertFalse((target / "router-contract.json").exists())
 
 
 # =====================================================================

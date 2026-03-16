@@ -2751,6 +2751,24 @@ def structural_preflight(target: Path) -> None:
             )
 
 
+def parse_packet_types_arg(raw: str | None) -> list[str]:
+    """Parse and validate packet types for scaffold commands."""
+    if raw is None:
+        return list(DEFAULT_PACKET_TYPES)
+
+    packet_types = [token.strip() for token in raw.split(",") if token.strip()]
+    if not packet_types:
+        raise SystemExit("--packet-types must include at least one non-empty packet type.")
+
+    duplicates = sorted({packet_type for packet_type in packet_types if packet_types.count(packet_type) > 1})
+    if duplicates:
+        raise SystemExit(
+            f"--packet-types contains duplicate values: {', '.join(duplicates)}."
+        )
+
+    return packet_types
+
+
 def init_router_root_command(args: argparse.Namespace) -> int:
     project_key = args.project
     if not NOTE_ID_PATTERN.fullmatch(project_key):
@@ -2778,10 +2796,7 @@ def init_router_root_command(args: argparse.Namespace) -> int:
     language = project_config.get("language", "en")
 
     # Parse packet types
-    if args.packet_types:
-        packet_types = [t.strip() for t in args.packet_types.split(",") if t.strip()]
-    else:
-        packet_types = list(DEFAULT_PACKET_TYPES)
+    packet_types = parse_packet_types_arg(args.packet_types)
 
     # Fail if contract already exists (bootstrap-only)
     contract_path = router_root / "router-contract.json"
