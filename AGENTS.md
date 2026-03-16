@@ -101,6 +101,8 @@
 - `python3 scripts/project_router.py discover`
 - `python3 scripts/project_router.py scan-outboxes`
 - `python3 scripts/project_router.py doctor`
+- `python3 scripts/project_router.py init-router-root --project <key> --router-root <path>`
+- `python3 scripts/project_router.py adopt-router-root --project <key>`
 - `python3 scripts/project_router.py migrate-source-layout --dry-run`
 - `python3 scripts/project_router.py decide --note-id vn_123 --decision approve`
 - `python3 scripts/project_router.py dispatch --dry-run`

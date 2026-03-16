@@ -46,6 +46,8 @@ python3 scripts/project_router.py discover       # cluster pending_project notes
 python3 scripts/project_router.py status         # queue counts
 python3 scripts/project_router.py scan-outboxes  # ingest downstream outboxes read-only
 python3 scripts/project_router.py doctor --project home_renovation   # validate a downstream contract
+python3 scripts/project_router.py init-router-root --project home_renovation --router-root /path/to/project-router  # scaffold downstream
+python3 scripts/project_router.py adopt-router-root --project home_renovation  # migrate inbox_path → router_root_path
 python3 scripts/project_router.py migrate-source-layout --dry-run  # preview legacy migration
 
 # Record user decisions

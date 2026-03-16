@@ -452,6 +452,17 @@
       "agent_load_rule": null,
       "migration_policy": "silent_ok",
       "validator_hooks": []
+    },
+    {
+      "pattern": "state/project_router/adoptions/**",
+      "ownership": "local_only",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
     }
   ]
 }

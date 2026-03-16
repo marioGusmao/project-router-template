@@ -49,3 +49,5 @@
 - **outbox/**: Directory where downstream projects emit status updates or responses. Read-only from the router's perspective.
 - **conformance/**: Directory for validation artifacts that verify a downstream project meets the protocol.
 - **doctor command**: `python3 scripts/project_router.py doctor --project <name>` validates a downstream project's protocol compliance.
+- **adoption journal**: JSON record written to `state/project_router/adoptions/{project_key}.json` after `adopt-router-root --confirm`, capturing detected inputs, chosen target, operations executed, config diff, doctor result, and follow-up items.
+- **router root adoption**: The process of migrating a project from legacy `inbox_path` to the `router_root_path` convention via `adopt-router-root`. Creates or repairs the downstream scaffold, rewrites the local registry, and runs doctor validation.
