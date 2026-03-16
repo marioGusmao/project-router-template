@@ -2511,6 +2511,19 @@ def dispatch_command(args: argparse.Namespace) -> int:
             destination.write_text(content, encoding="utf-8")
             mirror_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(destination, mirror_path)
+            # For filesystem-source notes, also dispatch the original blob
+            blob_ref = metadata.get("canonical_blob_ref")
+            source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+            if source == FILESYSTEM_SOURCE and blob_ref:
+                inbox_key = (metadata.get("source_endpoint") or "").replace("filesystem/", "") or "default"
+                blob_source = RAW_DIR / FILESYSTEM_SOURCE / inbox_key / blob_ref
+                if blob_source.exists():
+                    blob_ext = blob_source.suffix
+                    blob_dest = destination.parent / f"{destination.stem}{blob_ext}"
+                    shutil.copy2(str(blob_source), str(blob_dest))
+                    blob_mirror = mirror_path.parent / blob_dest.name
+                    shutil.copy2(str(blob_source), str(blob_mirror))
+                    candidates[-1]["blob_dispatched"] = str(blob_dest)
         except OSError as exc:
             candidates[-1]["skip_reason"] = f"downstream write failed: {exc}"
             skipped += 1
@@ -2518,7 +2531,10 @@ def dispatch_command(args: argparse.Namespace) -> int:
 
         metadata["status"] = "dispatched"
         metadata["dispatched_at"] = "manual-run"
-        metadata["dispatched_to"] = [str(destination)]
+        dispatched_paths = [str(destination)]
+        if candidates[-1].get("blob_dispatched"):
+            dispatched_paths.append(candidates[-1]["blob_dispatched"])
+        metadata["dispatched_to"] = dispatched_paths
         metadata["requires_user_confirmation"] = False
         write_note(note_path, metadata, body)
         packet = load_decision_packet_for_metadata(metadata)

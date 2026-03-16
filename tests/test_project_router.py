@@ -3204,7 +3204,7 @@ class FilesystemSourceTests(unittest.TestCase):
         write_registry(root)
         return td, root, stack
 
-    def _write_manifest(self, root, note_id="fs_20260316T143000Z_a1b2c3", text="Hello world", needs_extraction=False):
+    def _write_manifest(self, root, note_id="fs_20260316T143000Z_a1b2c3", text="Hello world", needs_extraction=False, blob_ext=".txt"):
         manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
         ts = "20260316T143000Z"
         manifest = {
@@ -3217,7 +3217,7 @@ class FilesystemSourceTests(unittest.TestCase):
                 "content_hash": "sha256:test123",
                 "original_path_snapshot": "/tmp/test.txt",
                 "file_stat": {"size_bytes": 100, "mtime": "2026-03-16T10:00:00Z", "mode": "0644"},
-                "canonical_blob_ref": f"artifacts/{ts}--{note_id}.txt",
+                "canonical_blob_ref": f"artifacts/{ts}--{note_id}{blob_ext}",
                 "ingested_at": "2026-03-16T14:30:00Z",
                 "duplicate_of": None,
                 "same_content_as": [],
@@ -3815,6 +3815,62 @@ class FilesystemSourceTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 cli.main(["ingest", "--integration", "filesystem", "--inbox", "nonexistent"])
             self.assertIn("Unknown inbox key", str(ctx.exception))
+        finally:
+            stack.close()
+            td.cleanup()
+
+
+    def test_dispatch_filesystem_note_copies_blob(self):
+        """Dispatch of a filesystem note copies the original blob alongside the brief."""
+        td, root, stack = self._setup()
+        try:
+            # Create a blob in artifacts
+            artifacts_dir = root / "data" / "raw" / "filesystem" / "default" / "artifacts"
+            blob_name = "20260316T143000Z--fs_20260316T143000Z_a1b2c3.pdf"
+            (artifacts_dir / blob_name).write_bytes(b"%PDF-fake-content")
+
+            # Write manifest pointing to that blob
+            self._write_manifest(root, text="renovation contractor invoice for budget review", blob_ext=".pdf")
+
+            # Full pipeline: normalize -> triage -> compile -> decide approve -> dispatch
+            cli.main(["normalize", "--source", "filesystem"])
+            cli.main(["triage", "--source", "filesystem"])
+            cli.main(["compile", "--source", "filesystem"])
+
+            # Find the normalized note and check its project assignment
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, body = cli.read_note(normalized[0])
+
+            # Force-approve for dispatch, then recompile (decide changes metadata → stale compiled)
+            cli.main(["decide", "--source", "filesystem", "--note-id", "fs_20260316T143000Z_a1b2c3",
+                       "--decision", "approve", "--final-project", "home_renovation"])
+            cli.main(["compile", "--source", "filesystem"])
+
+            # Set up downstream inbox
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            inbox_dir = router_root / "inbox"
+            inbox_dir.mkdir(parents=True, exist_ok=True)
+
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["dispatch", "--source", "filesystem", "--confirm-user-approval",
+                           "--note-id", "fs_20260316T143000Z_a1b2c3"])
+            output = json.loads(buf.getvalue())
+            self.assertGreaterEqual(output["dispatched"], 1)
+
+            # Check that both .md brief AND .pdf blob were dispatched
+            inbox_files = list(inbox_dir.iterdir())
+            extensions = {f.suffix for f in inbox_files}
+            self.assertIn(".md", extensions, "Brief should be dispatched")
+            self.assertIn(".pdf", extensions, "Original blob should be dispatched alongside brief")
+
+            # Verify the blob content
+            pdf_files = [f for f in inbox_files if f.suffix == ".pdf"]
+            self.assertEqual(len(pdf_files), 1)
+            self.assertEqual(pdf_files[0].read_bytes(), b"%PDF-fake-content")
         finally:
             stack.close()
             td.cleanup()
