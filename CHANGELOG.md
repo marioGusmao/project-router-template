@@ -14,6 +14,13 @@ All notable changes to the shared Project Router starter will be documented in t
 - Fixed template sync diff-only handling so review output lives outside the repo and is rendered in the sync PR body.
 - Tightened contract validation with conflict-marker detection, reject-file detection, and release-note enforcement for upgrade-governance surfaces.
 - Added regression tests for template sync governance tooling.
+- Added filesystem source with ingestion protocol, modular extractors, and AI extraction workflow.
+- Added router inbox consumption commands: `inbox-intake`, `inbox-status`, `inbox-ack`.
+- Hardened dispatch with pre-validation of `--note-id`, ISO timestamps, and atomic batch rejection.
+- Preserved manual review decisions (reject/approved) across triage reruns.
+- Added tracked-file coverage gate to `check_customization_contracts.py`.
+- Registered `Knowledge/runbooks/**` as local-only in ownership manifest and customization contracts.
+- Gitignored `Knowledge/runbooks/plans/` as operational artifacts.
 
 ## [0.4.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.3.0...project-router-template-v0.4.0) (2026-03-16)
 
