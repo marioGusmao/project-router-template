@@ -43,22 +43,26 @@ data/
   raw/
     voicenotes/
     project_router/
+    filesystem/
   normalized/
     voicenotes/
     project_router/
+    filesystem/
   compiled/
     voicenotes/
     project_router/
+    filesystem/
   review/
     voicenotes/
     project_router/
+    filesystem/
   dispatched/
   processed/
 Knowledge/
   ADR/
   Templates/
   local/
-  local/runbooks/plans/
+  runbooks/plans/
 router/
   inbox/
   outbox/
