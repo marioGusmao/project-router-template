@@ -53,7 +53,7 @@ python3 scripts/project_router.py migrate-source-layout --dry-run  # preview leg
 # Filesystem ingestion
 python3 scripts/project_router.py ingest --integration filesystem  # ingest files from local inbox
 python3 scripts/project_router.py ingest --integration filesystem --dry-run  # preview ingest
-python3 scripts/project_router.py extract --source filesystem  # list notes needing extraction
+python3 scripts/project_router.py extract  # list notes needing extraction
 python3 scripts/project_router.py extract --note-id fs_xxx --text "..." --observations '{}'  # update extraction
 
 # Record user decisions
@@ -95,7 +95,7 @@ No linter or formatter is configured. No build step required.
 
 **Entry point:** `scripts/project_router.py` → `src/project_router/cli.py::main(argv)` using argparse subcommands.
 
-**Single-module CLI:** All logic lives in `src/project_router/cli.py`. No external dependencies — stdlib only.
+**CLI module + extractors:** Core pipeline logic lives in `src/project_router/cli.py`. Modular content extractors live in `src/project_router/extractors/`. The core pipeline has zero external dependencies (stdlib only); extractors may use optional packages (`pymupdf`, `python-docx`) per ADR-007.
 
 **Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`, plus read-only downstream intake via `scan-outboxes`, and `ingest → normalize → extract → triage → compile → dispatch` for the filesystem source.
 
@@ -161,7 +161,7 @@ At the beginning of a session:
 5. If filesystem inboxes are configured, run:
    - `python3 scripts/project_router.py ingest --integration filesystem`
    - `python3 scripts/project_router.py normalize --source filesystem`
-   - `python3 scripts/project_router.py extract --source filesystem` (list pending, then extract each)
+   - `python3 scripts/project_router.py extract` (list pending, then extract each)
    - `python3 scripts/project_router.py triage --source filesystem`
    - `python3 scripts/project_router.py compile --source filesystem`
 6. Run `python3 scripts/project_router.py review`
