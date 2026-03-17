@@ -3149,6 +3149,13 @@ class ParserHelpTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("init-router-root", result.stdout)
 
+    def test_extract_does_not_accept_source_argument(self) -> None:
+        result = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "project_router.py"), "extract", "--source", "voicenotes"],
+            capture_output=True, text=True, cwd=str(REPO_ROOT),
+        )
+        self.assertNotEqual(result.returncode, 0)
+
     def test_adopt_router_root_appears_in_help(self) -> None:
         result = subprocess.run(
             ["python3", str(Path(__file__).resolve().parents[1] / "scripts" / "project_router.py"), "--help"],
@@ -3561,7 +3568,7 @@ class FilesystemSourceTests(unittest.TestCase):
             from contextlib import redirect_stdout
             buf = io.StringIO()
             with redirect_stdout(buf):
-                cli.main(["extract", "--source", "filesystem"])
+                cli.main(["extract"])
             output = json.loads(buf.getvalue())
             self.assertEqual(output["count"], 1)
             self.assertEqual(output["pending_extraction"][0]["source_note_id"], "fs_20260316T143000Z_a1b2c3")

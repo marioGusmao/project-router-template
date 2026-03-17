@@ -4946,7 +4946,6 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.set_defaults(func=ingest_command)
 
     extract_parser = subparsers.add_parser("extract", help="List or update extraction results for filesystem notes.")
-    add_source_argument(extract_parser)
     extract_parser.add_argument("--note-id", help="Note ID to update extraction for.")
     extract_parser.add_argument("--text", help="Extracted text content.")
     extract_parser.add_argument("--observations", help="JSON observations dict.")
