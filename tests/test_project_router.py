@@ -1931,6 +1931,67 @@ class DispatchCommandTests(unittest.TestCase):
             self.assertIn("dispatched_at", metadata)
             self.assertRegex(metadata["dispatched_at"], r"^\d{4}-\d{2}-\d{2}T")
 
+    def test_dispatch_rejects_traversal_in_blob_ref(self) -> None:
+        """Dispatch must not copy blob when canonical_blob_ref contains path traversal."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_id = "fs_traverse1"
+            note_path = root / "data" / "normalized" / "filesystem" / f"20260311T160000Z--{note_id}.md"
+            compiled_path = root / "data" / "compiled" / "filesystem" / f"20260311T160000Z--{note_id}.md"
+            note_metadata = {
+                "source": "filesystem",
+                "source_note_id": note_id,
+                "title": "Traversal test",
+                "created_at": "2026-03-11T16:00:00Z",
+                "tags": ["renovation"],
+                "status": "classified",
+                "project": "home_renovation",
+                "candidate_projects": ["home_renovation"],
+                "confidence": 1.0,
+                "routing_reason": "Keyword match.",
+                "requires_user_confirmation": False,
+                "review_status": "approved",
+                "canonical_path": str(note_path.relative_to(root)),
+                "raw_payload_path": str((root / "data" / "raw" / "filesystem" / "default" / "manifests" / f"20260311T160000Z--{note_id}.manifest.json").relative_to(root)),
+                "note_type": "project-idea",
+                "source_endpoint": "filesystem/default",
+                "canonical_blob_ref": "../../etc/passwd",
+                "extraction_status": "complete",
+                "extraction_method": "stdlib_read",
+            }
+            body = "# Traversal test\n\nSome content.\n"
+            cli.write_note(note_path, note_metadata, body)
+            compiled_path.parent.mkdir(parents=True, exist_ok=True)
+            compiled_metadata = {
+                "source": "filesystem",
+                "source_note_id": note_id,
+                "title": "Traversal test",
+                "created_at": "2026-03-11T16:00:00Z",
+                "compiled_at": "2026-03-11T16:05:00Z",
+                "compiled_from_signature": cli.canonical_compile_signature(
+                    cli.read_note(note_path)[0],
+                    cli.read_note(note_path)[1],
+                ),
+                "brief_summary": "Summary",
+            }
+            cli.write_note(compiled_path, compiled_metadata, "# Traversal test\n\nCompiled\n")
+            # Create a fake target file that the traversal would reach
+            fake_target = root / "data" / "raw" / "etc" / "passwd"
+            fake_target.parent.mkdir(parents=True, exist_ok=True)
+            fake_target.write_text("root:x:0:0:root", encoding="utf-8")
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": [note_id], "source": "filesystem"})()
+                    )
+            output = parse_print_json(mock_print)
+            # Note should be dispatched (text part), but blob must not be copied
+            for candidate in output.get("candidates", []):
+                if candidate.get("source_note_id") == note_id:
+                    self.assertNotIn("blob_dispatched", candidate)
+
 
 class ReadNoteTests(unittest.TestCase):
     """Tests for read_note frontmatter parsing edge cases."""

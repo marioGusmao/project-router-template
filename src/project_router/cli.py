@@ -2568,14 +2568,20 @@ def dispatch_command(args: argparse.Namespace) -> int:
             source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
             if source == FILESYSTEM_SOURCE and blob_ref:
                 inbox_key = (metadata.get("source_endpoint") or "").replace("filesystem/", "") or "default"
-                blob_source = RAW_DIR / FILESYSTEM_SOURCE / inbox_key / blob_ref
-                if blob_source.exists():
-                    blob_ext = blob_source.suffix
-                    blob_dest = destination.parent / f"{destination.stem}{blob_ext}"
-                    shutil.copy2(str(blob_source), str(blob_dest))
-                    blob_mirror = mirror_path.parent / blob_dest.name
-                    shutil.copy2(str(blob_source), str(blob_mirror))
-                    candidates[-1]["blob_dispatched"] = str(blob_dest)
+                if not NOTE_ID_PATTERN.fullmatch(inbox_key):
+                    sys.stderr.write(f"Warning: skipping blob dispatch for {source_note_id}: invalid inbox_key '{inbox_key}'\n")
+                else:
+                    blob_source = RAW_DIR / FILESYSTEM_SOURCE / inbox_key / blob_ref
+                    fs_raw_root = (RAW_DIR / FILESYSTEM_SOURCE).resolve()
+                    if not blob_source.resolve().is_relative_to(fs_raw_root):
+                        sys.stderr.write(f"Warning: skipping blob dispatch for {source_note_id}: blob_ref resolves outside raw dir\n")
+                    elif blob_source.exists():
+                        blob_ext = blob_source.suffix
+                        blob_dest = destination.parent / f"{destination.stem}{blob_ext}"
+                        shutil.copy2(str(blob_source), str(blob_dest))
+                        blob_mirror = mirror_path.parent / blob_dest.name
+                        shutil.copy2(str(blob_source), str(blob_mirror))
+                        candidates[-1]["blob_dispatched"] = str(blob_dest)
         except OSError as exc:
             candidates[-1]["skip_reason"] = f"downstream write failed: {exc}"
             skipped += 1
