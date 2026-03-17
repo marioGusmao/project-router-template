@@ -1053,7 +1053,7 @@ def ingest_command(args: argparse.Namespace) -> int:
     if error_details:
         results["error_details"] = error_details
     print(json.dumps(results, indent=2, ensure_ascii=False))
-    return 0
+    return 1 if results.get("errors", 0) > 0 else 0
 
 
 def extract_command(args: argparse.Namespace) -> int:

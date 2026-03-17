@@ -3879,7 +3879,7 @@ class FilesystemSourceTests(unittest.TestCase):
             err_buf = io.StringIO()
             with redirect_stdout(buf), redirect_stderr(err_buf):
                 result = cli.main(["ingest", "--integration", "filesystem"])
-            self.assertEqual(result, 0)
+            self.assertEqual(result, 1)
             output = json.loads(buf.getvalue())
             self.assertEqual(output["errors"], 1)
             self.assertIn("error_details", output)
@@ -3931,6 +3931,22 @@ class FilesystemSourceTests(unittest.TestCase):
         finally:
             stack.close()
             td.cleanup()
+
+    def test_ingest_returns_nonzero_on_error(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            inbox_path = root / "fs_inbox"
+            inbox_path.mkdir(parents=True, exist_ok=True)
+            local_reg = {"projects": {}, "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox_path)}}}}
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            (inbox_path / "broken.bin").write_bytes(b"data")
+            with patch_cli_paths(root):
+                with unittest.mock.patch.object(cli, "ingest_file", side_effect=OSError("disk error")):
+                    with unittest.mock.patch("builtins.print"):
+                        rc = cli.ingest_command(type("Args", (), {"integration": "filesystem", "dry_run": False, "source": "filesystem"})())
+            self.assertEqual(rc, 1)
 
     def test_renormalize_preserves_completed_extraction(self):
         """Re-normalization must keep extraction_status, extraction_method, ai_extraction_hint, and canonical_blob_ref when extraction_status is complete."""
