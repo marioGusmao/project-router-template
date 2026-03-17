@@ -433,6 +433,44 @@ class ProjectRouterFlowTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             self.assertEqual(payload["status"], "error")
 
+    def test_doctor_rejects_unsupported_packet_type(self) -> None:
+        """doctor must flag packets whose packet_type is not in supported_packet_types."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            router_root = root / "project-router"
+            (router_root / "inbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "outbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "conformance").mkdir(parents=True, exist_ok=True)
+            (router_root / "router-contract.json").write_text(
+                json.dumps({
+                    "schema_version": "1",
+                    "project_key": "home_renovation",
+                    "default_language": "en",
+                    "supported_packet_types": ["improvement_proposal"],
+                }, indent=2),
+                encoding="utf-8",
+            )
+            (router_root / "conformance" / "valid-packet.example.md").write_text(
+                "---\nschema_version: \"1\"\npacket_id: \"sample_valid\"\ncreated_at: \"2026-03-13T10:00:00Z\"\nsource_project: \"home_renovation\"\npacket_type: \"improvement_proposal\"\ntitle: \"Valid sample\"\nlanguage: \"en\"\nstatus: \"open\"\n---\n\n# Valid sample\n\nBody\n",
+                encoding="utf-8",
+            )
+            (router_root / "conformance" / "invalid-packet.example.md").write_text(
+                "---\nschema_version: \"1\"\npacket_id: \"sample_invalid\"\n---\n\nBroken\n",
+                encoding="utf-8",
+            )
+            # Write an ack packet (not in supported_packet_types)
+            ack_path = router_root / "outbox" / "20260316T120000Z--ack_pkt1.md"
+            ack_path.write_text(
+                "---\nschema_version: \"1\"\npacket_id: \"ack_pkt1\"\ncreated_at: \"2026-03-16T12:00:00Z\"\nsource_project: \"home_renovation\"\npacket_type: \"ack\"\ntitle: \"Ack test\"\nlanguage: \"en\"\nstatus: \"applied\"\n---\n\n# Ack test\n\nBody\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                result = cli.run_full_doctor_validation(router_root, "home_renovation")
+            self.assertEqual(result["status"], "error")
+            type_errors = [e for e in result["errors"] if "unsupported packet_type" in e.lower() or "not in supported_packet_types" in e]
+            self.assertTrue(len(type_errors) > 0, f"Expected unsupported packet_type error, got errors: {result['errors']}")
+
     def test_review_filters_by_source(self) -> None:
         with temporary_repo_dir() as tmp:
             root = Path(tmp)

@@ -3168,6 +3168,7 @@ def validate_outbox_packet(
     *,
     expected_project_key: str,
     strict: bool = False,
+    supported_packet_types: list[str] | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     required = (
@@ -3200,6 +3201,9 @@ def validate_outbox_packet(
         errors.append(f"{path.name}: filename must match '{normalize_timestamp(str(created_at))}--{packet_id}.md'.")
     if strict and metadata.get("source_note_id"):
         errors.append(f"{path.name}: authored outbox packets must not define source_note_id directly.")
+    packet_type = metadata.get("packet_type")
+    if supported_packet_types is not None and packet_type and packet_type not in supported_packet_types:
+        errors.append(f"{path.name}: packet_type '{packet_type}' not in supported_packet_types {supported_packet_types}")
     content_hash = packet_content_hash(metadata, body)
     normalized = {
         "source": PROJECT_ROUTER_SOURCE,
@@ -3210,9 +3214,9 @@ def validate_outbox_packet(
     return errors, normalized
 
 
-def parse_outbox_packet(path: Path, *, expected_project_key: str, strict: bool = False) -> tuple[dict[str, Any], str, list[str], dict[str, Any]]:
+def parse_outbox_packet(path: Path, *, expected_project_key: str, strict: bool = False, supported_packet_types: list[str] | None = None) -> tuple[dict[str, Any], str, list[str], dict[str, Any]]:
     metadata, body = read_note(path)
-    errors, normalized = validate_outbox_packet(path, metadata, body, expected_project_key=expected_project_key, strict=strict)
+    errors, normalized = validate_outbox_packet(path, metadata, body, expected_project_key=expected_project_key, strict=strict, supported_packet_types=supported_packet_types)
     return metadata, body, errors, normalized
 
 
@@ -3860,10 +3864,11 @@ def run_full_doctor_validation(router_root: Path, project_key: str) -> dict[str,
     for fixture_name in ("valid-packet.example.md", "invalid-packet.example.md"):
         if not (router_root / "conformance" / fixture_name).exists():
             errors.append(f"Missing conformance fixture: {router_root / 'conformance' / fixture_name}")
+    supported_types = contract.get("supported_packet_types")
     packet_ids: set[str] = set()
     packets_report: list[dict[str, Any]] = []
     for path in outbox_packet_paths(router_root):
-        metadata, body, packet_errors, normalized = parse_outbox_packet(path, expected_project_key=str(contract.get("project_key") or project_key))
+        metadata, body, packet_errors, normalized = parse_outbox_packet(path, expected_project_key=str(contract.get("project_key") or project_key), supported_packet_types=supported_types)
         packet_id = normalized.get("source_note_id")
         if packet_id in packet_ids:
             packet_errors.append(f"{path.name}: duplicate packet_id '{packet_id}' in outbox.")
@@ -4608,13 +4613,18 @@ def inbox_ack_command(args: argparse.Namespace) -> int:
         contract_path = LOCAL_ROUTER_DIR / "router-contract.json"
         source_project = "project_router_template"
         language = "en"
+        supported_types: list[str] | None = None
         if contract_path.exists():
             try:
                 contract = json.loads(contract_path.read_text(encoding="utf-8"))
                 source_project = contract.get("project_key", source_project)
                 language = contract.get("default_language", language)
+                supported_types = contract.get("supported_packet_types")
             except (json.JSONDecodeError, OSError):
                 pass
+
+        if supported_types is not None and "ack" not in supported_types:
+            sys.stderr.write(f"Warning: 'ack' is not in supported_packet_types {supported_types}. The emitted ack packet may fail downstream validation.\n")
 
         ack_packet_id = f"ack_{packet_id}"
         ack_meta: dict[str, Any] = {
