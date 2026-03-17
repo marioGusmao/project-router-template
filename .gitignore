@@ -28,3 +28,5 @@ router/inbox/*
 !router/inbox/.gitkeep
 router/outbox/*
 !router/outbox/.gitkeep
+router/archive/*
+!router/archive/.gitkeep

@@ -44,7 +44,10 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
    - `python3 scripts/project_router.py review`
 6. If `pending_project` is non-zero, analyze emerging themes with:
    - `python3 scripts/project_router.py discover`
-7. Stop there and ask the user what to approve, reject, or refine.
+7. Ingest and check router inbox packets:
+   - `python3 scripts/project_router.py inbox-intake`
+   - `python3 scripts/project_router.py inbox-status`
+8. Stop there and ask the user what to approve, reject, or refine.
 
 ## Downstream Setup
 

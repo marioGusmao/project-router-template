@@ -52,7 +52,11 @@ def prepare_repo(root: Path) -> None:
         root / "state" / "discoveries",
         root / "state" / "project_router",
         root / "state" / "project_router" / "adoptions",
+        root / "state" / "project_router" / "inbox_status",
         root / "state" / "filesystem_ingest",
+        root / "router" / "inbox",
+        root / "router" / "outbox",
+        root / "router" / "archive",
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -87,6 +91,8 @@ def patch_cli_paths(root: Path) -> ExitStack:
         "ENV_LOCAL_PATH": root / ".env.local",
         "ENV_PATH": root / ".env",
         "LOCAL_ROUTER_DIR": root / "router",
+        "LOCAL_ROUTER_ARCHIVE_DIR": root / "router" / "archive",
+        "INBOX_STATUS_DIR": state / "project_router" / "inbox_status",
     }
     for key, value in patches.items():
         stack.enter_context(mock.patch.object(cli, key, value))
@@ -3874,6 +3880,296 @@ class FilesystemSourceTests(unittest.TestCase):
         finally:
             stack.close()
             td.cleanup()
+
+
+def write_protocol_inbox_packet(root: Path, packet_id: str, *, title: str = "Test Packet", packet_type: str = "improvement_proposal", source_project: str = "my_project_router") -> Path:
+    """Write a protocol-format packet into router/inbox/."""
+    inbox = root / "router" / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = inbox / f"20260316T100000Z--{packet_id}.md"
+    path.write_text(
+        "---\n"
+        'schema_version: "1"\n'
+        f'packet_id: "{packet_id}"\n'
+        'created_at: "2026-03-16T10:00:00Z"\n'
+        f'source_project: "{source_project}"\n'
+        f'packet_type: "{packet_type}"\n'
+        f'title: "{title}"\n'
+        'language: "en"\n'
+        'status: "open"\n'
+        "---\n\n"
+        f"# {title}\n\nBody content.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_compiled_brief_inbox_packet(root: Path, packet_id: str, *, title: str = "Brief Title") -> Path:
+    """Write a compiled-brief format packet into router/inbox/ (needs conversion)."""
+    inbox = root / "router" / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = inbox / f"20260316T100000Z--{packet_id}.md"
+    path.write_text(
+        "---\n"
+        'source: "project_router"\n'
+        'source_project: "my_project_router"\n'
+        f'source_note_id: "{packet_id}"\n'
+        'created_at: "2026-03-16T10:00:00Z"\n'
+        'project: "project_router_template"\n'
+        'classification: "maintainer-follow-up"\n'
+        'capture_kind: "project_idea"\n'
+        'intent: "actionable"\n'
+        'confidence: 1.0\n'
+        'inferred_keywords: ["template", "sync"]\n'
+        'status: "to_review"\n'
+        "---\n\n"
+        f"# {title}\n\n## Project-ready brief\n\nSome brief content.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_local_router_contract(root: Path) -> None:
+    """Write a router-contract.json for the local router."""
+    contract_path = root / "router" / "router-contract.json"
+    contract_path.write_text(
+        json.dumps({
+            "schema_version": "1",
+            "project_key": "project_router_template",
+            "default_language": "en",
+            "supported_packet_types": ["improvement_proposal", "question", "insight", "ack"],
+        }, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+class InboxConsumptionTests(unittest.TestCase):
+
+    def test_inbox_intake_valid_packet(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            pkt = write_protocol_inbox_packet(root, "pkt_valid")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 1)
+            self.assertEqual(result["skipped"], 0)
+            self.assertEqual(result["errors"], 0)
+            # Packet removed from inbox
+            self.assertFalse(pkt.exists())
+            # Archived
+            archive = root / "router" / "archive" / "pkt_valid" / "original.md"
+            self.assertTrue(archive.exists())
+            # State created
+            state_path = root / "state" / "project_router" / "inbox_status" / "pkt_valid.json"
+            self.assertTrue(state_path.exists())
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "open")
+            self.assertEqual(state["packet_id"], "pkt_valid")
+
+    def test_inbox_intake_converts_brief(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            pkt = write_compiled_brief_inbox_packet(root, "brief_001", title="Brief Title")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 1)
+            self.assertFalse(pkt.exists())
+            state = json.loads((root / "state" / "project_router" / "inbox_status" / "brief_001.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "open")
+            self.assertEqual(state["packet_type"], "improvement_proposal")
+
+    def test_inbox_intake_invalid_stays(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            # Write a packet missing required fields
+            inbox = root / "router" / "inbox"
+            bad = inbox / "20260316T100000Z--bad_pkt.md"
+            bad.write_text("---\ntitle: \"Broken\"\n---\n\n# Broken\n", encoding="utf-8")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["errors"], 1)
+            # Bad packet stays in inbox
+            self.assertTrue(bad.exists())
+            # No archive created
+            archive = root / "router" / "archive" / "bad_pkt" / "original.md"
+            self.assertFalse(archive.exists())
+
+    def test_inbox_intake_idempotent(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_idem")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            # Run again
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 0)
+            self.assertEqual(result["skipped"], 0)
+
+    def test_inbox_intake_dry_run(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            pkt = write_protocol_inbox_packet(root, "pkt_dry")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": True})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 1)
+            # Packet NOT removed from inbox
+            self.assertTrue(pkt.exists())
+            # No state created
+            state_path = root / "state" / "project_router" / "inbox_status" / "pkt_dry.json"
+            self.assertFalse(state_path.exists())
+
+    def test_inbox_intake_ignores_gitkeep(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            gitkeep = root / "router" / "inbox" / ".gitkeep"
+            gitkeep.write_text("", encoding="utf-8")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 0)
+            self.assertTrue(gitkeep.exists())
+
+    def test_inbox_status_lists_open(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_open")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_status_command(type("Args", (), {"all": False, "packet_id": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(len(result["packets"]), 1)
+            self.assertEqual(result["packets"][0]["status"], "open")
+
+    def test_inbox_status_all(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_for_ack")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            # Ack it to terminal state
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_for_ack", "status": "applied", "notes": None, "ref": None})())
+            # Default: terminal excluded
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_status_command(type("Args", (), {"all": False, "packet_id": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(len(result["packets"]), 0)
+            # --all: includes terminal
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_status_command(type("Args", (), {"all": True, "packet_id": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(len(result["packets"]), 1)
+            self.assertEqual(result["packets"][0]["status"], "applied")
+
+    def test_inbox_ack_applied_outbox(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_apply", title="Apply Me")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_apply", "status": "applied", "notes": "Done", "ref": "https://example.com/pr/1"})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["new_status"], "applied")
+            # State updated
+            state = json.loads((root / "state" / "project_router" / "inbox_status" / "pkt_apply.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "applied")
+            # Outbox ack packet generated
+            outbox_files = list((root / "router" / "outbox").glob("*--ack_pkt_apply.md"))
+            self.assertEqual(len(outbox_files), 1)
+            meta, body = cli.read_note(outbox_files[0])
+            self.assertEqual(meta["packet_type"], "ack")
+            self.assertEqual(meta["related_packet_id"], "pkt_apply")
+            self.assertEqual(meta["resolution"], "applied")
+            self.assertEqual(meta["implementation_ref"], "https://example.com/pr/1")
+
+    def test_inbox_ack_rejected(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_reject")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_reject", "status": "rejected", "notes": "Not relevant", "ref": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["new_status"], "rejected")
+            outbox_files = list((root / "router" / "outbox").glob("*--ack_pkt_reject.md"))
+            self.assertEqual(len(outbox_files), 1)
+
+    def test_inbox_ack_in_progress_no_outbox(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_wip")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_wip", "status": "in_progress", "notes": None, "ref": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["new_status"], "in_progress")
+            state = json.loads((root / "state" / "project_router" / "inbox_status" / "pkt_wip.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "in_progress")
+            # No outbox packet for intermediate state
+            outbox_files = list((root / "router" / "outbox").glob("*--ack_pkt_wip.md"))
+            self.assertEqual(len(outbox_files), 0)
+
+    def test_inbox_ack_blocks_invalid_transition(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_done")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_done", "status": "applied", "notes": None, "ref": None})())
+            # Try to re-ack terminal state
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit):
+                    cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_done", "status": "rejected", "notes": None, "ref": None})())
+
+    def test_status_includes_inbox(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_status_test")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.status_command(type("Args", (), {"source": None})())
+            result = parse_print_json(mock_print)
+            self.assertIn("inbox", result)
+            self.assertEqual(result["inbox"].get("open", 0), 1)
 
 
 if __name__ == "__main__":

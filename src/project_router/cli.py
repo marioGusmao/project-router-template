@@ -36,6 +36,8 @@ ENV_LOCAL_PATH = ROOT / ".env.local"
 ENV_PATH = ROOT / ".env"
 DISCOVERY_REPORT_PATH = DISCOVERIES_DIR / "pending_project_latest.json"
 LOCAL_ROUTER_DIR = ROOT / "router"
+LOCAL_ROUTER_ARCHIVE_DIR = LOCAL_ROUTER_DIR / "archive"
+INBOX_STATUS_DIR = PROJECT_ROUTER_STATE_DIR / "inbox_status"
 NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 VOICE_SOURCE = "voicenotes"
 PROJECT_ROUTER_SOURCE = "project_router"
@@ -234,6 +236,8 @@ def ensure_layout() -> None:
         DECISIONS_DIR,
         DISCOVERIES_DIR,
         PROJECT_ROUTER_STATE_DIR,
+        INBOX_STATUS_DIR,
+        LOCAL_ROUTER_ARCHIVE_DIR,
         STATE_DIR / "filesystem_ingest",
     ):
         path.mkdir(parents=True, exist_ok=True)
@@ -3154,6 +3158,91 @@ def parse_outbox_packet(path: Path, *, expected_project_key: str, strict: bool =
     return metadata, body, errors, normalized
 
 
+# --- Inbox consumption helpers ---
+
+CLASSIFICATION_TO_PACKET_TYPE = {
+    "maintainer-follow-up": "improvement_proposal",
+}
+
+
+def extract_packet_id(path: Path) -> str:
+    """Extract packet_id from filename like '20260316T185247Z--some_id.md'."""
+    stem = path.stem
+    parts = stem.split("--", 1)
+    if len(parts) < 2 or not parts[1]:
+        raise SystemExit(f"Cannot extract packet_id from filename '{path.name}'. Expected format: '{{TIMESTAMP}}--{{PACKET_ID}}.md'.")
+    return parts[1]
+
+
+def load_inbox_packet_state(packet_id: str) -> dict[str, Any] | None:
+    state_path = INBOX_STATUS_DIR / f"{packet_id}.json"
+    if not state_path.exists():
+        return None
+    return json.loads(state_path.read_text(encoding="utf-8"))
+
+
+def save_inbox_packet_state(packet_id: str, state: dict[str, Any]) -> None:
+    INBOX_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+    state_path = INBOX_STATUS_DIR / f"{packet_id}.json"
+    tmp = state_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(state_path)
+
+
+def list_inbox_packets() -> list[tuple[Path, dict[str, Any], str]]:
+    """List .md files in router/inbox/. Returns list of (path, metadata, body)."""
+    inbox = LOCAL_ROUTER_DIR / "inbox"
+    if not inbox.exists():
+        return []
+    results = []
+    for p in sorted(inbox.iterdir()):
+        if not p.is_file() or p.suffix != ".md" or p.name == ".gitkeep":
+            continue
+        metadata, body = read_note(p)
+        results.append((p, metadata, body))
+    return results
+
+
+def convert_brief_to_packet(metadata: dict[str, Any], body: str) -> tuple[dict[str, Any], str]:
+    """Convert compiled-brief metadata to protocol packet format."""
+    converted: dict[str, Any] = {}
+    converted["schema_version"] = "1"
+    packet_id = str(metadata.get("source_note_id") or "")
+    if packet_id:
+        converted["packet_id"] = packet_id
+    converted["created_at"] = str(metadata.get("created_at") or metadata.get("compiled_at") or iso_now())
+    converted["source_project"] = str(metadata.get("source_project") or metadata.get("project") or "unknown")
+    classification = str(metadata.get("classification") or "")
+    packet_type = CLASSIFICATION_TO_PACKET_TYPE.get(classification)
+    if packet_type is None:
+        if classification:
+            sys.stderr.write(f"Warning: unknown classification '{classification}', defaulting to 'insight'.\n")
+        packet_type = "insight"
+    converted["packet_type"] = packet_type
+    title = ""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            break
+    if not title:
+        title = str(metadata.get("brief_summary") or metadata.get("title") or "Untitled")
+        if len(title) > 120:
+            title = title[:117] + "..."
+    converted["title"] = title
+    contract_path = LOCAL_ROUTER_DIR / "router-contract.json"
+    language = "en"
+    if contract_path.exists():
+        try:
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            language = contract.get("default_language", "en")
+        except (json.JSONDecodeError, OSError):
+            pass
+    converted["language"] = language
+    converted["status"] = "open"
+    return converted, body
+
+
 def build_project_router_raw_payload(
     *,
     project_key: str,
@@ -3227,9 +3316,9 @@ DEFAULT_PACKET_TYPES = ["improvement_proposal", "question", "insight"]
 
 
 def write_scaffold_dirs(router_root: Path) -> list[Path]:
-    """Create inbox/, outbox/, conformance/. Return created dirs."""
+    """Create inbox/, outbox/, conformance/, archive/. Return created dirs."""
     created: list[Path] = []
-    for name in ("inbox", "outbox", "conformance"):
+    for name in ("inbox", "outbox", "conformance", "archive"):
         d = router_root / name
         d.mkdir(parents=True, exist_ok=True)
         created.append(d)
@@ -4279,10 +4368,226 @@ def status_command(args: argparse.Namespace) -> int:
         "dispatched": sum(count_markdown(path) for path in DISPATCHED_DIR.glob("*") if path.is_dir()),
         "processed": count_markdown(PROCESSED_DIR),
         "decision_packets": len(list(DECISIONS_DIR.glob("*.json"))),
+        "inbox": _count_inbox_states(),
         "legacy_backlog": legacy_backlog,
         "scan_state_path": str(OUTBOX_SCAN_STATE_PATH),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _count_inbox_states() -> dict[str, int]:
+    """Count inbox packets by status for the status command."""
+    counts: dict[str, int] = {}
+    if INBOX_STATUS_DIR.exists():
+        for state_path in INBOX_STATUS_DIR.glob("*.json"):
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                status = state.get("status", "unknown")
+                counts[status] = counts.get(status, 0) + 1
+            except (json.JSONDecodeError, OSError):
+                counts["error"] = counts.get("error", 0) + 1
+    inbox = LOCAL_ROUTER_DIR / "inbox"
+    unprocessed = 0
+    if inbox.exists():
+        for p in inbox.iterdir():
+            if p.is_file() and p.suffix == ".md" and p.name != ".gitkeep":
+                try:
+                    pid = extract_packet_id(p)
+                except SystemExit:
+                    continue
+                if load_inbox_packet_state(pid) is None:
+                    unprocessed += 1
+    if unprocessed:
+        counts["unprocessed"] = unprocessed
+    return counts
+
+
+def inbox_intake_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    dry_run = getattr(args, "dry_run", False)
+    packets = list_inbox_packets()
+    ingested = 0
+    skipped = 0
+    errors = 0
+
+    for path, metadata, body in packets:
+        try:
+            packet_id = extract_packet_id(path)
+        except SystemExit as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            errors += 1
+            continue
+
+        existing_state = load_inbox_packet_state(packet_id)
+        if existing_state is not None:
+            skipped += 1
+            continue
+
+        is_brief = (metadata.get("capture_kind") or metadata.get("inferred_keywords")) and not metadata.get("packet_id")
+        if is_brief:
+            converted_meta, body = convert_brief_to_packet(metadata, body)
+            if not dry_run:
+                sys.stderr.write(f"Converting compiled brief '{packet_id}' to protocol packet.\n")
+            metadata = converted_meta
+
+        if "packet_id" not in metadata:
+            metadata["packet_id"] = packet_id
+
+        required = ("schema_version", "packet_id", "created_at", "source_project", "packet_type", "title", "language", "status")
+        missing = [f for f in required if f not in metadata or metadata.get(f) in (None, "", [])]
+        if missing:
+            sys.stderr.write(f"Error: {path.name} missing required fields: {', '.join(missing)}\n")
+            if not dry_run:
+                save_inbox_packet_state(packet_id, {
+                    "packet_id": packet_id,
+                    "status": "error",
+                    "error_detail": f"Missing required fields: {', '.join(missing)}",
+                    "transitions": [{"status": "error", "timestamp": iso_now(), "notes": f"Missing: {', '.join(missing)}"}],
+                })
+            errors += 1
+            continue
+
+        if dry_run:
+            print(f"[dry-run] Would intake: {packet_id} ({metadata.get('packet_type', '?')})")
+            ingested += 1
+            continue
+
+        archive_dir = LOCAL_ROUTER_ARCHIVE_DIR / packet_id
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(path), str(archive_dir / "original.md"))
+
+        now = iso_now()
+        save_inbox_packet_state(packet_id, {
+            "packet_id": packet_id,
+            "status": "open",
+            "title": metadata.get("title", ""),
+            "packet_type": metadata.get("packet_type", ""),
+            "source_project": metadata.get("source_project", ""),
+            "created_at": metadata.get("created_at", ""),
+            "ingested_at": now,
+            "transitions": [{"status": "open", "timestamp": now, "notes": "Ingested via inbox-intake"}],
+        })
+
+        path.unlink()
+        ingested += 1
+
+    summary = {"ingested": ingested, "skipped": skipped, "errors": errors}
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+def inbox_status_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    show_all = getattr(args, "all", False)
+    packet_id_filter = getattr(args, "packet_id", None)
+    terminal_states = {"applied", "blocked", "rejected", "error"}
+
+    results: list[dict[str, Any]] = []
+    if INBOX_STATUS_DIR.exists():
+        for state_path in sorted(INBOX_STATUS_DIR.glob("*.json")):
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+
+            if packet_id_filter and state.get("packet_id") != packet_id_filter:
+                continue
+
+            if not show_all and state.get("status") in terminal_states:
+                continue
+
+            results.append(state)
+
+    inbox = LOCAL_ROUTER_DIR / "inbox"
+    unprocessed = 0
+    if inbox.exists():
+        for p in inbox.iterdir():
+            if p.is_file() and p.suffix == ".md" and p.name != ".gitkeep":
+                try:
+                    pid = extract_packet_id(p)
+                except SystemExit:
+                    continue
+                if load_inbox_packet_state(pid) is None:
+                    unprocessed += 1
+
+    output: dict[str, Any] = {"packets": results, "unprocessed_in_inbox": unprocessed}
+    if packet_id_filter and len(results) == 1:
+        output = results[0]
+    print(json.dumps(output, indent=2, ensure_ascii=False))
+    return 0
+
+
+def inbox_ack_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    packet_id = require_valid_note_id(args.packet_id, field="packet-id")
+    new_status = args.status
+    notes = getattr(args, "notes", None) or ""
+    ref = getattr(args, "ref", None) or ""
+
+    state = load_inbox_packet_state(packet_id)
+    if state is None:
+        raise SystemExit(f"No inbox state found for packet '{packet_id}'. Run inbox-intake first.")
+
+    current_status = state.get("status", "")
+    terminal_states = {"applied", "blocked", "rejected", "error"}
+
+    if current_status in terminal_states:
+        raise SystemExit(f"Packet '{packet_id}' is already in terminal state '{current_status}'. Cannot re-ack.")
+
+    now = iso_now()
+    state["status"] = new_status
+    transitions = state.get("transitions", [])
+    transition: dict[str, Any] = {"status": new_status, "timestamp": now, "notes": notes}
+    if ref:
+        transition["ref"] = ref
+    transitions.append(transition)
+    state["transitions"] = transitions
+
+    save_inbox_packet_state(packet_id, state)
+
+    if new_status in {"applied", "blocked", "rejected"}:
+        contract_path = LOCAL_ROUTER_DIR / "router-contract.json"
+        source_project = "project_router_template"
+        language = "en"
+        if contract_path.exists():
+            try:
+                contract = json.loads(contract_path.read_text(encoding="utf-8"))
+                source_project = contract.get("project_key", source_project)
+                language = contract.get("default_language", language)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        ack_packet_id = f"ack_{packet_id}"
+        ack_meta: dict[str, Any] = {
+            "schema_version": "1",
+            "packet_id": ack_packet_id,
+            "created_at": now,
+            "source_project": source_project,
+            "packet_type": "ack",
+            "title": f"Acknowledgement: {state.get('title', packet_id)}",
+            "language": language,
+            "status": new_status,
+            "related_packet_id": packet_id,
+            "resolution": new_status,
+        }
+        if ref:
+            ack_meta["implementation_ref"] = ref
+        if notes:
+            ack_meta["notes"] = notes
+
+        ack_body = f"# Acknowledgement: {state.get('title', packet_id)}\n\nPacket `{packet_id}` has been marked as **{new_status}**."
+        if notes:
+            ack_body += f"\n\n## Notes\n\n{notes}"
+        if ref:
+            ack_body += f"\n\n## Reference\n\n{ref}"
+
+        ts_prefix = normalize_timestamp(now)
+        outbox_path = LOCAL_ROUTER_DIR / "outbox" / f"{ts_prefix}--{ack_packet_id}.md"
+        write_note(outbox_path, ack_meta, ack_body)
+        sys.stderr.write(f"Ack packet written to {outbox_path.relative_to(ROOT)}\n")
+
+    print(json.dumps({"packet_id": packet_id, "new_status": new_status, "timestamp": now}, indent=2))
     return 0
 
 
@@ -4609,6 +4914,22 @@ def build_parser() -> argparse.ArgumentParser:
     adopt.add_argument("--dry-run", action="store_true", help="Alias for preview mode.")
     adopt.add_argument("--confirm", action="store_true", help="Required to apply changes.")
     adopt.set_defaults(func=adopt_router_root_command)
+
+    inbox_intake = subparsers.add_parser("inbox-intake", help="Validate and archive incoming inbox packets.")
+    inbox_intake.add_argument("--dry-run", action="store_true", help="Preview without mutation.")
+    inbox_intake.set_defaults(func=inbox_intake_command)
+
+    inbox_status_parser = subparsers.add_parser("inbox-status", help="List inbox packet states.")
+    inbox_status_parser.add_argument("--all", action="store_true", help="Include terminal states.")
+    inbox_status_parser.add_argument("--packet-id", help="Show single packet detail.")
+    inbox_status_parser.set_defaults(func=inbox_status_command)
+
+    inbox_ack = subparsers.add_parser("inbox-ack", help="Acknowledge an inbox packet.")
+    inbox_ack.add_argument("--packet-id", required=True, dest="packet_id", help="Packet ID to acknowledge.")
+    inbox_ack.add_argument("--status", required=True, choices=("in_progress", "applied", "blocked", "rejected"), help="New status.")
+    inbox_ack.add_argument("--notes", help="Optional notes for the acknowledgement.")
+    inbox_ack.add_argument("--ref", help="External reference (e.g., PR URL).")
+    inbox_ack.set_defaults(func=inbox_ack_command)
 
     return parser
 

@@ -38,7 +38,9 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
    - `python3 scripts/project_router.py compile --source filesystem`
 6. Run `python3 scripts/project_router.py review`.
 7. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`.
-8. Stop there and ask the user what to approve, reject, or refine.
+8. Run `python3 scripts/project_router.py inbox-intake` to ingest any packets in `router/inbox/`.
+9. Run `python3 scripts/project_router.py inbox-status` to check for open inbox packets.
+10. Stop there and ask the user what to approve, reject, or refine.
 
 ## Downstream Setup
 
