@@ -1707,6 +1707,8 @@ PRESERVED_NORMALIZED_FIELDS = {
     "continuation_of",
     "related_note_ids",
     "audio_local_path",
+    "extraction_status",
+    "extraction_method",
 }
 
 
@@ -1725,6 +1727,10 @@ def merge_normalized_metadata(existing: dict[str, Any], fresh: dict[str, Any]) -
     if "classification_basis" in existing and existing.get("classification_basis"):
         # keep prior manual/source hints if they exceed the current payload
         merged["classification_basis"] = sorted(set(merged.get("classification_basis", [])) | set(existing.get("classification_basis", [])))
+    if existing.get("extraction_status") == "complete":
+        for ek in ("ai_extraction_hint", "canonical_blob_ref"):
+            if ek in existing:
+                merged[ek] = existing[ek]
     return ensure_note_metadata_defaults(merged)
 
 

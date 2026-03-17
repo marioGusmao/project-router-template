@@ -3864,6 +3864,47 @@ class FilesystemSourceTests(unittest.TestCase):
             stack.close()
             td.cleanup()
 
+    def test_renormalize_preserves_completed_extraction(self):
+        """Re-normalization must keep extraction_status, extraction_method, ai_extraction_hint, and canonical_blob_ref when extraction_status is complete."""
+        td, root, stack = self._setup()
+        try:
+            inbox_path = root / "fs_inbox"
+            inbox_path.mkdir(parents=True, exist_ok=True)
+            local_reg = {"projects": {}, "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox_path)}}}}
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+
+            # Create a PNG file to ingest (needs_extraction)
+            (inbox_path / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["ingest", "--integration", "filesystem"])
+            # Normalize the filesystem note
+            buf2 = io.StringIO()
+            with redirect_stdout(buf2):
+                cli.main(["normalize", "--source", "filesystem"])
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, body = cli.read_note(normalized[0])
+            self.assertEqual(metadata["extraction_status"], "needs_extraction")
+
+            # Simulate completed extraction
+            metadata["extraction_status"] = "complete"
+            metadata["extraction_method"] = "ai_assisted"
+            cli.write_note(normalized[0], metadata, body)
+
+            # Re-normalize: fields must survive
+            buf3 = io.StringIO()
+            with redirect_stdout(buf3):
+                cli.main(["normalize", "--source", "filesystem"])
+            metadata2, _ = cli.read_note(normalized[0])
+            self.assertEqual(metadata2["extraction_status"], "complete")
+            self.assertEqual(metadata2["extraction_method"], "ai_assisted")
+        finally:
+            stack.close()
+            td.cleanup()
+
     def test_dedupe_asserts_same_content_as_field(self):
         td, root, stack = self._setup()
         try:
