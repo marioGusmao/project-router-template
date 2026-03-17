@@ -4172,5 +4172,131 @@ class InboxConsumptionTests(unittest.TestCase):
             self.assertEqual(result["inbox"].get("open", 0), 1)
 
 
+class TriagePreservationTests(unittest.TestCase):
+    """Regression tests: triage must not reset manual review decisions."""
+
+    def test_triage_preserves_rejected_note(self) -> None:
+        """Reject is unconditionally durable across triage reruns."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_rej1", status="needs_review", project=None,
+                                review_status="reject", tags=["renovation"],
+                                body_text="Renovation contractor budget.\n")
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rej1.md")
+            self.assertEqual(metadata["review_status"], "reject")
+            self.assertTrue(metadata["requires_user_confirmation"])
+
+    def test_triage_preserves_approved_same_route(self) -> None:
+        """Approved is preserved when triage re-routes to the same project."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_app1", status="classified", project="home_renovation",
+                                review_status="approved", tags=["renovation"],
+                                body_text="Renovation contractor budget.\n")
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_app1.md")
+            self.assertEqual(metadata["review_status"], "approved")
+            self.assertEqual(metadata["status"], "classified")
+            self.assertEqual(metadata["project"], "home_renovation")
+
+    def test_triage_resets_pending_review_status(self) -> None:
+        """Pending review_status is not over-preserved."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_pend1", status="classified", project="home_renovation",
+                                review_status="pending", tags=["renovation"])
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_pend1.md")
+            self.assertEqual(metadata["review_status"], "pending")
+
+    def test_triage_invalidates_approved_when_route_changes(self) -> None:
+        """Approved is invalidated when triage routes to a different destination."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_app2", status="classified", project="home_renovation",
+                                review_status="approved", tags=[],
+                                body_text="Unrelated content.\n")
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_app2.md")
+            self.assertEqual(metadata["review_status"], "pending")
+
+    def test_triage_preserves_user_decided_ambiguous(self) -> None:
+        """Ambiguous review_status preserved when route is stable (ambiguous → ambiguous)."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            # Two projects with equal keyword overlap → ambiguous route
+            shared = {
+                "defaults": {"min_keyword_hits": 2},
+                "projects": {
+                    "home_renovation": {
+                        "display_name": "Home Renovation",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["renovation", "contractor", "budget"],
+                    },
+                    "office_renovation": {
+                        "display_name": "Office Renovation",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["renovation", "contractor", "office"],
+                    },
+                },
+            }
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(
+                json.dumps({"projects": {
+                    "home_renovation": {"router_root_path": str(root / "repos" / "home-renovation" / "project-router")},
+                    "office_renovation": {"router_root_path": str(root / "repos" / "office-renovation" / "project-router")},
+                }}, indent=2),
+                encoding="utf-8",
+            )
+            # Body triggers equal hits for both projects (renovation + contractor = 2 each)
+            _write_triaged_note(root, "vn_amb1", status="ambiguous", project=None,
+                                review_status="ambiguous", tags=[],
+                                body_text="Renovation contractor discussion.\n")
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_amb1.md")
+            self.assertEqual(metadata["review_status"], "ambiguous")
+
+    def test_decide_reject_then_triage_round_trip(self) -> None:
+        """Full round-trip: decide reject → triage → reject survives."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_rt1", status="classified", project="home_renovation",
+                                review_status="pending", tags=["renovation"],
+                                body_text="Renovation contractor budget.\n")
+            with patch_cli_paths(root):
+                cli.decide_command(type("Args", (), {
+                    "note_id": "vn_rt1", "decision": "reject", "final_project": None,
+                    "final_type": None, "user_keywords": None, "related_note_ids": None,
+                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                })())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rt1.md")
+            self.assertEqual(metadata["review_status"], "reject")
+            # Now re-triage
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rt1.md")
+            self.assertEqual(metadata["review_status"], "reject")
+            self.assertTrue(metadata["requires_user_confirmation"])
+
+
 if __name__ == "__main__":
     unittest.main()

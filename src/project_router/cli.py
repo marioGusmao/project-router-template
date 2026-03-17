@@ -2314,10 +2314,26 @@ def triage_command(args: argparse.Namespace) -> int:
         metadata["destination_reason"] = reason
 
         preserve_manual_review = False
-        if route in ("ambiguous", "needs_review", "pending_project"):
-            preserve_manual_review = previous_status == route and previous_review_status not in (None, "pending")
+        if previous_review_status == "reject":
+            preserve_manual_review = True
+        elif previous_review_status == "approved":
+            preserve_manual_review = (
+                route not in ("ambiguous", "needs_review", "pending_project")
+                and previous_status == "classified"
+                and previous_project == route
+            )
         else:
-            preserve_manual_review = previous_status == "classified" and previous_project == route and previous_review_status not in (None, "pending")
+            if route in ("ambiguous", "needs_review", "pending_project"):
+                preserve_manual_review = (
+                    previous_status == route
+                    and previous_review_status not in (None, "pending")
+                )
+            else:
+                preserve_manual_review = (
+                    previous_status == "classified"
+                    and previous_project == route
+                    and previous_review_status not in (None, "pending")
+                )
 
         if preserve_manual_review:
             metadata["review_status"] = previous_review_status
