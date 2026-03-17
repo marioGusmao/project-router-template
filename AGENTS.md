@@ -21,7 +21,7 @@
 - Never auto-dispatch a note, even when the routing confidence is high.
 - Always ask the user for explicit confirmation before writing any note into a downstream project inbox.
 - Treat confirmation as note-specific by `source_note_id`. A batch dispatch must name the exact approved `source_note_id` values.
-- Send uncertain notes to the source-aware review queues under `data/review/voicenotes/` or `data/review/project_router/` when no current project/rule exists yet.
+- Send uncertain notes to the source-aware review queues under `data/review/voicenotes/`, `data/review/project_router/`, or `data/review/filesystem/` when no current project/rule exists yet.
 - Treat downstream project writes as derived exports. The canonical note always remains in this repository.
 - Never dispatch a normalized note directly. Compile a project-ready package first and dispatch from that compiled artifact.
 - Compiled packages must be fresh before dispatch.
