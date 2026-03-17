@@ -217,7 +217,7 @@ These are critical — never violate:
 ## Workflow Preferences
 
 - Prefer `python3 scripts/project_router_client.py` for direct VoiceNotes API access — do not use ad-hoc `curl`
-- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `router/` surface
+- Prefer `python3 scripts/project_router.py doctor --project <key>` before trusting a downstream `router/` surface
 - Prefer `python3 scripts/project_router.py migrate-source-layout --dry-run` before changing or auditing old local copies that still use the flat pre-source-aware layout
 - Validate with focused commands first, then broader checks if the repository grows more tooling later
 - Prefer the local skill `project-router-session-opener` at the beginning of a session

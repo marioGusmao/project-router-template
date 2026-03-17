@@ -16,7 +16,7 @@
     "python3 scripts/project_router.py discover",
     "python3 scripts/project_router.py status",
     "python3 scripts/project_router.py scan-outboxes",
-    "python3 scripts/project_router.py doctor",
+    "python3 scripts/project_router.py doctor --project",
     "python3 scripts/check_knowledge_structure.py",
     "python3 scripts/check_managed_blocks.py",
     "python3 scripts/check_customization_contracts.py",

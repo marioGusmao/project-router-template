@@ -15,7 +15,7 @@ The goal is not byte-for-byte identity. The goal is behavioral parity:
 - same dispatch approval contract
 - same repository entrypoints such as `python3 scripts/project_router_client.py`
 - same read-only downstream scan command `python3 scripts/project_router.py scan-outboxes`
-- same contract validation command `python3 scripts/project_router.py doctor`
+- same contract validation command `python3 scripts/project_router.py doctor --project <key>`
 - same promotion path for derived private repositories via `python3 scripts/bootstrap_private_repo.py`
 
 ## Knowledge Foundation
