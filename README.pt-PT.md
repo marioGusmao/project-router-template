@@ -160,6 +160,17 @@ O template inclui projetos de exemplo neutros, como `home_renovation` e `weekly_
 
 A classificação pode correr apenas com o registry partilhado. O dispatch real exige o overlay local.
 
+## Contrato Project-Router Local
+
+Cada repositório participante deve expor:
+
+- `router/router-contract.json`
+- `router/inbox/`
+- `router/outbox/`
+- `router/conformance/`
+
+O router central lê as pastas downstream `outbox/` em modo read-only via `scan-outboxes`. Nunca move nem reescreve ficheiros em repositórios downstream durante scan ou review.
+
 ## Workflow
 
 ```bash
