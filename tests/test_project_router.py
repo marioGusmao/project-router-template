@@ -2010,6 +2010,21 @@ class ReadNoteTests(unittest.TestCase):
             self.assertIn("---", body)
             self.assertIn("unclosed frontmatter", captured.getvalue())
 
+    def test_read_note_skips_lines_without_colon(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            note_path = root / "badline.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            note_path.write_text("---\ntitle: Good\n- list item without colon\nstatus: draft\n---\nBody here.\n", encoding="utf-8")
+            import io
+            captured = io.StringIO()
+            with mock.patch("sys.stderr", captured):
+                metadata, body = cli.read_note(note_path)
+            self.assertEqual(metadata.get("title"), "Good")
+            self.assertEqual(metadata.get("status"), "draft")
+            self.assertNotIn("- list item without colon", metadata)
+            self.assertIn("unparseable frontmatter line", captured.getvalue())
+
     def test_read_note_no_frontmatter(self) -> None:
         with temporary_repo_dir() as tmp:
             root = Path(tmp)

@@ -621,6 +621,9 @@ def read_note(path: Path) -> tuple[dict[str, Any], str]:
             break
         if not line.strip():
             continue
+        if ":" not in line:
+            sys.stderr.write(f"Warning: {path} has unparseable frontmatter line: {line!r}\n")
+            continue
         key, _, value = line.partition(":")
         metadata[key.strip()] = parse_scalar(value)
 
