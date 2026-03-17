@@ -2,7 +2,8 @@
   "required_skills": [
     "project-router-session-opener",
     "project-router-direct-sync",
-    "project-router-triage-review"
+    "project-router-triage-review",
+    "project-router-inbox-consumer"
   ],
   "required_commands": [
     "python3 scripts/bootstrap_private_repo.py",
@@ -30,7 +31,10 @@
     "python3 scripts/check_adr_related_links.py",
     "python3 scripts/project_router.py migrate-source-layout --dry-run",
     "python3 scripts/project_router.py ingest --integration filesystem",
-    "python3 scripts/project_router.py extract --source filesystem"
+    "python3 scripts/project_router.py extract --source filesystem",
+    "python3 scripts/project_router.py inbox-intake",
+    "python3 scripts/project_router.py inbox-status",
+    "python3 scripts/project_router.py inbox-ack"
   ],
   "required_phrases": [
     "Never auto-dispatch",
@@ -49,19 +53,22 @@
       ".agents/README.md",
       ".agents/skills/project-router-session-opener/SKILL.md",
       ".agents/skills/project-router-direct-sync/SKILL.md",
-      ".agents/skills/project-router-triage-review/SKILL.md"
+      ".agents/skills/project-router-triage-review/SKILL.md",
+      ".agents/skills/project-router-inbox-consumer/SKILL.md"
     ],
     "codex": [
       "AGENTS.md",
       ".codex/skills/project-router-session-opener/SKILL.md",
       ".codex/skills/project-router-direct-sync/SKILL.md",
-      ".codex/skills/project-router-triage-review/SKILL.md"
+      ".codex/skills/project-router-triage-review/SKILL.md",
+      ".codex/skills/project-router-inbox-consumer/SKILL.md"
     ],
     "claude": [
       "CLAUDE.md",
       ".claude/skills/project-router-session-opener/SKILL.md",
       ".claude/skills/project-router-direct-sync/SKILL.md",
-      ".claude/skills/project-router-triage-review/SKILL.md"
+      ".claude/skills/project-router-triage-review/SKILL.md",
+      ".claude/skills/project-router-inbox-consumer/SKILL.md"
     ]
   }
 }

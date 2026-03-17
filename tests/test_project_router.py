@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -793,23 +794,6 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("005-safety-invariants.md", result.stderr)
-
-    def test_strict_validator_requires_repo_native_plan_file(self) -> None:
-        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
-            root = Path(tmp)
-            (root / "scripts").mkdir()
-            (root / "repo-governance").mkdir()
-            shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
-            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
-            shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
-            (root / "Knowledge" / "runbooks" / "plans" / "router-root-migration-and-scaffold.plan.md").unlink()
-
-            result = subprocess.run(
-                ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
-                capture_output=True, text=True, cwd=str(root),
-            )
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("Knowledge/runbooks/plans/router-root-migration-and-scaffold.plan.md", result.stderr)
 
     def test_strict_validator_fails_when_template_scaffold_source_missing(self) -> None:
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
@@ -1808,6 +1792,144 @@ class DispatchCommandTests(unittest.TestCase):
                 # Decision packet should NOT have dispatch block
                 packet = cli.load_decision_packet_for_metadata(metadata)
                 self.assertNotIn("dispatch", packet)
+
+    def test_dispatch_no_confirm_counts_skipped(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_dispatch_ready_note(root)
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": False, "note_ids": None, "source": "voicenotes"})()
+                    )
+            output = parse_print_json(mock_print)
+            self.assertGreaterEqual(output["skipped"], 1)
+            self.assertTrue(output["confirmation_required"])
+            for candidate in output["candidates"]:
+                self.assertEqual(candidate["skip_reason"], "user confirmation required")
+
+    def test_dispatch_rejects_nonexistent_note_id(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                with self.assertRaisesRegex(SystemExit, "ghost_123"):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["ghost_123"], "source": "voicenotes"})()
+                    )
+
+    def test_dispatch_rejects_unclassified_note(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_unclass.md"
+            compiled_path = root / "data" / "compiled" / "voicenotes" / "20260311T160000Z--vn_unclass.md"
+            note_metadata = {
+                "source": "voicenotes",
+                "source_note_id": "vn_unclass",
+                "title": "Unclassified note",
+                "created_at": "2026-03-11T16:00:00Z",
+                "status": "pending_review",
+                "project": "home_renovation",
+                "review_status": "approved",
+                "canonical_path": str(note_path.relative_to(root)),
+                "raw_payload_path": str((root / "data" / "raw" / "voicenotes" / "20260311T160000Z--vn_unclass.json").relative_to(root)),
+                "note_type": "project-idea",
+            }
+            cli.write_note(note_path, note_metadata, "# Unclassified\n\nBody.\n")
+            compiled_path.parent.mkdir(parents=True, exist_ok=True)
+            compiled_metadata = {
+                "source": "voicenotes",
+                "source_note_id": "vn_unclass",
+                "title": "Unclassified note",
+                "created_at": "2026-03-11T16:00:00Z",
+                "compiled_at": "2026-03-11T16:05:00Z",
+                "compiled_from_signature": cli.canonical_compile_signature(
+                    cli.read_note(note_path)[0],
+                    cli.read_note(note_path)[1],
+                ),
+                "brief_summary": "Summary",
+            }
+            cli.write_note(compiled_path, compiled_metadata, "# Unclassified\n\nCompiled\n")
+            with patch_cli_paths(root):
+                with self.assertRaisesRegex(SystemExit, "expected 'classified'"):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_unclass"], "source": "voicenotes"})()
+                    )
+
+    def test_dispatch_rejects_unapproved_note(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_unappr.md"
+            compiled_path = root / "data" / "compiled" / "voicenotes" / "20260311T160000Z--vn_unappr.md"
+            note_metadata = {
+                "source": "voicenotes",
+                "source_note_id": "vn_unappr",
+                "title": "Unapproved note",
+                "created_at": "2026-03-11T16:00:00Z",
+                "status": "classified",
+                "project": "home_renovation",
+                "review_status": "pending",
+                "canonical_path": str(note_path.relative_to(root)),
+                "raw_payload_path": str((root / "data" / "raw" / "voicenotes" / "20260311T160000Z--vn_unappr.json").relative_to(root)),
+                "note_type": "project-idea",
+            }
+            cli.write_note(note_path, note_metadata, "# Unapproved\n\nBody.\n")
+            compiled_path.parent.mkdir(parents=True, exist_ok=True)
+            compiled_metadata = {
+                "source": "voicenotes",
+                "source_note_id": "vn_unappr",
+                "title": "Unapproved note",
+                "created_at": "2026-03-11T16:00:00Z",
+                "compiled_at": "2026-03-11T16:05:00Z",
+                "compiled_from_signature": cli.canonical_compile_signature(
+                    cli.read_note(note_path)[0],
+                    cli.read_note(note_path)[1],
+                ),
+                "brief_summary": "Summary",
+            }
+            cli.write_note(compiled_path, compiled_metadata, "# Unapproved\n\nCompiled\n")
+            with patch_cli_paths(root):
+                with self.assertRaisesRegex(SystemExit, "expected 'approved'"):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_unappr"], "source": "voicenotes"})()
+                    )
+
+    def test_dispatch_rejects_partial_invalid_batch(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, _ = _write_dispatch_ready_note(root, "vn_valid")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_valid", "ghost_456"], "source": "voicenotes"})()
+                    )
+            # Valid note must NOT have been dispatched
+            metadata, _ = cli.read_note(note_path)
+            self.assertEqual(metadata["status"], "classified")
+
+    def test_dispatch_timestamp_is_iso(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, _ = _write_dispatch_ready_note(root)
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print"):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_126"], "source": "voicenotes"})()
+                    )
+            metadata, _ = cli.read_note(note_path)
+            self.assertIn("dispatched_at", metadata)
+            self.assertRegex(metadata["dispatched_at"], r"^\d{4}-\d{2}-\d{2}T")
 
 
 class ReadNoteTests(unittest.TestCase):
@@ -4170,6 +4292,17 @@ class InboxConsumptionTests(unittest.TestCase):
             result = parse_print_json(mock_print)
             self.assertIn("inbox", result)
             self.assertEqual(result["inbox"].get("open", 0), 1)
+
+    def test_inbox_ack_rejects_nonexistent_packet(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            with patch_cli_paths(root):
+                with self.assertRaisesRegex(SystemExit, "ghost_pkt"):
+                    cli.inbox_ack_command(
+                        type("Args", (), {"packet_id": "ghost_pkt", "status": "applied", "ref": "", "notes": ""})()
+                    )
 
 
 class TriagePreservationTests(unittest.TestCase):

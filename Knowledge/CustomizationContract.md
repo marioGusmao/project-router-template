@@ -96,6 +96,7 @@ For the architectural rationale, see [ADR-006](ADR/006-template-upgrade-process.
 | `projects/registry.local.json` | local_only | never synced | Machine-local registry overlay — never committed |
 | `data/**` | local_only | never synced | Runtime pipeline data — never committed |
 | `state/**` | local_only | never synced | Runtime pipeline state — never committed |
+| `Knowledge/runbooks/**` | local_only | never synced | Plan files — operational artifacts, gitignored |
 
 ## Key Principles
 
@@ -111,7 +112,7 @@ For the architectural rationale, see [ADR-006](ADR/006-template-upgrade-process.
 | Script | What it checks |
 |--------|----------------|
 | `check_managed_blocks.py` | All managed block markers exist in matched begin/end pairs |
-| `check_customization_contracts.py` | Registry ↔ manifest consistency, overlay safety, conflict marker checks, `*.rej` checks, and release-note policy |
+| `check_customization_contracts.py` | Registry ↔ manifest consistency, overlay safety, conflict marker checks, `*.rej` checks, release-note policy, and tracked-file coverage gate |
 | `check_agent_surface_parity.py` | Required template skills present in all three surfaces |
 | `check_repo_ownership.py` | All files classified, no sync violations |
 | `check_sync_manifest_alignment.py` | Workflow sync paths are covered by both the manifest and the contract registry |

@@ -27,6 +27,7 @@ For a live project briefing in the terminal, run `python3 scripts/project_router
 | Glossary | `Knowledge/Glossary.md` | ~25 terms across 6 categories |
 | Pipeline map | `Knowledge/PipelineMap.md` | Concrete note trace through all stages |
 | Scripts reference | `Knowledge/ScriptsReference.md` | Scripts grouped by purpose with prerequisites |
+| Inbox consumption | `inbox-intake`, `inbox-status`, `inbox-ack` subcommands | Consume incoming packets from `router/inbox/`, review, and acknowledge |
 | Roadmap | `Knowledge/Roadmap.md` | Template milestones |
 | Template promotion | `scripts/bootstrap_private_repo.py` | Promotes a derived copy into private operational repo |
 | Local config bootstrap | `scripts/bootstrap_local.py` | Creates `.env.local` and `registry.local.json` |

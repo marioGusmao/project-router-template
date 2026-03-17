@@ -166,7 +166,10 @@ At the beginning of a session:
    - `python3 scripts/project_router.py compile --source filesystem`
 6. Run `python3 scripts/project_router.py review`
 7. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`
-8. Stop there and ask the user what to approve, reject, or refine
+8. If router inbox packets exist, run:
+   - `python3 scripts/project_router.py inbox-intake`
+   - `python3 scripts/project_router.py inbox-status`
+9. Stop there and ask the user what to approve, reject, or refine
 
 If `.env.local` is missing, skip `sync` and explain that the local VoiceNotes token is not configured on this machine.
 

@@ -61,6 +61,7 @@
 - Prefer the local skill `project-router-direct-sync` for direct access to the VoiceNotes service.
 - Prefer the local skill `project-router-session-opener` at the beginning of a session.
 - Prefer the local skill `project-router-triage-review` for routing analysis and user-facing review.
+- Prefer the local skill `project-router-inbox-consumer` for consuming incoming packets from the router inbox.
 - Prefer `python3 scripts/bootstrap_private_repo.py` when promoting a fresh template copy into a private operational repository.
 - Prefer `python3 scripts/bootstrap_local.py` when setting up a new machine or validating starter hygiene.
 - Prefer the repository entrypoint `python3 scripts/project_router_client.py ...` for direct VoiceNotes API access in project-facing docs and workflows.
@@ -109,6 +110,9 @@
 - `python3 scripts/project_router.py decide --note-id vn_123 --decision approve`
 - `python3 scripts/project_router.py dispatch --dry-run`
 - `python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123`
+- `python3 scripts/project_router.py inbox-intake`
+- `python3 scripts/project_router.py inbox-status`
+- `python3 scripts/project_router.py inbox-ack --packet-id <id> --status <applied|blocked|rejected|in_progress>`
 - `python3 scripts/check_agent_surface_parity.py`
 - `python3 scripts/check_repo_ownership.py`
 - `python3 scripts/check_sync_manifest_alignment.py`

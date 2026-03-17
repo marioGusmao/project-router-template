@@ -42,6 +42,11 @@
       "sync_policy": "template_sync"
     },
     {
+      "pattern": "Knowledge/runbooks/**",
+      "ownership": "local_only",
+      "sync_policy": "blocked"
+    },
+    {
       "pattern": "Knowledge/*.md",
       "ownership": "template_owned",
       "sync_policy": "template_sync"

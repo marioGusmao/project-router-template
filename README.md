@@ -57,10 +57,13 @@ data/
 Knowledge/
   ADR/
   Templates/
+  local/
+  local/runbooks/plans/
 router/
   inbox/
   outbox/
   conformance/
+  archive/
 projects/
   registry.shared.json
   registry.example.json

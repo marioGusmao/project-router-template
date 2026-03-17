@@ -2458,6 +2458,32 @@ def dispatch_command(args: argparse.Namespace) -> int:
     if args.confirm_user_approval and not approved_note_ids:
         raise SystemExit("Real dispatch requires at least one --note-id after the user confirms those exact notes.")
 
+    # Pre-validate all --note-id values before entering the dispatch loop
+    if approved_note_ids:
+        lookup: dict[str, tuple[Path, dict]] = {}
+        for npath in iter_normalized_files_by_source(sources):
+            nmeta, _ = read_note(npath)
+            snid = nmeta.get("source_note_id")
+            if snid and snid not in lookup:
+                lookup[snid] = (npath, nmeta)
+        errors = []
+        for nid in sorted(approved_note_ids):
+            if nid not in lookup:
+                errors.append(f"--note-id '{nid}': no matching normalized note found (source filter: {sorted(sources)})")
+                continue
+            _, nmeta = lookup[nid]
+            nstatus = nmeta.get("status", "")
+            # Already-dispatched notes are silently skipped by the main loop — not an error
+            if nstatus == "dispatched":
+                continue
+            if nstatus != "classified":
+                errors.append(f"--note-id '{nid}': status is '{nstatus}', expected 'classified'")
+            nrstatus = nmeta.get("review_status", "")
+            if nrstatus != "approved":
+                errors.append(f"--note-id '{nid}': review_status is '{nrstatus}', expected 'approved'")
+        if errors:
+            raise SystemExit("\n".join(errors))
+
     for note_path in iter_normalized_files_by_source(sources):
         metadata, body = read_note(note_path)
         project_key = metadata.get("project")
@@ -2511,6 +2537,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
 
         if not args.confirm_user_approval:
             candidates[-1]["skip_reason"] = "user confirmation required"
+            skipped += 1
             continue
         if source_note_id not in approved_note_ids:
             candidates[-1]["skip_reason"] = "source_note_id not included in approved allowlist"
@@ -2549,7 +2576,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
             continue
 
         metadata["status"] = "dispatched"
-        metadata["dispatched_at"] = "manual-run"
+        metadata["dispatched_at"] = iso_now()
         dispatched_paths = [str(destination)]
         if candidates[-1].get("blob_dispatched"):
             dispatched_paths.append(candidates[-1]["blob_dispatched"])
