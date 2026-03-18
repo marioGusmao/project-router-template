@@ -4615,8 +4615,6 @@ def inbox_ack_command(args: argparse.Namespace) -> int:
     transitions.append(transition)
     state["transitions"] = transitions
 
-    save_inbox_packet_state(packet_id, state)
-
     if new_status in {"applied", "blocked", "rejected"}:
         contract_path = LOCAL_ROUTER_DIR / "router-contract.json"
         source_project = "project_router_template"
@@ -4662,6 +4660,10 @@ def inbox_ack_command(args: argparse.Namespace) -> int:
         outbox_path = LOCAL_ROUTER_DIR / "outbox" / f"{ts_prefix}--{ack_packet_id}.md"
         write_note(outbox_path, ack_meta, ack_body)
         sys.stderr.write(f"Ack packet written to {outbox_path.relative_to(ROOT)}\n")
+
+    # Save state AFTER ack write succeeds — if the ack write fails, the
+    # packet stays non-terminal so the user can retry.
+    save_inbox_packet_state(packet_id, state)
 
     print(json.dumps({"packet_id": packet_id, "new_status": new_status, "timestamp": now}, indent=2))
     return 0
