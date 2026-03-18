@@ -8,7 +8,7 @@ For the ownership model and surface table, see [CustomizationContract.md](Custom
 
 Template updates arrive as **draft pull requests** on the `chore/template-sync` branch. The workflow runs weekly (Monday 9am UTC) or on manual dispatch.
 
-The PR title includes the upstream version tag: `chore(template-sync): update template to vX.Y.Z`.
+The PR title includes the upstream release tag, for example: `chore(template-sync): update template to project-router-template-v0.6.0`.
 
 ## What the Sync Does
 

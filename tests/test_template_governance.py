@@ -102,12 +102,30 @@ class TemplateGovernanceTests(unittest.TestCase):
         self.assertIn("read-only by default", codex_direct_sync)
         self.assertIn("project-router` inbox/outbox", codex_direct_sync)
 
+    def test_session_openers_require_template_update_check_before_private_repo_work(self) -> None:
+        agent_session = (REPO_ROOT / ".agents" / "skills" / "project-router-session-opener" / "SKILL.md").read_text(encoding="utf-8")
+        claude_session = (REPO_ROOT / ".claude" / "skills" / "project-router-session-opener" / "SKILL.md").read_text(encoding="utf-8")
+        codex_session = (REPO_ROOT / ".codex" / "skills" / "project-router-session-opener" / "SKILL.md").read_text(encoding="utf-8")
+        session_flow = (REPO_ROOT / ".codex" / "skills" / "project-router-session-opener" / "references" / "session-flow.md").read_text(encoding="utf-8")
+        codex_scaffold = (REPO_ROOT / "Knowledge" / "Templates" / "local" / "AI" / "codex.md").read_text(encoding="utf-8")
+        claude_scaffold = (REPO_ROOT / "Knowledge" / "Templates" / "local" / "AI" / "claude.md").read_text(encoding="utf-8")
+
+        for surface in (agent_session, claude_session, codex_session, session_flow, codex_scaffold, claude_scaffold):
+            self.assertIn("template-update-status --check-remote", surface)
+            self.assertIn("Do not auto-run the sync workflow", surface)
+
     def test_workflow_uses_runner_temp_for_diff_only_output(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "template-upstream-sync.yml").read_text(encoding="utf-8")
         self.assertIn("$RUNNER_TEMP/template-sync-diffs.diff", workflow)
         self.assertNotIn(": > sync-diffs.txt", workflow)
         self.assertIn("render_template_sync_pr_body.py", workflow)
         self.assertIn("--body-file", workflow)
+
+    def test_workflow_normalizes_prefixed_release_tags(self) -> None:
+        workflow = (REPO_ROOT / ".github" / "workflows" / "template-upstream-sync.yml").read_text(encoding="utf-8")
+        self.assertIn("def extract_version(raw: str) -> str:", workflow)
+        self.assertIn("latest_version = extract_version(latest_tag)", workflow)
+        self.assertNotIn('latest_tag.removeprefix("v")', workflow)
 
     def test_render_template_sync_pr_body_includes_diff_section_only_when_needed(self) -> None:
         script = REPO_ROOT / "scripts" / "render_template_sync_pr_body.py"

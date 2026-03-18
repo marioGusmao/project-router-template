@@ -14,6 +14,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +41,10 @@ DISCOVERY_REPORT_PATH = DISCOVERIES_DIR / "pending_project_latest.json"
 LOCAL_ROUTER_DIR = ROOT / "router"
 LOCAL_ROUTER_ARCHIVE_DIR = LOCAL_ROUTER_DIR / "archive"
 INBOX_STATUS_DIR = PROJECT_ROUTER_STATE_DIR / "inbox_status"
+TEMPLATE_BASE_PATH = ROOT / "template-base.json"
+PRIVATE_META_PATH = ROOT / "private.meta.json"
+TEMPLATE_META_PATH = ROOT / "template.meta.json"
+VERSION_PATH = ROOT / "version.txt"
 NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 VOICE_SOURCE = "voicenotes"
 PROJECT_ROUTER_SOURCE = "project_router"
@@ -557,6 +563,176 @@ def read_registry_config(path: Path) -> dict[str, Any]:
         raise SystemExit(f"Failed to parse {path}: {exc}")
     except OSError as exc:
         raise SystemExit(f"Failed to read {path}: {exc}")
+
+
+def read_json_if_exists(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Failed to parse {path}: {exc}") from exc
+    except OSError as exc:
+        raise SystemExit(f"Failed to read {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Expected a JSON object in {path}.")
+    return payload
+
+
+def read_text_if_exists(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        return path.read_text(encoding="utf-8").strip() or None
+    except OSError as exc:
+        raise SystemExit(f"Failed to read {path}: {exc}") from exc
+
+
+SEMVER_PATTERN = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?!\d)")
+
+
+def extract_template_version(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match: re.Match[str] | None = None
+    for candidate in SEMVER_PATTERN.finditer(raw):
+        match = candidate
+    return match.group(1) if match else None
+
+
+def detect_repo_role(private_meta: dict[str, Any] | None, template_meta: dict[str, Any] | None) -> str:
+    repo_role = str((private_meta or {}).get("repo_role") or "").strip()
+    if repo_role:
+        return repo_role
+    if template_meta:
+        return "template"
+    return "unknown"
+
+
+def resolve_current_template_version(template_base: dict[str, Any] | None, template_meta: dict[str, Any] | None) -> str | None:
+    candidates = (
+        (template_base or {}).get("template_base_version"),
+        (template_base or {}).get("template_base_tag"),
+        (template_meta or {}).get("version"),
+        read_text_if_exists(VERSION_PATH),
+    )
+    for candidate in candidates:
+        version = extract_template_version(candidate)
+        if version:
+            return version
+    return None
+
+
+def fetch_latest_template_release(upstream_repo: str) -> dict[str, Any]:
+    token = (os.environ.get("TEMPLATE_UPSTREAM_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "project-router-template-update-status",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib_request.Request(
+        f"https://api.github.com/repos/{upstream_repo}/releases/latest",
+        headers=headers,
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=10) as response:
+            payload = json.load(response)
+    except urllib_error.HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace").strip()
+        message = details or str(exc)
+        raise RuntimeError(f"GitHub release lookup failed for {upstream_repo}: HTTP {exc.code} {message}") from exc
+    except urllib_error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"GitHub release lookup failed for {upstream_repo}: {reason}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"GitHub release lookup for {upstream_repo} returned a non-object payload.")
+    return payload
+
+
+def template_update_status_command(args: argparse.Namespace) -> int:
+    private_meta = read_json_if_exists(PRIVATE_META_PATH)
+    template_base = read_json_if_exists(TEMPLATE_BASE_PATH)
+    template_meta = read_json_if_exists(TEMPLATE_META_PATH)
+
+    repo_role = detect_repo_role(private_meta, template_meta)
+    template_repo = str(
+        (template_base or {}).get("template_repo")
+        or (private_meta or {}).get("template_repo")
+        or (template_meta or {}).get("template_repo")
+        or ""
+    ).strip()
+    current_version = resolve_current_template_version(template_base, template_meta)
+    current_tag = str((template_base or {}).get("template_base_tag") or "").strip() or None
+    local_repo_version = extract_template_version(read_text_if_exists(VERSION_PATH))
+    last_sync_at = str((template_base or {}).get("last_template_sync_at") or "").strip() or None
+
+    payload: dict[str, Any] = {
+        "status": "local_metadata_only",
+        "repo_role": repo_role,
+        "template_repo": template_repo or None,
+        "current_version": current_version,
+        "current_tag": current_tag,
+        "local_repo_version": local_repo_version,
+        "last_template_sync_at": last_sync_at,
+        "check_remote": bool(getattr(args, "check_remote", False)),
+        "update_required": None,
+        "should_prompt_user": False,
+        "latest_version": None,
+        "latest_tag": None,
+        "release_published_at": None,
+        "release_url": None,
+        "message": "",
+    }
+
+    if not template_repo:
+        payload["status"] = "not_configured"
+        payload["message"] = "No template_repo is configured in template-base.json, private.meta.json, or template.meta.json."
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if not payload["check_remote"]:
+        payload["message"] = "Local template metadata loaded. Re-run with --check-remote to compare against GitHub releases."
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    try:
+        latest_release = fetch_latest_template_release(template_repo)
+    except RuntimeError as exc:
+        payload["status"] = "check_failed"
+        payload["message"] = str(exc)
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    latest_tag = str(latest_release.get("tag_name") or "").strip() or None
+    latest_version = extract_template_version(latest_tag) or extract_template_version(latest_release.get("name"))
+    payload["latest_tag"] = latest_tag
+    payload["latest_version"] = latest_version
+    payload["release_published_at"] = str(latest_release.get("published_at") or "").strip() or None
+    payload["release_url"] = str(latest_release.get("html_url") or "").strip() or None
+
+    if not latest_version:
+        payload["status"] = "check_failed"
+        payload["message"] = f"Could not extract a semantic version from upstream release tag {latest_tag!r}."
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    update_required = current_version != latest_version
+    payload["update_required"] = update_required
+    payload["should_prompt_user"] = update_required and repo_role == "private-derived"
+    if update_required:
+        payload["status"] = "update_available"
+        payload["message"] = (
+            f"Template update available: current={current_version or 'unknown'} latest={latest_version}. "
+            "Ask the user whether to review/update before continuing."
+        )
+    else:
+        payload["status"] = "up_to_date"
+        payload["message"] = f"Template is up to date at {latest_version}."
+
+    print(json.dumps(payload, indent=2))
+    return 0
 
 
 def merge_registry_configs(shared: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
@@ -5048,6 +5224,17 @@ def build_parser() -> argparse.ArgumentParser:
     context = subparsers.add_parser("context", help="Generate a live project briefing from repo state.")
     add_source_argument(context)
     context.set_defaults(func=context_command)
+
+    template_update_status = subparsers.add_parser(
+        "template-update-status",
+        help="Compare the current template metadata with the latest upstream release.",
+    )
+    template_update_status.add_argument(
+        "--check-remote",
+        action="store_true",
+        help="Query GitHub Releases for the configured template_repo before reporting status.",
+    )
+    template_update_status.set_defaults(func=template_update_status_command)
 
     ingest = subparsers.add_parser("ingest", help="Ingest files from a configured filesystem inbox.")
     ingest.add_argument("--integration", required=True, help="Integration type (currently: filesystem).")

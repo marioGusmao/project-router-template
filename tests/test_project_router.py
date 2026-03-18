@@ -94,6 +94,10 @@ def patch_cli_paths(root: Path) -> ExitStack:
         "LOCAL_ROUTER_DIR": root / "router",
         "LOCAL_ROUTER_ARCHIVE_DIR": root / "router" / "archive",
         "INBOX_STATUS_DIR": state / "project_router" / "inbox_status",
+        "TEMPLATE_BASE_PATH": root / "template-base.json",
+        "PRIVATE_META_PATH": root / "private.meta.json",
+        "TEMPLATE_META_PATH": root / "template.meta.json",
+        "VERSION_PATH": root / "version.txt",
     }
     for key, value in patches.items():
         stack.enter_context(mock.patch.object(cli, key, value))
@@ -1547,6 +1551,91 @@ class PR1FixTests(unittest.TestCase):
             self.assertIn("read-only by default", output)
             self.assertIn("project-router` inbox/outbox", output)
             self.assertIn("doctor --project <key>", output)
+
+    def test_extract_template_version_accepts_prefixed_tags(self) -> None:
+        self.assertEqual(cli.extract_template_version("project-router-template-v0.6.0"), "0.6.0")
+        self.assertEqual(cli.extract_template_version("v0.6.0"), "0.6.0")
+        self.assertEqual(cli.extract_template_version("0.6.0"), "0.6.0")
+        self.assertIsNone(cli.extract_template_version("release-candidate"))
+
+    def test_template_update_status_command_detects_update_from_prefixed_tag(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            (root / "template-base.json").write_text(
+                json.dumps(
+                    {
+                        "template_repo": "marioGusmao/project-router-template",
+                        "template_base_version": "0.1.0",
+                        "template_base_tag": "v0.1.0",
+                        "last_template_sync_at": "2026-03-14T21:30:55Z",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (root / "private.meta.json").write_text(
+                json.dumps({"repo_role": "private-derived", "template_repo": "marioGusmao/project-router-template"}, indent=2),
+                encoding="utf-8",
+            )
+            (root / "version.txt").write_text("0.6.0\n", encoding="utf-8")
+
+            with patch_cli_paths(root):
+                with unittest.mock.patch.object(
+                    cli,
+                    "fetch_latest_template_release",
+                    return_value={
+                        "tag_name": "project-router-template-v0.6.0",
+                        "published_at": "2026-03-18T17:42:20Z",
+                        "html_url": "https://github.com/marioGusmao/project-router-template/releases/tag/project-router-template-v0.6.0",
+                    },
+                ):
+                    with unittest.mock.patch("builtins.print") as mock_print:
+                        cli.template_update_status_command(type("Args", (), {"check_remote": True})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["status"], "update_available")
+            self.assertEqual(output["current_version"], "0.1.0")
+            self.assertEqual(output["latest_version"], "0.6.0")
+            self.assertTrue(output["update_required"])
+            self.assertTrue(output["should_prompt_user"])
+            self.assertEqual(output["latest_tag"], "project-router-template-v0.6.0")
+
+    def test_template_update_status_command_reports_up_to_date_when_versions_match(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            (root / "template-base.json").write_text(
+                json.dumps(
+                    {
+                        "template_repo": "marioGusmao/project-router-template",
+                        "template_base_version": "0.6.0",
+                        "template_base_tag": "project-router-template-v0.6.0",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (root / "private.meta.json").write_text(
+                json.dumps({"repo_role": "private-derived", "template_repo": "marioGusmao/project-router-template"}, indent=2),
+                encoding="utf-8",
+            )
+
+            with patch_cli_paths(root):
+                with unittest.mock.patch.object(
+                    cli,
+                    "fetch_latest_template_release",
+                    return_value={
+                        "tag_name": "project-router-template-v0.6.0",
+                        "published_at": "2026-03-18T17:42:20Z",
+                        "html_url": "https://github.com/marioGusmao/project-router-template/releases/tag/project-router-template-v0.6.0",
+                    },
+                ):
+                    with unittest.mock.patch("builtins.print") as mock_print:
+                        cli.template_update_status_command(type("Args", (), {"check_remote": True})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["status"], "up_to_date")
+            self.assertFalse(output["update_required"])
+            self.assertFalse(output["should_prompt_user"])
 
     def test_metadata_paths_are_relative(self) -> None:
         """Decision packets must use project-relative paths for internal metadata."""
