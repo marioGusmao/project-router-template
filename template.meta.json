@@ -1,7 +1,7 @@
 {
   "template_name": "project-router-template",
   "template_repo": "marioGusmao/project-router-template",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "release_channel": "stable",
   "min_python": "3.10"
 }
