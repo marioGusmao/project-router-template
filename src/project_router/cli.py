@@ -3304,8 +3304,8 @@ def convert_brief_to_packet(metadata: dict[str, Any], body: str) -> tuple[dict[s
         try:
             contract = json.loads(contract_path.read_text(encoding="utf-8"))
             language = contract.get("default_language", "en")
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            sys.stderr.write(f"Warning: could not read {contract_path}: {exc}. Falling back to language='en'.\n")
     converted["language"] = language
     converted["status"] = "open"
     return converted, body
@@ -4543,7 +4543,7 @@ def inbox_intake_command(args: argparse.Namespace) -> int:
 
     summary = {"ingested": ingested, "skipped": skipped, "errors": errors}
     print(json.dumps(summary, indent=2))
-    return 0
+    return 1 if errors > 0 else 0
 
 
 def inbox_status_command(args: argparse.Namespace) -> int:
@@ -4557,7 +4557,8 @@ def inbox_status_command(args: argparse.Namespace) -> int:
         for state_path in sorted(INBOX_STATUS_DIR.glob("*.json")):
             try:
                 state = json.loads(state_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError) as exc:
+                sys.stderr.write(f"Warning: unreadable inbox state {state_path.name}: {exc}\n")
                 continue
 
             if packet_id_filter and state.get("packet_id") != packet_id_filter:
@@ -4626,8 +4627,8 @@ def inbox_ack_command(args: argparse.Namespace) -> int:
                 source_project = contract.get("project_key", source_project)
                 language = contract.get("default_language", language)
                 supported_types = contract.get("supported_packet_types")
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as exc:
+                sys.stderr.write(f"Warning: could not read {contract_path}: {exc}. Using defaults.\n")
 
         if supported_types is not None and "ack" not in supported_types:
             sys.stderr.write(f"Warning: 'ack' is not in supported_packet_types {supported_types}. The emitted ack packet may fail downstream validation.\n")
