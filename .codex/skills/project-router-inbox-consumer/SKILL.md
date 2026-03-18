@@ -13,6 +13,7 @@ Use this skill to process packets that have arrived in this repository's `router
 
 - Never auto-apply packets. Always present each packet to the user and wait for an explicit decision.
 - Never modify `router/archive/` contents after ingestion — the archive preserves originals.
+- Treat downstream repositories as read-only by default. Process cross-project requests through `project-router` inbox/outbox surfaces unless the user explicitly asks for direct edits in the target repository.
 - Treat `inbox-intake` as a safe ingestion step (validates, archives, creates state).
 - Treat `inbox-ack --status in_progress` as a non-terminal intermediate state.
 - Treat `inbox-ack --status applied|blocked|rejected` as terminal — generates an outbox ack packet.

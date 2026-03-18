@@ -69,6 +69,21 @@ def init_git_repo(root: Path) -> None:
 
 
 class TemplateGovernanceTests(unittest.TestCase):
+    def test_shared_surfaces_state_downstream_read_only_default(self) -> None:
+        agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        claude = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        session_opener = (REPO_ROOT / ".agents" / "skills" / "project-router-session-opener" / "SKILL.md").read_text(encoding="utf-8")
+        inbox_consumer = (REPO_ROOT / ".agents" / "skills" / "project-router-inbox-consumer" / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("read-only by default", agents)
+        self.assertIn("project-router` inbox/outbox", agents)
+        self.assertIn("read-only by default", claude)
+        self.assertIn("project-router` inbox/outbox", claude)
+        self.assertIn("read-only by default", session_opener)
+        self.assertIn("project-router` inbox/outbox", session_opener)
+        self.assertIn("read-only by default", inbox_consumer)
+        self.assertIn("project-router` inbox/outbox", inbox_consumer)
+
     def test_workflow_uses_runner_temp_for_diff_only_output(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "template-upstream-sync.yml").read_text(encoding="utf-8")
         self.assertIn("$RUNNER_TEMP/template-sync-diffs.diff", workflow)

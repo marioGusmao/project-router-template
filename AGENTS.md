@@ -47,7 +47,8 @@
 - Keep machine-local checkpoints under `state/`, out of Git.
 - Keep automation and processing code under `src/` or `scripts/`.
 - Keep template/private sync guardrails in `repo-governance/ownership.manifest.json`.
-- Do not edit downstream repositories unless the task explicitly requires it.
+- Treat downstream repositories as read-only by default from this hub. Prefer the downstream repository's `project-router` inbox/outbox surfaces for cross-project communication.
+- Do not edit downstream repositories unless the task explicitly requires it or the user explicitly asks for direct changes in that target repository during the current session.
 - If a downstream repository must be edited, read its local `AGENTS.md` first and follow its conventions.
 
 ## Knowledge Foundation

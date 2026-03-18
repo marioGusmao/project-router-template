@@ -182,6 +182,7 @@ These are critical — never violate:
 - **Treat confirmation as note-specific by `source_note_id`** — real dispatch must name the exact approved `source_note_id` values with `--note-id`
 - **Never dispatch a normalized note directly** — compile first and dispatch from the compiled artifact
 - **Compiled packages must be fresh** relative to the canonical normalized note before dispatch
+- **Treat downstream repositories as read-only by default** — prefer the downstream repository's `project-router` inbox/outbox surfaces for cross-project communication
 - **Never write to a downstream project during session opening or review analysis** — stop at `review` and ask the user what to approve
 - **Never mutate downstream `router/outbox/` content during scan or review** — `scan-outboxes` is read-only
 - **Send uncertain notes to the source-aware review queues** under `data/review/voicenotes/`, `data/review/project_router/`, or `data/review/filesystem/` when no current project/rule exists yet
@@ -190,6 +191,7 @@ These are critical — never violate:
 - **Canonical metadata lives in source-aware `data/normalized/` paths** — review copies are queue views, not the source of truth
 - **The pipeline is idempotent** — re-running must not duplicate notes or dispatch records
 - **Run the parity and ownership checks before publishing starter changes** — use `python3 scripts/check_agent_surface_parity.py --pre-publish` and `python3 scripts/check_repo_ownership.py`
+- **Only edit a downstream repository when the task explicitly requires it or the user explicitly asks for direct changes in that target repository during the current session**
 - **If a downstream repository must be edited**, read that repository's local agent instructions first
 - **CLAUDE.md and AGENTS.md are template-owned** — do not edit directly; use `Knowledge/local/AI/` overlays for private rules
 - **New files must be declared** in `customization-contracts.json` with all fields before merging

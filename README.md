@@ -181,6 +181,8 @@ Each participating repository should expose:
 
 The central router reads downstream `outbox/` folders in read-only mode via `scan-outboxes`. It never moves or rewrites files in downstream repositories during scan or review.
 
+Downstream repositories are read-only by default from this hub. Prefer the downstream repository's `project-router` `inbox/` and `outbox/` surfaces for cross-project communication, and only switch to direct edits when the user explicitly asks for changes in that target repository.
+
 ## Workflow
 
 ```bash
