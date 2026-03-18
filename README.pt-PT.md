@@ -160,6 +160,16 @@ O template inclui projetos de exemplo neutros, como `home_renovation` e `weekly_
 
 A classificação pode correr apenas com o registry partilhado. O dispatch real exige o overlay local.
 
+## Perfis De Idioma Do Parser
+
+O suporte multilingue do parser é configurado separadamente do idioma downstream de cada projeto:
+
+- `src/project_router/parser_language_profiles.json`: perfis comitados do parser, idiomas ativos, stopwords e termos heurísticos
+- `projects/registry.shared.json -> projects.<key>.language`: idioma downstream/output desse projeto
+- `router/router-contract.json -> default_language`: idioma por omissão dos packets desse router root
+
+Esta separação é intencional: os perfis do parser controlam como `normalize`/`triage`/`compile` interpretam notas multilingues, enquanto o idioma do projeto/contract continua a controlar os defaults downstream.
+
 ## Contrato Project-Router Local
 
 Cada repositório participante deve expor:
@@ -170,6 +180,8 @@ Cada repositório participante deve expor:
 - `router/conformance/`
 
 O router central lê as pastas downstream `outbox/` em modo read-only via `scan-outboxes`. Nunca move nem reescreve ficheiros em repositórios downstream durante scan ou review.
+
+Os repositórios downstream são read-only por defeito a partir deste hub. Prefere as superfícies `project-router` `inbox/` e `outbox/` do repositório downstream para comunicação entre projetos, e só muda para edições diretas quando o utilizador pede explicitamente alterações nesse repositório alvo.
 
 ## Workflow
 

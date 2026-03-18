@@ -13,6 +13,7 @@ Use this skill at the start of a Project Router session for VoiceNotes captures.
 
 - Never dispatch automatically.
 - Never write to a downstream project during session opening.
+- Treat downstream repositories as read-only by default. Prefer the downstream repository's `project-router` inbox/outbox surfaces for cross-project communication.
 - Treat `sync`, `normalize`, and `triage` as safe refresh steps.
 - Treat `compile`, `review`, and `decide` as the decision-preparation layer.
 - Treat `dispatch` as a later, explicit step that needs user confirmation and explicit `source_note_id` allowlists.

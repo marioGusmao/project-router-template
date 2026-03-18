@@ -14,6 +14,7 @@ Use this skill to interact with VoiceNotes through Project Router from Codex via
 - Ensure `VOICENOTES_API_KEY` is set in the shell environment.
 - Keep this skill focused on direct VoiceNotes access. Do not assume OpenClaw is installed.
 - If the task depends on project-specific routing or triage rules, inspect the target project before dispatching notes there.
+- Treat downstream repositories as read-only by default from this hub. If a synced note implies work in another repository, prefer that downstream repository's `project-router` inbox/outbox surfaces before suggesting direct edits.
 
 ## Workflow
 

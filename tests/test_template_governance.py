@@ -62,7 +62,46 @@ def write_contracts(root: Path, surfaces: list[dict[str, object]]) -> None:
     )
 
 
+def init_git_repo(root: Path) -> None:
+    subprocess.run(["git", "init"], cwd=root, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=root, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Template Tests"], cwd=root, capture_output=True, text=True, check=True)
+
+
 class TemplateGovernanceTests(unittest.TestCase):
+    def test_shared_surfaces_state_downstream_read_only_default(self) -> None:
+        agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        claude = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        session_opener = (REPO_ROOT / ".agents" / "skills" / "project-router-session-opener" / "SKILL.md").read_text(encoding="utf-8")
+        inbox_consumer = (REPO_ROOT / ".agents" / "skills" / "project-router-inbox-consumer" / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("read-only by default", agents)
+        self.assertIn("project-router` inbox/outbox", agents)
+        self.assertIn("read-only by default", claude)
+        self.assertIn("project-router` inbox/outbox", claude)
+        self.assertIn("read-only by default", session_opener)
+        self.assertIn("project-router` inbox/outbox", session_opener)
+        self.assertIn("read-only by default", inbox_consumer)
+        self.assertIn("project-router` inbox/outbox", inbox_consumer)
+
+    def test_reference_surfaces_reinforce_inbox_first_downstream_policy(self) -> None:
+        session_flow = (REPO_ROOT / ".codex" / "skills" / "project-router-session-opener" / "references" / "session-flow.md").read_text(encoding="utf-8")
+        triage_contract = (REPO_ROOT / ".codex" / "skills" / "project-router-triage-review" / "references" / "triage-contract.md").read_text(encoding="utf-8")
+        agent_direct_sync = (REPO_ROOT / ".agents" / "skills" / "project-router-direct-sync" / "SKILL.md").read_text(encoding="utf-8")
+        claude_direct_sync = (REPO_ROOT / ".claude" / "skills" / "project-router-direct-sync" / "SKILL.md").read_text(encoding="utf-8")
+        codex_direct_sync = (REPO_ROOT / ".codex" / "skills" / "project-router-direct-sync" / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("read-only by default", session_flow)
+        self.assertIn("project-router` inbox/outbox", session_flow)
+        self.assertIn("read-only by default", triage_contract)
+        self.assertIn("project-router` inbox/outbox", triage_contract)
+        self.assertIn("read-only by default", agent_direct_sync)
+        self.assertIn("project-router` inbox/outbox", agent_direct_sync)
+        self.assertIn("read-only by default", claude_direct_sync)
+        self.assertIn("project-router` inbox/outbox", claude_direct_sync)
+        self.assertIn("read-only by default", codex_direct_sync)
+        self.assertIn("project-router` inbox/outbox", codex_direct_sync)
+
     def test_workflow_uses_runner_temp_for_diff_only_output(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "template-upstream-sync.yml").read_text(encoding="utf-8")
         self.assertIn("$RUNNER_TEMP/template-sync-diffs.diff", workflow)
@@ -126,6 +165,7 @@ class TemplateGovernanceTests(unittest.TestCase):
         with temporary_repo_dir() as tmp:
             root = Path(tmp)
             copy_scripts(root, "check_repo_ownership.py", "check_sync_manifest_alignment.py")
+            init_git_repo(root)
             (root / ".github" / "workflows").mkdir(parents=True, exist_ok=True)
             (root / ".github" / "workflows" / "template-upstream-sync.yml").write_text(
                 textwrap.dedent(
@@ -167,6 +207,9 @@ class TemplateGovernanceTests(unittest.TestCase):
                     },
                 ],
             )
+            (root / "src").mkdir()
+            (root / "src" / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=root, capture_output=True, text=True, check=True)
             result = subprocess.run(
                 ["python3", str(root / "scripts" / "check_sync_manifest_alignment.py")],
                 cwd=root,
@@ -175,6 +218,94 @@ class TemplateGovernanceTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Sync path missing from customization contract registry: .github/ISSUE_TEMPLATE", result.stderr)
+
+    def test_check_sync_manifest_alignment_requires_workflow_coverage_for_tracked_synced_files(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            copy_scripts(root, "check_repo_ownership.py", "check_sync_manifest_alignment.py")
+            init_git_repo(root)
+            (root / ".github" / "workflows").mkdir(parents=True, exist_ok=True)
+            (root / ".github" / "workflows" / "template-upstream-sync.yml").write_text(
+                textwrap.dedent(
+                    """
+                    name: sync
+                    jobs:
+                      sync:
+                        steps:
+                          - run: |
+                              overwrite_paths=(
+                                src
+                              )
+                              managed_block_files=(
+                                README.md
+                              )
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            write_manifest(
+                root,
+                [
+                    {"pattern": "src/**", "ownership": "template_owned", "sync_policy": "template_sync"},
+                    {"pattern": "README.md", "ownership": "shared_review", "sync_policy": "review_required"},
+                    {"pattern": "requirements-extractors.txt", "ownership": "template_owned", "sync_policy": "template_sync"},
+                ],
+            )
+            write_contracts(
+                root,
+                [
+                    {
+                        "pattern": "src/**",
+                        "ownership": "template_owned",
+                        "sync_policy": "template_sync",
+                        "customization_model": "overwrite",
+                        "private_overlay": None,
+                        "bootstrap_source": None,
+                        "agent_load_rule": None,
+                        "migration_policy": "silent_ok",
+                        "validator_hooks": [],
+                    },
+                    {
+                        "pattern": "README.md",
+                        "ownership": "shared_review",
+                        "sync_policy": "review_required",
+                        "customization_model": "managed_blocks",
+                        "private_overlay": None,
+                        "bootstrap_source": None,
+                        "agent_load_rule": None,
+                        "migration_policy": "review_required",
+                        "validator_hooks": [],
+                    },
+                    {
+                        "pattern": "requirements-extractors.txt",
+                        "ownership": "template_owned",
+                        "sync_policy": "template_sync",
+                        "customization_model": "overwrite",
+                        "private_overlay": None,
+                        "bootstrap_source": None,
+                        "agent_load_rule": None,
+                        "migration_policy": "silent_ok",
+                        "validator_hooks": [],
+                    },
+                ],
+            )
+            (root / "src").mkdir()
+            (root / "src" / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            (root / "README.md").write_text("# Readme\n", encoding="utf-8")
+            (root / "requirements-extractors.txt").write_text("pymupdf>=1.24.0\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=root, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["python3", str(root / "scripts" / "check_sync_manifest_alignment.py")],
+                cwd=root,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "Tracked synced file is not covered by workflow sync paths: requirements-extractors.txt",
+                result.stderr,
+            )
 
     def test_check_customization_contracts_fails_on_rejects_and_conflict_markers(self) -> None:
         with temporary_repo_dir() as tmp:

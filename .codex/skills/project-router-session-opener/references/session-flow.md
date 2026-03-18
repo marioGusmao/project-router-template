@@ -53,6 +53,7 @@ Do not rely on filenames alone. The user should be able to understand the note f
 
 - Do not run `dispatch` or `dispatch --dry-run`.
 - Do not approve decisions on the user's behalf.
+- Do not jump from a downstream finding to direct edits in that repository. Treat downstream repositories as read-only by default and prefer their `project-router` inbox/outbox surfaces first.
 - Do not run sync if `.env.local` is missing or invalid.
 
 ## After Session Opening

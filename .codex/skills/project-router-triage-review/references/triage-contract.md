@@ -17,6 +17,7 @@ The canonical source remains in `data/normalized/...`. Review queues are views o
 
 - A classified note is still only a proposal.
 - Downstream dispatch requires explicit user confirmation in the active conversation.
+- Downstream repositories are read-only by default from this hub; if follow-up work is needed, prefer the downstream repository's `project-router` inbox/outbox surfaces before suggesting direct edits.
 - Until the user confirms, the skill should only recommend an action.
 
 ## Reporting Contract
@@ -49,3 +50,4 @@ The canonical source remains in `data/normalized/...`. Review queues are views o
 - Is there enough evidence to justify that routing?
 - Should this note stay in review instead of being dispatched?
 - If dispatched later, what exact downstream inbox path should receive it?
+- If the note implies follow-up work in another repository, should that request go through the downstream `project-router` inbox instead of a direct edit?

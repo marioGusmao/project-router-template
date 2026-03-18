@@ -31,6 +31,8 @@ data/normalized/voicenotes/20260314T120000Z--vn_abc123.md
 
 Converts raw JSON into markdown with YAML frontmatter. The frontmatter contains `source_note_id`, timestamps, and any user-supplied metadata. The body contains the transcribed text.
 
+Normalize also records parser-language metadata such as `source_language`, `language_confidence`, `matched_languages`, and `mixed_languages`, using the active profiles from `src/project_router/parser_language_profiles.json`.
+
 ## Stage 3: Triage
 
 **Command:** `python3 scripts/project_router.py triage --source voicenotes`
@@ -40,7 +42,7 @@ Converts raw JSON into markdown with YAML frontmatter. The frontmatter contains 
 data/normalized/voicenotes/20260314T120000Z--vn_abc123.md  (frontmatter updated)
 ```
 
-Adds classification fields to the frontmatter: `destination` (target project), `intent` (task, reference, decision, etc.), `capture_kind` (voice_memo, quick_thought, etc.), and confidence metadata. Classification uses recording_type mapping + keyword matching + sentence-level heuristics from the shared registry.
+Adds classification fields to the frontmatter: `destination` (target project), `intent` (task, reference, decision, etc.), `capture_kind` (voice_memo, quick_thought, etc.), and confidence metadata. Classification uses recording_type mapping + keyword matching + sentence-level heuristics from the shared registry plus the active parser language profiles.
 
 ## Stage 4: Compile
 
