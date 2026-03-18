@@ -269,7 +269,7 @@ Release automation is driven by Conventional Commits and `release-please`.
 
 The release workflow requires a `RELEASE_PLEASE_TOKEN` secret with `contents: write` and `pull-requests: write`.
 Do not rely on the default `GITHUB_TOKEN` for release PR creation, because PRs opened by that token do not trigger the required `template-ci` pull request checks.
-Keep repository auto-merge enabled if you want release PRs to queue themselves after checks and review requirements are satisfied.
+Under the default protected `main` policy, release PRs still require manual approval and merge after `template-ci` passes.
 
 ## Template Upstream Sync
 
@@ -322,7 +322,7 @@ Before publishing the template:
 10. Confirm `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` still describe the same workflow contract
 11. Enable GitHub Template Repository on the upstream repo
 12. Enable branch protection and required checks for tests, parity, ownership, and release automation
-13. Enable repository auto-merge so release PRs can wait on checks instead of failing immediately
+13. Confirm maintainers manually approve and merge release PRs when `main` requires reviews
 
 ## Contributing
 
