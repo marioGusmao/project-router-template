@@ -3380,7 +3380,7 @@ def outbox_packet_paths(router_root: Path) -> list[Path]:
 #  Shared scaffold utilities (used by init-router-root and adopt-router-root)
 # ---------------------------------------------------------------------------
 
-DEFAULT_PACKET_TYPES = ["improvement_proposal", "question", "insight"]
+DEFAULT_PACKET_TYPES = ["improvement_proposal", "question", "insight", "ack"]
 
 
 def write_scaffold_dirs(router_root: Path) -> list[Path]:
@@ -4276,6 +4276,26 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
                     },
                 )
                 scanned_packets.append({"project_key": project_key, "packet": str(packet_path), "status": status, "raw_path": str(raw_path)})
+        # Reconcile: mark entries for packets that no longer exist in the outbox
+        reconciled = 0
+        for pk, project_entries in (state.get("scanned_packets") or {}).items():
+            if not isinstance(project_entries, dict):
+                continue
+            for nid, entry in list(project_entries.items()):
+                if not isinstance(entry, dict):
+                    continue
+                source_path = entry.get("source_path")
+                if source_path and not Path(source_path).exists() and entry.get("status") != "removed" and entry.get("error_code") not in ("INVALID_CONTRACT", "MISSING_CONTRACT"):
+                    entry["status"] = "removed"
+                    entry["removed_at"] = iso_now()
+                    project_entries[nid] = entry
+                    reconciled += 1
+                    # Clean up associated parse error notes
+                    error_dir = review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors")
+                    for pattern in (f"{slugify(pk)}--{nid}.md", f"*--{slugify(pk)}--{nid}.md"):
+                        for err_path in error_dir.glob(pattern):
+                            err_path.unlink(missing_ok=True)
+
         save_outbox_scan_state(state)
         print(
             json.dumps(
@@ -4284,6 +4304,7 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
                     "content_changed": content_changed,
                     "unchanged": unchanged,
                     "invalid": invalid,
+                    "reconciled": reconciled,
                     "include_self": args.include_self,
                     "packets": scanned_packets,
                 },
