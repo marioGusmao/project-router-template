@@ -2621,7 +2621,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
 
     summary = {
         "candidates": candidates,
-        "dispatched": dispatched if args.confirm_user_approval else 0 if not args.dry_run else dispatched,
+        "dispatched": dispatched,
         "skipped": skipped,
         "dry_run": args.dry_run,
         "confirmation_required": not args.dry_run and not args.confirm_user_approval,
