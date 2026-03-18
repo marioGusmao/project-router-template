@@ -22,6 +22,13 @@ All notable changes to the shared Project Router starter will be documented in t
 - Registered `Knowledge/runbooks/**` as local-only in ownership manifest and customization contracts.
 - Gitignored `Knowledge/runbooks/plans/` as operational artifacts.
 
+## [0.5.1](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.5.0...project-router-template-v0.5.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* restore CI for release-please PRs ([#9](https://github.com/marioGusmao/project-router-template/issues/9)) ([7a7704e](https://github.com/marioGusmao/project-router-template/commit/7a7704e62df698ab52c3f4468d2fa1dd1dab5e4a))
+
 ## [0.5.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.4.0...project-router-template-v0.5.0) (2026-03-18)
 
 
