@@ -23,6 +23,20 @@ All notable changes to the shared Project Router starter will be documented in t
 - Registered `Knowledge/runbooks/**` as local-only in ownership manifest and customization contracts.
 - Gitignored `Knowledge/runbooks/plans/` as operational artifacts.
 
+## [0.6.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.5.1...project-router-template-v0.6.0) (2026-03-18)
+
+
+### Features
+
+* add downstream inbox guardrails ([a00e6ff](https://github.com/marioGusmao/project-router-template/commit/a00e6ff85ef72422b04101fe11cfdbbaa471800e))
+* add multilingual parser profiles ([b0ef5ad](https://github.com/marioGusmao/project-router-template/commit/b0ef5ad2567a5bcb91e71fd325443b85420b5e60))
+
+
+### Bug Fixes
+
+* align template sync manifest governance ([20afd97](https://github.com/marioGusmao/project-router-template/commit/20afd97940736a8f4c0f9a7ae1fc4a38cbc424a3))
+* tighten parser capture-kind terms ([08f42fb](https://github.com/marioGusmao/project-router-template/commit/08f42fb8de39ee436a60bcaa6017302bea879cab))
+
 ## [0.5.1](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.5.0...project-router-template-v0.5.1) (2026-03-18)
 
 
