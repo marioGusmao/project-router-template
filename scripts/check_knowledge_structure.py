@@ -24,8 +24,6 @@ TEMPLATE_REQUIRED_FILES = [
     "Knowledge/Roadmap.md",
     "Knowledge/ScriptsReference.md",
     "Knowledge/UpgradeGuide.md",
-    "Knowledge/runbooks/plans/router-root-migration-and-scaffold.plan.md",
-    "Knowledge/runbooks/plans/rename-project-router-to-Router.plan.md",
     "Knowledge/ADR/TEMPLATE.md",
     "Knowledge/ADR/000-use-adr-for-decisions.md",
     "Knowledge/ADR/001-stdlib-only.md",
@@ -34,6 +32,7 @@ TEMPLATE_REQUIRED_FILES = [
     "Knowledge/ADR/004-fail-closed-dispatch.md",
     "Knowledge/ADR/005-safety-invariants.md",
     "Knowledge/ADR/006-template-upgrade-process.md",
+    "Knowledge/ADR/007-optional-extractor-deps.md",
     "Knowledge/Templates/local/README.md",
     "Knowledge/Templates/local/Roadmap.md",
     "Knowledge/Templates/local/ADR/README.md",
@@ -54,8 +53,6 @@ EXPECTED_SYNCED = {
     "Knowledge/Roadmap.md",
     "Knowledge/ScriptsReference.md",
     "Knowledge/UpgradeGuide.md",
-    "Knowledge/runbooks/plans/router-root-migration-and-scaffold.plan.md",
-    "Knowledge/runbooks/plans/rename-project-router-to-Router.plan.md",
     "Knowledge/ADR/TEMPLATE.md",
     "Knowledge/ADR/000-use-adr-for-decisions.md",
     "Knowledge/ADR/001-stdlib-only.md",
@@ -64,6 +61,7 @@ EXPECTED_SYNCED = {
     "Knowledge/ADR/004-fail-closed-dispatch.md",
     "Knowledge/ADR/005-safety-invariants.md",
     "Knowledge/ADR/006-template-upgrade-process.md",
+    "Knowledge/ADR/007-optional-extractor-deps.md",
     "Knowledge/Templates/local/README.md",
     "Knowledge/Templates/local/Roadmap.md",
     "Knowledge/Templates/local/ADR/README.md",
@@ -115,7 +113,7 @@ def collect_knowledge_files() -> list[str]:
             continue
         rel = p.relative_to(ROOT).as_posix()
         parts = p.relative_to(KNOWLEDGE).parts
-        if parts and parts[0] == "local":
+        if parts and parts[0] in ("local", "runbooks"):
             continue
         results.append(rel)
     return results

@@ -4,9 +4,23 @@ All notable changes to the shared Project Router starter will be documented in t
 
 ## Unreleased
 
+- Renamed `VERSION` → `version.txt` so release-please `simple` type recognizes the file extension; updated all CI, governance, and documentation references.
+- Removed `VERSION` from `extra-files` in `.release-please-config.json` (now the primary version file for `simple` type).
+- Fixed `Knowledge/TLDR.md` to use neutral repo-mode phrasing and include the filesystem pipeline.
+- Added deprecation note to design spec section 6 (upstream sync) documenting implementation drift.
+- Added `template-base.json` and `private.meta.json` to README layout blocks (both languages).
+- Realigned Codex `session-flow.md` with canonical skill: 8-step opener, filesystem pipeline, `pending_project` field name, `dispatch --dry-run` moved out of opener.
+- Removed unused `import subprocess` from `cli.py`.
 - Fixed template sync diff-only handling so review output lives outside the repo and is rendered in the sync PR body.
 - Tightened contract validation with conflict-marker detection, reject-file detection, and release-note enforcement for upgrade-governance surfaces.
 - Added regression tests for template sync governance tooling.
+- Added filesystem source with ingestion protocol, modular extractors, and AI extraction workflow.
+- Added router inbox consumption commands: `inbox-intake`, `inbox-status`, `inbox-ack`.
+- Hardened dispatch with pre-validation of `--note-id`, ISO timestamps, and atomic batch rejection.
+- Preserved manual review decisions (reject/approved) across triage reruns.
+- Added tracked-file coverage gate to `check_customization_contracts.py`.
+- Registered `Knowledge/runbooks/**` as local-only in ownership manifest and customization contracts.
+- Gitignored `Knowledge/runbooks/plans/` as operational artifacts.
 
 ## [0.4.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.3.0...project-router-template-v0.4.0) (2026-03-16)
 

@@ -21,7 +21,7 @@
 - Never auto-dispatch a note, even when the routing confidence is high.
 - Always ask the user for explicit confirmation before writing any note into a downstream project inbox.
 - Treat confirmation as note-specific by `source_note_id`. A batch dispatch must name the exact approved `source_note_id` values.
-- Send uncertain notes to the source-aware review queues under `data/review/voicenotes/` or `data/review/project_router/` when no current project/rule exists yet.
+- Send uncertain notes to the source-aware review queues under `data/review/voicenotes/`, `data/review/project_router/`, or `data/review/filesystem/` when no current project/rule exists yet.
 - Treat downstream project writes as derived exports. The canonical note always remains in this repository.
 - Never dispatch a normalized note directly. Compile a project-ready package first and dispatch from that compiled artifact.
 - Compiled packages must be fresh before dispatch.
@@ -61,11 +61,12 @@
 - Prefer the local skill `project-router-direct-sync` for direct access to the VoiceNotes service.
 - Prefer the local skill `project-router-session-opener` at the beginning of a session.
 - Prefer the local skill `project-router-triage-review` for routing analysis and user-facing review.
+- Prefer the local skill `project-router-inbox-consumer` for consuming incoming packets from the router inbox.
 - Prefer `python3 scripts/bootstrap_private_repo.py` when promoting a fresh template copy into a private operational repository.
 - Prefer `python3 scripts/bootstrap_local.py` when setting up a new machine or validating starter hygiene.
 - Prefer the repository entrypoint `python3 scripts/project_router_client.py ...` for direct VoiceNotes API access in project-facing docs and workflows.
 - Prefer `python3 scripts/project_router.py scan-outboxes` when pulling project-router packets from downstream repositories.
-- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `router/` surface.
+- Prefer `python3 scripts/project_router.py doctor --project <key>` before trusting a downstream `router/` surface.
 - Prefer `python3 scripts/project_router.py migrate-source-layout --dry-run` before changing or auditing old local starter copies that still use the flat pre-source-aware layout.
 - Prefer `python3 scripts/project_router.py discover` when the `pending_project` queue starts to accumulate notes.
 - Prefer `python3 scripts/project_router.py compile` before any real dispatch so downstream projects receive a richer brief than the raw transcript.
@@ -100,13 +101,18 @@
 - `python3 scripts/project_router.py review`
 - `python3 scripts/project_router.py discover`
 - `python3 scripts/project_router.py scan-outboxes`
-- `python3 scripts/project_router.py doctor`
+- `python3 scripts/project_router.py doctor --project <key>`
 - `python3 scripts/project_router.py init-router-root --project <key> --router-root <path>`
 - `python3 scripts/project_router.py adopt-router-root --project <key>`
 - `python3 scripts/project_router.py migrate-source-layout --dry-run`
+- `python3 scripts/project_router.py ingest --integration filesystem`
+- `python3 scripts/project_router.py extract`
 - `python3 scripts/project_router.py decide --note-id vn_123 --decision approve`
 - `python3 scripts/project_router.py dispatch --dry-run`
 - `python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_123`
+- `python3 scripts/project_router.py inbox-intake`
+- `python3 scripts/project_router.py inbox-status`
+- `python3 scripts/project_router.py inbox-ack --packet-id <id> --status <applied|blocked|rejected|in_progress>`
 - `python3 scripts/check_agent_surface_parity.py`
 - `python3 scripts/check_repo_ownership.py`
 - `python3 scripts/check_sync_manifest_alignment.py`

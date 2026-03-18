@@ -42,6 +42,16 @@
 - **ownership.manifest.json**: Located at `repo-governance/ownership.manifest.json`. Defines which files are template_owned vs private_owned.
 - **parity.manifest.json**: Tracks alignment between agent surfaces (`.agents/skills/`, `.claude/skills/`, `.codex/skills/`).
 
+## Filesystem Source
+
+- **manifest**: JSON file (`*.manifest.json`) produced by the `ingest` command for each file dropped into a filesystem inbox. Contains two envelopes: evidence (immutable) and interpretation (replaceable).
+- **evidence**: Immutable, append-only section of a manifest. Contains ingest event ID, content hash, file stat, canonical blob reference, extractor attempts, errors, and archive lifecycle. Source of truth for provenance.
+- **interpretation**: Replaceable section of a manifest. Contains extracted text, extraction method, text quality, observations, and routing hints. Can be overwritten by better extractors or AI without touching evidence.
+- **canonical_blob_ref**: Repo-relative path to the ingested file blob in `data/raw/filesystem/<inbox_key>/artifacts/`. Used in normalized/compiled output; never contains absolute machine paths.
+- **needs_extraction**: Review queue status for filesystem notes where deterministic extraction was insufficient (e.g., scanned PDFs, images). Routed to `data/review/filesystem/needs_extraction/` for AI-assisted extraction.
+- **ingest**: Pipeline stage that scans configured filesystem inboxes, copies blobs, runs extractors, writes manifests, and archives originals.
+- **extract**: Pipeline stage where AI reads files that need extraction and provides text content via `extract --note-id`.
+
 ## Protocol
 
 - **router-contract.json**: Downstream project's declaration of supported note types, schema versions, and routing capabilities.

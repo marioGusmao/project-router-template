@@ -15,7 +15,7 @@ The goal is not byte-for-byte identity. The goal is behavioral parity:
 - same dispatch approval contract
 - same repository entrypoints such as `python3 scripts/project_router_client.py`
 - same read-only downstream scan command `python3 scripts/project_router.py scan-outboxes`
-- same contract validation command `python3 scripts/project_router.py doctor`
+- same contract validation command `python3 scripts/project_router.py doctor --project <key>`
 - same promotion path for derived private repositories via `python3 scripts/bootstrap_private_repo.py`
 
 ## Knowledge Foundation
@@ -31,6 +31,9 @@ The `Knowledge/` directory provides onboarding docs and architectural decision r
 - `python3 scripts/project_router.py init-router-root --project <key> --router-root <path>` — scaffold a downstream project-router directory
 - `python3 scripts/project_router.py adopt-router-root --project <key>` — migrate from legacy inbox_path to router_root_path
 - `python3 scripts/project_router.py migrate-source-layout --dry-run` — preview legacy migration
+- `python3 scripts/project_router.py inbox-intake` — ingest and archive inbox packets
+- `python3 scripts/project_router.py inbox-status` — list open inbox packet states
+- `python3 scripts/project_router.py inbox-ack --packet-id <id> --status <applied|blocked|rejected|in_progress>` — acknowledge a packet
 - `python3 scripts/check_agent_surface_parity.py` — validate agent surface parity
 - `python3 scripts/check_repo_ownership.py` — validate ownership manifest
 - `python3 scripts/check_sync_manifest_alignment.py` — validate sync manifest alignment

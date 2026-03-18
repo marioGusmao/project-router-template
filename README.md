@@ -43,24 +43,31 @@ data/
   raw/
     voicenotes/
     project_router/
+    filesystem/
   normalized/
     voicenotes/
     project_router/
+    filesystem/
   compiled/
     voicenotes/
     project_router/
+    filesystem/
   review/
     voicenotes/
     project_router/
+    filesystem/
   dispatched/
   processed/
 Knowledge/
   ADR/
   Templates/
+  local/
+  runbooks/plans/
 router/
   inbox/
   outbox/
   conformance/
+  archive/
 projects/
   registry.shared.json
   registry.example.json
@@ -92,9 +99,11 @@ src/
 .codex/skills/
 .claude/skills/
 .github/workflows/
-VERSION
+version.txt
 CHANGELOG.md
 template.meta.json
+template-base.json
+private.meta.json
 ```
 
 ## Knowledge
@@ -251,7 +260,7 @@ In a private repo, template sync must never touch `private_owned` or `local_only
 
 The template is versioned with semantic releases:
 
-- `VERSION`
+- `version.txt`
 - `CHANGELOG.md`
 - `template.meta.json`
 - `.github/workflows/template-release.yml`

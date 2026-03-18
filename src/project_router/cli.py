@@ -9,7 +9,6 @@ import json
 import os
 import shutil
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,10 +36,15 @@ ENV_LOCAL_PATH = ROOT / ".env.local"
 ENV_PATH = ROOT / ".env"
 DISCOVERY_REPORT_PATH = DISCOVERIES_DIR / "pending_project_latest.json"
 LOCAL_ROUTER_DIR = ROOT / "router"
+LOCAL_ROUTER_ARCHIVE_DIR = LOCAL_ROUTER_DIR / "archive"
+INBOX_STATUS_DIR = PROJECT_ROUTER_STATE_DIR / "inbox_status"
 NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 VOICE_SOURCE = "voicenotes"
 PROJECT_ROUTER_SOURCE = "project_router"
+FILESYSTEM_SOURCE = "filesystem"
+KNOWN_SOURCES = frozenset({VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE})
 REVIEW_QUEUE_STATUSES = ("ambiguous", "needs_review", "pending_project")
+FILESYSTEM_REVIEW_STATUSES = ("parse_errors", "needs_extraction", "needs_review", "ambiguous", "pending_project")
 AMBIGUOUS_DIR = REVIEW_DIR / VOICE_SOURCE / "ambiguous"
 NEEDS_REVIEW_DIR = REVIEW_DIR / VOICE_SOURCE / "needs_review"
 PENDING_PROJECT_DIR = REVIEW_DIR / VOICE_SOURCE / "pending_project"
@@ -208,21 +212,33 @@ def ensure_layout() -> None:
     for path in (
         RAW_DIR / VOICE_SOURCE,
         RAW_DIR / PROJECT_ROUTER_SOURCE,
+        RAW_DIR / FILESYSTEM_SOURCE / "default" / "manifests",
+        RAW_DIR / FILESYSTEM_SOURCE / "default" / "artifacts",
         NORMALIZED_DIR / VOICE_SOURCE,
         NORMALIZED_DIR / PROJECT_ROUTER_SOURCE,
+        NORMALIZED_DIR / FILESYSTEM_SOURCE,
         COMPILED_DIR / VOICE_SOURCE,
         COMPILED_DIR / PROJECT_ROUTER_SOURCE,
+        COMPILED_DIR / FILESYSTEM_SOURCE,
         REVIEW_DIR / VOICE_SOURCE / "ambiguous",
         REVIEW_DIR / VOICE_SOURCE / "needs_review",
         REVIEW_DIR / VOICE_SOURCE / "pending_project",
         REVIEW_DIR / PROJECT_ROUTER_SOURCE / "parse_errors",
         REVIEW_DIR / PROJECT_ROUTER_SOURCE / "needs_review",
         REVIEW_DIR / PROJECT_ROUTER_SOURCE / "pending_project",
+        REVIEW_DIR / FILESYSTEM_SOURCE / "parse_errors",
+        REVIEW_DIR / FILESYSTEM_SOURCE / "needs_extraction",
+        REVIEW_DIR / FILESYSTEM_SOURCE / "needs_review",
+        REVIEW_DIR / FILESYSTEM_SOURCE / "ambiguous",
+        REVIEW_DIR / FILESYSTEM_SOURCE / "pending_project",
         DISPATCHED_DIR,
         PROCESSED_DIR,
         DECISIONS_DIR,
         DISCOVERIES_DIR,
         PROJECT_ROUTER_STATE_DIR,
+        INBOX_STATUS_DIR,
+        LOCAL_ROUTER_ARCHIVE_DIR,
+        STATE_DIR / "filesystem_ingest",
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -235,6 +251,10 @@ def normalize_source_name(raw: str | None) -> str | None:
         "voice_notes": VOICE_SOURCE,
         "voice-notes": VOICE_SOURCE,
         "project-router": PROJECT_ROUTER_SOURCE,
+        "filesystem": FILESYSTEM_SOURCE,
+        "fs": FILESYSTEM_SOURCE,
+        "local-inbox": FILESYSTEM_SOURCE,
+        "inbox": FILESYSTEM_SOURCE,
     }
     return aliases.get(cleaned, cleaned)
 
@@ -242,9 +262,9 @@ def normalize_source_name(raw: str | None) -> str | None:
 def parse_source_filter(raw: str | None) -> set[str]:
     source = normalize_source_name(raw)
     if source is None or source in {"all", "*"}:
-        return {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}
-    if source not in {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}:
-        raise SystemExit(f"Unsupported --source '{raw}'. Use one of: voicenotes, project_router, all.")
+        return set(KNOWN_SOURCES)
+    if source not in KNOWN_SOURCES:
+        raise SystemExit(f"Unsupported --source '{raw}'. Use one of: {', '.join(sorted(KNOWN_SOURCES))}, all.")
     return {source}
 
 
@@ -278,6 +298,8 @@ def raw_dir_for(source: str, source_project: str | None = None) -> Path:
         if not source_project:
             raise SystemExit("project_router artifacts require source_project.")
         return RAW_DIR / PROJECT_ROUTER_SOURCE / source_project
+    if source == FILESYSTEM_SOURCE:
+        return RAW_DIR / FILESYSTEM_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -289,6 +311,8 @@ def normalized_dir_for(source: str, source_project: str | None = None) -> Path:
         if not source_project:
             raise SystemExit("project_router artifacts require source_project.")
         return NORMALIZED_DIR / PROJECT_ROUTER_SOURCE / source_project
+    if source == FILESYSTEM_SOURCE:
+        return NORMALIZED_DIR / FILESYSTEM_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -300,6 +324,8 @@ def compiled_dir_for(source: str, source_project: str | None = None) -> Path:
         if not source_project:
             raise SystemExit("project_router artifacts require source_project.")
         return COMPILED_DIR / PROJECT_ROUTER_SOURCE / source_project
+    if source == FILESYSTEM_SOURCE:
+        return COMPILED_DIR / FILESYSTEM_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -313,6 +339,10 @@ def review_dir_for(source: str, status: str) -> Path:
         if status not in {"parse_errors", "needs_review", "pending_project"}:
             raise SystemExit(f"Unsupported review status '{status}'.")
         return REVIEW_DIR / PROJECT_ROUTER_SOURCE / status
+    if source == FILESYSTEM_SOURCE:
+        if status not in FILESYSTEM_REVIEW_STATUSES:
+            raise SystemExit(f"Unsupported review status '{status}'.")
+        return REVIEW_DIR / FILESYSTEM_SOURCE / status
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -334,6 +364,34 @@ def list_project_router_keys_for_artifacts(directory: Path) -> list[str]:
     return sorted(path.name for path in directory.iterdir() if path.is_dir())
 
 
+def list_filesystem_inbox_keys() -> list[str]:
+    """Return sorted inbox keys found under data/raw/filesystem/."""
+    fs_root = RAW_DIR / FILESYSTEM_SOURCE
+    if not fs_root.exists():
+        return []
+    return sorted(p.name for p in fs_root.iterdir() if p.is_dir())
+
+
+def list_filesystem_manifests(directory: Path | None = None) -> list[Path]:
+    """Walk filesystem manifest directories for .manifest.json files."""
+    output: list[Path] = []
+    if directory is not None:
+        if directory.exists():
+            output.extend(
+                f for f in sorted(directory.iterdir())
+                if f.is_file() and f.name.endswith(".manifest.json")
+            )
+        return output
+    for inbox_key in list_filesystem_inbox_keys():
+        manifests_dir = RAW_DIR / FILESYSTEM_SOURCE / inbox_key / "manifests"
+        if manifests_dir.exists():
+            output.extend(
+                f for f in sorted(manifests_dir.iterdir())
+                if f.is_file() and f.name.endswith(".manifest.json")
+            )
+    return sorted(output)
+
+
 def iter_source_dirs(kind: str, sources: set[str]) -> list[Path]:
     if kind == "raw":
         voice_dir = raw_dir_for(VOICE_SOURCE)
@@ -351,13 +409,25 @@ def iter_source_dirs(kind: str, sources: set[str]) -> list[Path]:
         output.append(voice_dir)
     if PROJECT_ROUTER_SOURCE in sources:
         output.extend(project_root / key for key in list_project_router_keys_for_artifacts(project_root))
+    if FILESYSTEM_SOURCE in sources:
+        if kind == "raw":
+            for inbox_key in list_filesystem_inbox_keys():
+                output.append(RAW_DIR / FILESYSTEM_SOURCE / inbox_key / "manifests")
+        elif kind == "normalized":
+            output.append(NORMALIZED_DIR / FILESYSTEM_SOURCE)
+        elif kind == "compiled":
+            output.append(COMPILED_DIR / FILESYSTEM_SOURCE)
     return output
 
 
 def iter_raw_files_by_source(sources: set[str]) -> list[Path]:
     output: list[Path] = []
-    for directory in iter_source_dirs("raw", sources):
-        output.extend(list_raw_files(directory))
+    non_fs_sources = sources - {FILESYSTEM_SOURCE}
+    if non_fs_sources:
+        for directory in iter_source_dirs("raw", non_fs_sources):
+            output.extend(list_raw_files(directory))
+    if FILESYSTEM_SOURCE in sources:
+        output.extend(list_filesystem_manifests())
     return sorted(output)
 
 
@@ -381,6 +451,8 @@ def review_queue_directories(sources: set[str]) -> list[Path]:
         output.extend(review_dir_for(VOICE_SOURCE, status) for status in REVIEW_QUEUE_STATUSES)
     if PROJECT_ROUTER_SOURCE in sources:
         output.extend(review_dir_for(PROJECT_ROUTER_SOURCE, status) for status in ("parse_errors", "needs_review", "pending_project"))
+    if FILESYSTEM_SOURCE in sources:
+        output.extend(review_dir_for(FILESYSTEM_SOURCE, status) for status in FILESYSTEM_REVIEW_STATUSES)
     return output
 
 
@@ -406,6 +478,29 @@ def has_placeholder_path(path: Path) -> bool:
     return "/ABSOLUTE/PATH/" in str(path)
 
 
+def load_filesystem_inboxes(config: dict[str, Any]) -> dict[str, Path]:
+    """Load filesystem inbox paths from the merged config sources section."""
+    raw_inboxes = (config.get("sources") or {}).get("filesystem_inboxes") or {}
+    result: dict[str, Path] = {}
+    for key, entry in raw_inboxes.items():
+        if not NOTE_ID_PATTERN.fullmatch(key):
+            raise SystemExit(f"Filesystem inbox key '{key}' is invalid. Only letters, numbers, underscores, and hyphens are allowed.")
+        if not isinstance(entry, dict):
+            continue
+        raw_path = entry.get("inbox_path")
+        if not raw_path:
+            continue
+        path = Path(str(raw_path))
+        if has_placeholder_path(path):
+            continue
+        if not path.is_absolute():
+            raise SystemExit(f"Filesystem inbox '{key}' must use an absolute path.")
+        if ".." in path.parts:
+            raise SystemExit(f"Filesystem inbox '{key}' contains an unsafe path component.")
+        result[key] = path
+    return result
+
+
 def require_valid_note_id(raw: Any, *, field: str = "source_note_id") -> str:
     note_id = str(raw or "").strip()
     if not note_id:
@@ -425,7 +520,12 @@ def ensure_safe_inbox_path(path: Path, *, project_key: str, registry_path: Path)
 
 
 def read_registry_config(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Failed to parse {path}: {exc}")
+    except OSError as exc:
+        raise SystemExit(f"Failed to read {path}: {exc}")
 
 
 def merge_registry_configs(shared: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
@@ -440,9 +540,23 @@ def merge_registry_configs(shared: dict[str, Any], local: dict[str, Any]) -> dic
         merged.update(local_projects.get(key) or {})
         merged_projects[key] = merged
 
+    shared_sources = shared.get("sources") or {}
+    local_sources = local.get("sources") or {}
+    merged_sources: dict[str, Any] = {}
+    for key in sorted(set(shared_sources) | set(local_sources)):
+        shared_val = shared_sources.get(key) or {}
+        local_val = local_sources.get(key) or {}
+        if isinstance(shared_val, dict) and isinstance(local_val, dict):
+            merged_val = dict(shared_val)
+            merged_val.update(local_val)
+            merged_sources[key] = merged_val
+        else:
+            merged_sources[key] = local_val if local_val else shared_val
+
     return {
         "defaults": defaults,
         "projects": merged_projects,
+        "sources": merged_sources,
     }
 
 
@@ -511,6 +625,9 @@ def read_note(path: Path) -> tuple[dict[str, Any], str]:
             end_index = index
             break
         if not line.strip():
+            continue
+        if ":" not in line:
+            sys.stderr.write(f"Warning: {path} has unparseable frontmatter line: {line!r}\n")
             continue
         key, _, value = line.partition(":")
         metadata[key.strip()] = parse_scalar(value)
@@ -626,7 +743,7 @@ def list_raw_files(path: Path) -> list[Path]:
 
 
 def remove_review_copies(note_name: str) -> None:
-    for review_dir in review_queue_directories({VOICE_SOURCE, PROJECT_ROUTER_SOURCE}):
+    for review_dir in review_queue_directories(KNOWN_SOURCES):
         review_copy = review_dir / note_name
         if review_copy.exists():
             review_copy.unlink()
@@ -649,6 +766,381 @@ def existing_artifact_path(directory: Path, note_id: str, suffix: str) -> Path |
         rendered = ", ".join(str(path) for path in matches)
         raise SystemExit(f"Multiple canonical artifacts found for note '{safe_note_id}': {rendered}")
     return matches[0] if matches else None
+
+
+def generate_filesystem_note_id() -> str:
+    """Generate an event-based note ID for filesystem ingestion."""
+    import secrets
+
+    ts = iso_now().replace("-", "").replace(":", "")
+    suffix = secrets.token_hex(3)
+    return f"fs_{ts}_{suffix}"
+
+
+def compute_content_hash(path: Path) -> str:
+    """Compute SHA-256 hash of a file's contents."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return f"sha256:{h.hexdigest()}"
+
+
+def create_manifest(
+    source_note_id: str,
+    inbox_key: str,
+    evidence: dict[str, Any],
+    interpretation: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "manifest_version": 1,
+        "source": FILESYSTEM_SOURCE,
+        "source_note_id": source_note_id,
+        "inbox_key": inbox_key,
+        "evidence": evidence,
+        "interpretation": interpretation,
+    }
+
+
+def read_manifest(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise SystemExit(f"Failed to read manifest {path}: {exc}")
+
+
+def update_manifest_interpretation(
+    path: Path,
+    interpretation: dict[str, Any],
+    attempt_record: dict[str, Any],
+) -> None:
+    manifest = read_manifest(path)
+    manifest["interpretation"] = interpretation
+    manifest["evidence"].setdefault("extractor_attempts", []).append(attempt_record)
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def find_manifest_by_content_hash(manifests_dir: Path, content_hash: str) -> Path | None:
+    if not manifests_dir.exists():
+        return None
+    for f in manifests_dir.iterdir():
+        if f.is_file() and f.name.endswith(".manifest.json"):
+            try:
+                m = json.loads(f.read_text(encoding="utf-8"))
+                if m.get("evidence", {}).get("content_hash") == content_hash:
+                    return f
+            except (json.JSONDecodeError, OSError) as exc:
+                print(f"warning: skipping unreadable manifest {f}: {exc}", file=sys.stderr)
+                continue
+    return None
+
+
+def _ingest_state_dir(inbox_key: str) -> Path:
+    return STATE_DIR / "filesystem_ingest" / inbox_key
+
+
+def _read_ingest_state(inbox_key: str, note_id: str) -> dict[str, Any] | None:
+    """Read ingest state for crash recovery. Returns None if missing or corrupt."""
+    path = _ingest_state_dir(inbox_key) / f"{note_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        sys.stderr.write(f"Warning: corrupt ingest state {path}: {exc}\n")
+        return None
+
+
+def _write_ingest_state(inbox_key: str, note_id: str, state: dict[str, Any]) -> None:
+    state_dir = _ingest_state_dir(inbox_key)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    path = state_dir / f"{note_id}.json"
+    path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def ingest_file(file_path: Path, inbox_key: str, inbox_path: Path) -> dict[str, Any]:
+    """Ingest a single file into the filesystem pipeline. Returns summary dict."""
+    from .extractors import extract as run_extractor
+
+    content_hash = compute_content_hash(file_path)
+    manifests_dir = RAW_DIR / FILESYSTEM_SOURCE / inbox_key / "manifests"
+    artifacts_dir = RAW_DIR / FILESYSTEM_SOURCE / inbox_key / "artifacts"
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    same_content_as: list[str] = []
+    existing = find_manifest_by_content_hash(manifests_dir, content_hash)
+    if existing is not None:
+        try:
+            existing_manifest = read_manifest(existing)
+            same_content_as.append(existing_manifest.get("source_note_id", ""))
+        except SystemExit as exc:
+            sys.stderr.write(f"Warning: could not read manifest {existing}: {exc}\n")
+
+    note_id = generate_filesystem_note_id()
+    timestamp = iso_now()
+    ts_prefix = normalize_timestamp(timestamp)
+    ext = file_path.suffix
+
+    def _state(status: str, *, error_code: str | None = None, error_detail: str | None = None,
+               manifest_path_val: str | None = None, artifact_path_val: str | None = None,
+               archive_status: str = "pending") -> dict[str, Any]:
+        return {
+            "first_seen_at": timestamp, "last_seen_at": iso_now(), "status": status,
+            "manifest_path": manifest_path_val, "artifact_path": artifact_path_val,
+            "archive_status": archive_status, "error_code": error_code,
+            "error_detail": error_detail, "content_hash": content_hash,
+        }
+
+    _write_ingest_state(inbox_key, note_id, _state("ingesting"))
+
+    blob_name = f"{ts_prefix}--{note_id}{ext}"
+    blob_path = artifacts_dir / blob_name
+    try:
+        shutil.copy2(str(file_path), str(blob_path))
+    except OSError as exc:
+        _write_ingest_state(inbox_key, note_id, _state("error", error_code="blob_copy_failed", error_detail=str(exc)))
+        raise
+
+    try:
+        result = run_extractor(blob_path)
+    except (MemoryError, RecursionError):
+        _write_ingest_state(inbox_key, note_id, _state("error", error_code="extraction_fatal", error_detail="MemoryError or RecursionError",
+                                                         artifact_path_val=str(blob_path.relative_to(ROOT))))
+        raise
+    except Exception as exc:
+        _write_ingest_state(inbox_key, note_id, _state("error", error_code="extraction_failed", error_detail=str(exc),
+                                                         artifact_path_val=str(blob_path.relative_to(ROOT))))
+        raise
+
+    from datetime import datetime, timezone
+    file_stat = file_path.stat()
+    file_stat_dict = {
+        "size_bytes": file_stat.st_size,
+        "mtime": datetime.fromtimestamp(file_stat.st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+        "mode": oct(file_stat.st_mode & 0o777),
+    }
+
+    import secrets
+    event_id = f"evt_{timestamp.replace('-', '').replace(':', '')}_{secrets.token_hex(3)}"
+
+    attempt_record = {
+        "method": result.extraction_method,
+        "timestamp": timestamp,
+        "success": result.error is None,
+        "needs_ai": result.needs_ai_extraction,
+    }
+
+    evidence = {
+        "ingest_event_id": event_id,
+        "content_hash": content_hash,
+        "original_path_snapshot": str(file_path),
+        "file_stat": file_stat_dict,
+        "canonical_blob_ref": f"artifacts/{blob_name}",
+        "ingested_at": timestamp,
+        "duplicate_of": None,
+        "same_content_as": same_content_as,
+        "archive_status": "pending",
+        "archive_path_snapshot": None,
+        "extractor_attempts": [attempt_record],
+        "errors": ([result.error] if result.error else []),
+    }
+
+    interpretation = {
+        "extracted_text": result.text,
+        "extraction_method": result.extraction_method if result.text else None,
+        "text_quality": ("good" if result.text and not result.needs_ai_extraction else "needs_extraction" if result.needs_ai_extraction else None),
+        "observations": result.metadata,
+        "routing_hints": {},
+        "confidence": (0.8 if result.text and not result.needs_ai_extraction else 0.0),
+        "review_annotations": {},
+        "updated_at": timestamp,
+    }
+
+    manifest = create_manifest(note_id, inbox_key, evidence, interpretation)
+    manifest_name = f"{ts_prefix}--{note_id}.manifest.json"
+    manifest_path = manifests_dir / manifest_name
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rel_manifest = str(manifest_path.relative_to(ROOT))
+    rel_artifact = str(blob_path.relative_to(ROOT))
+    _write_ingest_state(inbox_key, note_id, _state("ingested", manifest_path_val=rel_manifest, artifact_path_val=rel_artifact))
+
+    # Archive: move original to inbox_path/processed/YYYY-MM-DD/
+    archive_dir = inbox_path / "processed" / timestamp[:10]
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archive_dest = archive_dir / file_path.name
+    # Handle collision: append note_id suffix if destination exists
+    if archive_dest.exists():
+        archive_dest = archive_dir / f"{file_path.stem}--{note_id}{file_path.suffix}"
+    try:
+        shutil.move(str(file_path), str(archive_dest))
+    except OSError as exc:
+        _write_ingest_state(inbox_key, note_id, _state("ingested", error_code="archive_failed", error_detail=str(exc),
+                                                         manifest_path_val=rel_manifest, artifact_path_val=rel_artifact))
+        raise
+
+    evidence["archive_status"] = "archived"
+    evidence["archive_path_snapshot"] = str(archive_dest)
+    manifest["evidence"] = evidence
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    _write_ingest_state(inbox_key, note_id, _state("ingested", manifest_path_val=rel_manifest,
+                                                     artifact_path_val=rel_artifact, archive_status="archived"))
+
+    return {
+        "note_id": note_id,
+        "content_hash": content_hash,
+        "needs_extraction": result.needs_ai_extraction,
+        "extraction_method": result.extraction_method,
+        "same_content_as": same_content_as,
+    }
+
+
+def ingest_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    integration = getattr(args, "integration", None)
+    if integration != FILESYSTEM_SOURCE:
+        raise SystemExit(f"Unsupported integration '{integration}'. Currently only 'filesystem' is supported.")
+
+    config = {}
+    if REGISTRY_SHARED_PATH.exists():
+        shared_config = read_registry_config(REGISTRY_SHARED_PATH)
+        local_config = read_registry_config(REGISTRY_LOCAL_PATH) if REGISTRY_LOCAL_PATH.exists() else {}
+        config = merge_registry_configs(shared_config, local_config)
+    elif REGISTRY_LOCAL_PATH.exists():
+        config = read_registry_config(REGISTRY_LOCAL_PATH)
+
+    inboxes = load_filesystem_inboxes(config)
+    target_inbox = getattr(args, "inbox", None)
+    if target_inbox:
+        if target_inbox not in inboxes:
+            raise SystemExit(f"Unknown inbox key '{target_inbox}'. Configured: {sorted(inboxes)}")
+        inboxes = {target_inbox: inboxes[target_inbox]}
+
+    if not inboxes:
+        raise SystemExit("No filesystem inboxes configured. Run: python3 scripts/bootstrap_local.py")
+
+    dry_run = getattr(args, "dry_run", False)
+    error_details: list[dict[str, str]] = []
+    results: dict[str, Any] = {"ingested": 0, "skipped": 0, "errors": 0, "needs_extraction": 0, "inboxes_processed": []}
+
+    for inbox_key, inbox_path in sorted(inboxes.items()):
+        if not inbox_path.exists():
+            results["errors"] += 1
+            detail = {"inbox": inbox_key, "path": str(inbox_path), "error": "inbox path does not exist"}
+            error_details.append(detail)
+            print(f"error: inbox '{inbox_key}' path does not exist: {inbox_path}", file=sys.stderr)
+            continue
+        results["inboxes_processed"].append(inbox_key)
+        for item in sorted(inbox_path.iterdir()):
+            if not item.is_file():
+                continue
+            if item.name.startswith("."):
+                continue
+            if dry_run:
+                results["ingested"] += 1
+                continue
+            try:
+                summary = ingest_file(item, inbox_key, inbox_path)
+                results["ingested"] += 1
+                if summary.get("needs_extraction"):
+                    results["needs_extraction"] += 1
+            except (MemoryError, RecursionError):
+                raise
+            except OSError as exc:
+                results["errors"] += 1
+                detail = {"file": str(item), "inbox": inbox_key, "error": str(exc)}
+                error_details.append(detail)
+                print(f"error: failed to ingest {item}: {exc}", file=sys.stderr)
+            except Exception as exc:  # Extractors may raise arbitrary types; log and continue
+                results["errors"] += 1
+                detail = {"file": str(item), "inbox": inbox_key, "error": f"{type(exc).__name__}: {exc}"}
+                error_details.append(detail)
+                print(f"error: failed to ingest {item}: {exc}", file=sys.stderr)
+
+    if error_details:
+        results["error_details"] = error_details
+    print(json.dumps(results, indent=2, ensure_ascii=False))
+    return 1 if results.get("errors", 0) > 0 else 0
+
+
+def extract_command(args: argparse.Namespace) -> int:
+    """List or update extraction results for filesystem notes."""
+    ensure_layout()
+    note_id = getattr(args, "note_id", None)
+
+    if note_id is None:
+        # List mode: show notes needing extraction
+        pending: list[dict[str, Any]] = []
+        for note_path in iter_normalized_files_by_source({FILESYSTEM_SOURCE}):
+            metadata, body = read_note(note_path)
+            if metadata.get("extraction_status") != "needs_extraction":
+                continue
+            pending.append({
+                "source_note_id": metadata.get("source_note_id"),
+                "canonical_blob_ref": metadata.get("canonical_blob_ref"),
+                "original_filename": metadata.get("original_filename"),
+                "ai_extraction_hint": metadata.get("ai_extraction_hint", ""),
+                "normalized_path": str(note_path),
+            })
+        print(json.dumps({"pending_extraction": pending, "count": len(pending)}, indent=2, ensure_ascii=False))
+        return 0
+
+    # Write mode: update extraction for a specific note
+    note_path = resolve_unique_normalized_note_path(note_id, sources={FILESYSTEM_SOURCE})
+    metadata, body = read_note(note_path)
+
+    extracted_text = getattr(args, "text", None) or ""
+    observations_raw = getattr(args, "observations", None) or "{}"
+    try:
+        observations = json.loads(observations_raw)
+    except json.JSONDecodeError:
+        raise SystemExit(f"Invalid --observations JSON: {observations_raw}")
+
+    # Find and update the manifest
+    manifest_path = None
+    raw_path_str = metadata.get("raw_payload_path")
+    if raw_path_str:
+        candidate = ROOT / raw_path_str if not Path(raw_path_str).is_absolute() else Path(raw_path_str)
+        if candidate.exists():
+            manifest_path = candidate
+
+    if manifest_path is None:
+        print(f"warning: manifest not found for note {note_id} (raw_payload_path={raw_path_str}). Extraction history will not be recorded.", file=sys.stderr)
+
+    if manifest_path:
+        timestamp = iso_now()
+        interpretation = {
+            "extracted_text": extracted_text,
+            "extraction_method": "ai_assisted",
+            "text_quality": "good" if extracted_text else "needs_extraction",
+            "observations": observations,
+            "routing_hints": {},
+            "confidence": 0.8 if extracted_text else 0.0,
+            "review_annotations": {},
+            "updated_at": timestamp,
+        }
+        attempt_record = {
+            "method": "ai_assisted",
+            "timestamp": timestamp,
+            "success": bool(extracted_text),
+            "needs_ai": False,
+        }
+        update_manifest_interpretation(manifest_path, interpretation, attempt_record)
+
+    # Update normalized note
+    title = metadata.get("title", note_id)
+    new_body = f"# {title}\n\n{extracted_text.strip()}\n" if extracted_text else body
+    metadata["extraction_status"] = "complete" if extracted_text else "needs_extraction"
+    metadata["extraction_method"] = "ai_assisted"
+    write_note(note_path, metadata, new_body)
+
+    # Remove from needs_extraction review queue
+    remove_review_copies(note_path.name)
+
+    print(json.dumps({"updated": note_id, "extraction_status": metadata["extraction_status"]}, indent=2, ensure_ascii=False))
+    return 0
 
 
 def decision_packet_path_for_metadata(metadata: dict[str, Any]) -> Path:
@@ -993,6 +1485,9 @@ def compiled_filename_from_metadata(metadata: dict[str, Any]) -> str:
 
 
 def load_raw_recording(path: Path) -> tuple[dict[str, Any], str]:
+    if path.name.endswith(".manifest.json"):
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        return manifest, "filesystem-manifest"
     if path.suffix == ".json":
         payload = json.loads(path.read_text(encoding="utf-8"))
         if payload.get("source") == PROJECT_ROUTER_SOURCE:
@@ -1092,6 +1587,69 @@ def normalized_note_from_raw(raw_path: Path, raw_payload: dict[str, Any], raw_fo
         rendered_body = body if body.startswith("# ") else f"# {title}\n\n{body.strip()}\n"
         return normalized_path, enrich_note_metadata(metadata, rendered_body), rendered_body
 
+    if source == FILESYSTEM_SOURCE:
+        note_id = require_valid_note_id(raw_payload.get("source_note_id"))
+        evidence = raw_payload.get("evidence") or {}
+        interpretation = raw_payload.get("interpretation") or {}
+        inbox_key = raw_payload.get("inbox_key", "default")
+        created_at = evidence.get("ingested_at")
+        original_snapshot = evidence.get("original_path_snapshot", "")
+        original_filename = Path(original_snapshot).name if original_snapshot else note_id
+        title = original_filename
+        note_dir = normalized_dir_for(FILESYSTEM_SOURCE)
+        normalized_path = existing_artifact_path(note_dir, note_id, ".md") or (note_dir / f"{normalize_timestamp(created_at)}--{note_id}.md")
+        extracted_text = interpretation.get("extracted_text") or ""
+        needs_ai = interpretation.get("text_quality") == "needs_extraction" or not extracted_text
+        extraction_status = "complete" if extracted_text and not needs_ai else "needs_extraction"
+        body_text = extracted_text if extracted_text else f"[Binary file — extraction pending: {original_filename}]"
+        body = f"# {title}\n\n{body_text.strip()}\n"
+        metadata = {
+            "source": FILESYSTEM_SOURCE,
+            "source_project": None,
+            "source_note_id": note_id,
+            "source_item_type": "filesystem_ingest",
+            "source_endpoint": f"filesystem/{inbox_key}",
+            "title": title,
+            "created_at": created_at,
+            "recorded_at": None,
+            "recording_type": None,
+            "duration": None,
+            "tags": [],
+            "capture_kind": None,
+            "intent": None,
+            "destination": None,
+            "destination_reason": "",
+            "user_keywords": [],
+            "inferred_keywords": [],
+            "transcript_format": "markdown",
+            "summary_available": False,
+            "summary_source": None,
+            "audio_available": False,
+            "audio_local_path": None,
+            "classification_basis": [],
+            "derived_outputs": [],
+            "thread_id": None,
+            "continuation_of": None,
+            "related_note_ids": [],
+            "status": "normalized",
+            "project": None,
+            "candidate_projects": [],
+            "confidence": 0.0,
+            "routing_reason": "",
+            "review_status": "pending",
+            "requires_user_confirmation": True,
+            "content_hash": evidence.get("content_hash"),
+            "canonical_path": relative_or_absolute(normalized_path),
+            "raw_payload_path": relative_or_absolute(raw_path),
+            "dispatched_to": [],
+            "original_filename": original_filename,
+            "extraction_status": extraction_status,
+            "extraction_method": interpretation.get("extraction_method"),
+            "ai_extraction_hint": (interpretation.get("observations") or {}).get("ai_extraction_hint", ""),
+            "canonical_blob_ref": evidence.get("canonical_blob_ref"),
+        }
+        return normalized_path, enrich_note_metadata(metadata, body), body
+
     recording = dict(raw_payload.get("recording") or {})
     note_id = require_valid_note_id(recording.get("id") or recording.get("uuid"))
     title = recording.get("title") or f"VoiceNotes {recording.get('id') or recording.get('uuid')}"
@@ -1158,6 +1716,8 @@ PRESERVED_NORMALIZED_FIELDS = {
     "continuation_of",
     "related_note_ids",
     "audio_local_path",
+    "extraction_status",
+    "extraction_method",
 }
 
 
@@ -1176,6 +1736,10 @@ def merge_normalized_metadata(existing: dict[str, Any], fresh: dict[str, Any]) -
     if "classification_basis" in existing and existing.get("classification_basis"):
         # keep prior manual/source hints if they exceed the current payload
         merged["classification_basis"] = sorted(set(merged.get("classification_basis", [])) | set(existing.get("classification_basis", [])))
+    if existing.get("extraction_status") == "complete":
+        for ek in ("ai_extraction_hint", "canonical_blob_ref"):
+            if ek in existing:
+                merged[ek] = existing[ek]
     return ensure_note_metadata_defaults(merged)
 
 
@@ -1446,7 +2010,7 @@ def compile_note_artifact(metadata: dict[str, Any], body: str, note_path: Path) 
     )
     ambiguities = build_ambiguities(metadata, open_questions=open_questions, facts=facts)
     compiled_metadata = {
-        "source": metadata.get("source", "voicenotes"),
+        "source": metadata.get("source", VOICE_SOURCE),
         "source_note_id": metadata.get("source_note_id"),
         "title": metadata.get("title"),
         "created_at": metadata.get("created_at"),
@@ -1554,7 +2118,7 @@ def compile_command(args: argparse.Namespace) -> int:
             artifact_metadata["compiled_at"] = iso_now()
             write_note(artifact_path, artifact_metadata, artifact_body)
             packet["compiled"] = {
-                "path": str(artifact_path),
+                "path": relative_or_absolute(artifact_path),
                 "compiled_at": artifact_metadata.get("compiled_at"),
                 "brief_summary": artifact_metadata.get("brief_summary"),
                 "entities": artifact_metadata.get("entities", []),
@@ -1568,7 +2132,7 @@ def compile_command(args: argparse.Namespace) -> int:
             continue
         write_note(artifact_path, artifact_metadata, artifact_body)
         packet["compiled"] = {
-            "path": str(artifact_path),
+            "path": relative_or_absolute(artifact_path),
             "compiled_at": artifact_metadata.get("compiled_at"),
             "brief_summary": artifact_metadata.get("brief_summary"),
             "entities": artifact_metadata.get("entities", []),
@@ -1613,9 +2177,12 @@ def normalize_command(args: argparse.Namespace) -> int:
     skipped = 0
     for raw_file in iter_raw_files_by_source(sources):
         raw_payload, raw_format = load_raw_recording(raw_file)
-        if normalize_source_name(str(raw_payload.get("source") or VOICE_SOURCE)) == PROJECT_ROUTER_SOURCE:
+        detected_source = normalize_source_name(str(raw_payload.get("source") or VOICE_SOURCE))
+        if detected_source == PROJECT_ROUTER_SOURCE:
             packet = raw_payload.get("packet") or {}
             note_id = packet.get("packet_id") or packet.get("source_note_id")
+        elif detected_source == FILESYSTEM_SOURCE:
+            note_id = raw_payload.get("source_note_id")
         else:
             recording = raw_payload.get("recording") or {}
             note_id = recording.get("id") or recording.get("uuid")
@@ -1635,6 +2202,9 @@ def normalize_command(args: argparse.Namespace) -> int:
             continue
 
         write_note(normalized_path, metadata, body)
+        if metadata.get("extraction_status") == "needs_extraction" and detected_source == FILESYSTEM_SOURCE:
+            needs_ext_dir = review_dir_for(FILESYSTEM_SOURCE, "needs_extraction")
+            write_note(needs_ext_dir / normalized_path.name, metadata, body)
         written += 1
 
     print(
@@ -1759,10 +2329,26 @@ def triage_command(args: argparse.Namespace) -> int:
         metadata["destination_reason"] = reason
 
         preserve_manual_review = False
-        if route in ("ambiguous", "needs_review", "pending_project"):
-            preserve_manual_review = previous_status == route and previous_review_status not in (None, "pending")
+        if previous_review_status == "reject":
+            preserve_manual_review = True
+        elif previous_review_status == "approved":
+            preserve_manual_review = (
+                route not in ("ambiguous", "needs_review", "pending_project")
+                and previous_status == "classified"
+                and previous_project == route
+            )
         else:
-            preserve_manual_review = previous_status == "classified" and previous_project == route and previous_review_status not in (None, "pending")
+            if route in ("ambiguous", "needs_review", "pending_project"):
+                preserve_manual_review = (
+                    previous_status == route
+                    and previous_review_status not in (None, "pending")
+                )
+            else:
+                preserve_manual_review = (
+                    previous_status == "classified"
+                    and previous_project == route
+                    and previous_review_status not in (None, "pending")
+                )
 
         if preserve_manual_review:
             metadata["review_status"] = previous_review_status
@@ -1782,7 +2368,7 @@ def triage_command(args: argparse.Namespace) -> int:
             if source == PROJECT_ROUTER_SOURCE and route == "ambiguous":
                 target_dir = review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")
             elif route == "ambiguous":
-                target_dir = review_dir_for(VOICE_SOURCE, "ambiguous")
+                target_dir = review_dir_for(source, "ambiguous")
             elif route == "pending_project":
                 target_dir = review_dir_for(source, "pending_project")
             else:
@@ -1887,6 +2473,32 @@ def dispatch_command(args: argparse.Namespace) -> int:
     if args.confirm_user_approval and not approved_note_ids:
         raise SystemExit("Real dispatch requires at least one --note-id after the user confirms those exact notes.")
 
+    # Pre-validate all --note-id values before entering the dispatch loop
+    if approved_note_ids:
+        lookup: dict[str, tuple[Path, dict]] = {}
+        for npath in iter_normalized_files_by_source(sources):
+            nmeta, _ = read_note(npath)
+            snid = nmeta.get("source_note_id")
+            if snid and snid not in lookup:
+                lookup[snid] = (npath, nmeta)
+        errors = []
+        for nid in sorted(approved_note_ids):
+            if nid not in lookup:
+                errors.append(f"--note-id '{nid}': no matching normalized note found (source filter: {sorted(sources)})")
+                continue
+            _, nmeta = lookup[nid]
+            nstatus = nmeta.get("status", "")
+            # Already-dispatched notes are silently skipped by the main loop — not an error
+            if nstatus == "dispatched":
+                continue
+            if nstatus != "classified":
+                errors.append(f"--note-id '{nid}': status is '{nstatus}', expected 'classified'")
+            nrstatus = nmeta.get("review_status", "")
+            if nrstatus != "approved":
+                errors.append(f"--note-id '{nid}': review_status is '{nrstatus}', expected 'approved'")
+        if errors:
+            raise SystemExit("\n".join(errors))
+
     for note_path in iter_normalized_files_by_source(sources):
         metadata, body = read_note(note_path)
         project_key = metadata.get("project")
@@ -1940,6 +2552,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
 
         if not args.confirm_user_approval:
             candidates[-1]["skip_reason"] = "user confirmation required"
+            skipped += 1
             continue
         if source_note_id not in approved_note_ids:
             candidates[-1]["skip_reason"] = "source_note_id not included in approved allowlist"
@@ -1959,14 +2572,36 @@ def dispatch_command(args: argparse.Namespace) -> int:
             destination.write_text(content, encoding="utf-8")
             mirror_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(destination, mirror_path)
+            # For filesystem-source notes, also dispatch the original blob
+            blob_ref = metadata.get("canonical_blob_ref")
+            source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+            if source == FILESYSTEM_SOURCE and blob_ref:
+                inbox_key = (metadata.get("source_endpoint") or "").replace("filesystem/", "") or "default"
+                if not NOTE_ID_PATTERN.fullmatch(inbox_key):
+                    sys.stderr.write(f"Warning: skipping blob dispatch for {source_note_id}: invalid inbox_key '{inbox_key}'\n")
+                else:
+                    blob_source = RAW_DIR / FILESYSTEM_SOURCE / inbox_key / blob_ref
+                    fs_raw_root = (RAW_DIR / FILESYSTEM_SOURCE).resolve()
+                    if not blob_source.resolve().is_relative_to(fs_raw_root):
+                        sys.stderr.write(f"Warning: skipping blob dispatch for {source_note_id}: blob_ref resolves outside raw dir\n")
+                    elif blob_source.exists():
+                        blob_ext = blob_source.suffix
+                        blob_dest = destination.parent / f"{destination.stem}{blob_ext}"
+                        shutil.copy2(str(blob_source), str(blob_dest))
+                        blob_mirror = mirror_path.parent / blob_dest.name
+                        shutil.copy2(str(blob_source), str(blob_mirror))
+                        candidates[-1]["blob_dispatched"] = str(blob_dest)
         except OSError as exc:
             candidates[-1]["skip_reason"] = f"downstream write failed: {exc}"
             skipped += 1
             continue
 
         metadata["status"] = "dispatched"
-        metadata["dispatched_at"] = "manual-run"
-        metadata["dispatched_to"] = [str(destination)]
+        metadata["dispatched_at"] = iso_now()
+        dispatched_paths = [str(destination)]
+        if candidates[-1].get("blob_dispatched"):
+            dispatched_paths.append(candidates[-1]["blob_dispatched"])
+        metadata["dispatched_to"] = dispatched_paths
         metadata["requires_user_confirmation"] = False
         write_note(note_path, metadata, body)
         packet = load_decision_packet_for_metadata(metadata)
@@ -1986,7 +2621,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
 
     summary = {
         "candidates": candidates,
-        "dispatched": dispatched if args.confirm_user_approval else 0 if not args.dry_run else dispatched,
+        "dispatched": dispatched,
         "skipped": skipped,
         "dry_run": args.dry_run,
         "confirmation_required": not args.dry_run and not args.confirm_user_approval,
@@ -1998,7 +2633,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
 
 
 def pending_project_notes(*, sources: set[str] | None = None) -> list[dict[str, Any]]:
-    active_sources = sources or {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}
+    active_sources = sources or set(KNOWN_SOURCES)
     items: list[dict[str, Any]] = []
     for note_path in iter_normalized_files_by_source(active_sources):
         metadata, body = read_note(note_path)
@@ -2267,7 +2902,7 @@ def count_pending_review_entries(*, sources: set[str]) -> dict[str, int]:
 
 def find_normalized_note_paths(note_id: str, *, sources: set[str] | None = None) -> list[Path]:
     matches: list[Path] = []
-    for path in iter_normalized_files_by_source(sources or {VOICE_SOURCE, PROJECT_ROUTER_SOURCE}):
+    for path in iter_normalized_files_by_source(sources or set(KNOWN_SOURCES)):
         metadata, _ = read_note(path)
         if str(metadata.get("source_note_id")) == note_id:
             matches.append(path)
@@ -2340,7 +2975,12 @@ def decide_command(args: argparse.Namespace) -> int:
         metadata["intent"] = classify_intent(metadata)
         remove_review_copies(note_path.name)
         source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
-        target_dir = review_dir_for(VOICE_SOURCE, "ambiguous") if source == VOICE_SOURCE else review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")
+        if source == VOICE_SOURCE:
+            target_dir = review_dir_for(VOICE_SOURCE, "ambiguous")
+        elif source == PROJECT_ROUTER_SOURCE:
+            target_dir = review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")
+        else:
+            target_dir = review_dir_for(source, "ambiguous")
         write_note(target_dir / note_path.name, metadata, body)
     elif decision == "pending-project":
         metadata["status"] = "pending_project"
@@ -2534,6 +3174,7 @@ def validate_outbox_packet(
     *,
     expected_project_key: str,
     strict: bool = False,
+    supported_packet_types: list[str] | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     required = (
@@ -2566,6 +3207,9 @@ def validate_outbox_packet(
         errors.append(f"{path.name}: filename must match '{normalize_timestamp(str(created_at))}--{packet_id}.md'.")
     if strict and metadata.get("source_note_id"):
         errors.append(f"{path.name}: authored outbox packets must not define source_note_id directly.")
+    packet_type = metadata.get("packet_type")
+    if supported_packet_types is not None and packet_type and packet_type not in supported_packet_types:
+        errors.append(f"{path.name}: packet_type '{packet_type}' not in supported_packet_types {supported_packet_types}")
     content_hash = packet_content_hash(metadata, body)
     normalized = {
         "source": PROJECT_ROUTER_SOURCE,
@@ -2576,10 +3220,95 @@ def validate_outbox_packet(
     return errors, normalized
 
 
-def parse_outbox_packet(path: Path, *, expected_project_key: str, strict: bool = False) -> tuple[dict[str, Any], str, list[str], dict[str, Any]]:
+def parse_outbox_packet(path: Path, *, expected_project_key: str, strict: bool = False, supported_packet_types: list[str] | None = None) -> tuple[dict[str, Any], str, list[str], dict[str, Any]]:
     metadata, body = read_note(path)
-    errors, normalized = validate_outbox_packet(path, metadata, body, expected_project_key=expected_project_key, strict=strict)
+    errors, normalized = validate_outbox_packet(path, metadata, body, expected_project_key=expected_project_key, strict=strict, supported_packet_types=supported_packet_types)
     return metadata, body, errors, normalized
+
+
+# --- Inbox consumption helpers ---
+
+CLASSIFICATION_TO_PACKET_TYPE = {
+    "maintainer-follow-up": "improvement_proposal",
+}
+
+
+def extract_packet_id(path: Path) -> str:
+    """Extract packet_id from filename like '20260316T185247Z--some_id.md'."""
+    stem = path.stem
+    parts = stem.split("--", 1)
+    if len(parts) < 2 or not parts[1]:
+        raise SystemExit(f"Cannot extract packet_id from filename '{path.name}'. Expected format: '{{TIMESTAMP}}--{{PACKET_ID}}.md'.")
+    return parts[1]
+
+
+def load_inbox_packet_state(packet_id: str) -> dict[str, Any] | None:
+    state_path = INBOX_STATUS_DIR / f"{packet_id}.json"
+    if not state_path.exists():
+        return None
+    return json.loads(state_path.read_text(encoding="utf-8"))
+
+
+def save_inbox_packet_state(packet_id: str, state: dict[str, Any]) -> None:
+    INBOX_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+    state_path = INBOX_STATUS_DIR / f"{packet_id}.json"
+    tmp = state_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(state_path)
+
+
+def list_inbox_packets() -> list[tuple[Path, dict[str, Any], str]]:
+    """List .md files in router/inbox/. Returns list of (path, metadata, body)."""
+    inbox = LOCAL_ROUTER_DIR / "inbox"
+    if not inbox.exists():
+        return []
+    results = []
+    for p in sorted(inbox.iterdir()):
+        if not p.is_file() or p.suffix != ".md" or p.name == ".gitkeep":
+            continue
+        metadata, body = read_note(p)
+        results.append((p, metadata, body))
+    return results
+
+
+def convert_brief_to_packet(metadata: dict[str, Any], body: str) -> tuple[dict[str, Any], str]:
+    """Convert compiled-brief metadata to protocol packet format."""
+    converted: dict[str, Any] = {}
+    converted["schema_version"] = "1"
+    packet_id = str(metadata.get("source_note_id") or "")
+    if packet_id:
+        converted["packet_id"] = packet_id
+    converted["created_at"] = str(metadata.get("created_at") or metadata.get("compiled_at") or iso_now())
+    converted["source_project"] = str(metadata.get("source_project") or metadata.get("project") or "unknown")
+    classification = str(metadata.get("classification") or "")
+    packet_type = CLASSIFICATION_TO_PACKET_TYPE.get(classification)
+    if packet_type is None:
+        if classification:
+            sys.stderr.write(f"Warning: unknown classification '{classification}', defaulting to 'insight'.\n")
+        packet_type = "insight"
+    converted["packet_type"] = packet_type
+    title = ""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            break
+    if not title:
+        title = str(metadata.get("brief_summary") or metadata.get("title") or "Untitled")
+        if len(title) > 120:
+            title = title[:117] + "..."
+    converted["title"] = title
+    contract_path = LOCAL_ROUTER_DIR / "router-contract.json"
+    language = "en"
+    if contract_path.exists():
+        try:
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            language = contract.get("default_language", "en")
+        except (json.JSONDecodeError, OSError) as exc:
+            sys.stderr.write(f"Warning: could not read {contract_path}: {exc}. Falling back to language='en'.\n")
+    converted["language"] = language
+    converted["status"] = "open"
+    return converted, body
 
 
 def build_project_router_raw_payload(
@@ -2651,13 +3380,13 @@ def outbox_packet_paths(router_root: Path) -> list[Path]:
 #  Shared scaffold utilities (used by init-router-root and adopt-router-root)
 # ---------------------------------------------------------------------------
 
-DEFAULT_PACKET_TYPES = ["improvement_proposal", "question", "insight"]
+DEFAULT_PACKET_TYPES = ["improvement_proposal", "question", "insight", "ack"]
 
 
 def write_scaffold_dirs(router_root: Path) -> list[Path]:
-    """Create inbox/, outbox/, conformance/. Return created dirs."""
+    """Create inbox/, outbox/, conformance/, archive/. Return created dirs."""
     created: list[Path] = []
-    for name in ("inbox", "outbox", "conformance"):
+    for name in ("inbox", "outbox", "conformance", "archive"):
         d = router_root / name
         d.mkdir(parents=True, exist_ok=True)
         created.append(d)
@@ -3141,10 +3870,11 @@ def run_full_doctor_validation(router_root: Path, project_key: str) -> dict[str,
     for fixture_name in ("valid-packet.example.md", "invalid-packet.example.md"):
         if not (router_root / "conformance" / fixture_name).exists():
             errors.append(f"Missing conformance fixture: {router_root / 'conformance' / fixture_name}")
+    supported_types = contract.get("supported_packet_types")
     packet_ids: set[str] = set()
     packets_report: list[dict[str, Any]] = []
     for path in outbox_packet_paths(router_root):
-        metadata, body, packet_errors, normalized = parse_outbox_packet(path, expected_project_key=str(contract.get("project_key") or project_key))
+        metadata, body, packet_errors, normalized = parse_outbox_packet(path, expected_project_key=str(contract.get("project_key") or project_key), supported_packet_types=supported_types)
         packet_id = normalized.get("source_note_id")
         if packet_id in packet_ids:
             packet_errors.append(f"{path.name}: duplicate packet_id '{packet_id}' in outbox.")
@@ -3366,6 +4096,7 @@ def doctor_command(args: argparse.Namespace) -> int:
             path,
             expected_project_key=str(contract.get("project_key") or expected_project_key),
             strict=args.strict,
+            supported_packet_types=contract.get("supported_packet_types"),
         )
         packet_id = normalized.get("source_note_id")
         if packet_id in packet_ids:
@@ -3545,6 +4276,26 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
                     },
                 )
                 scanned_packets.append({"project_key": project_key, "packet": str(packet_path), "status": status, "raw_path": str(raw_path)})
+        # Reconcile: mark entries for packets that no longer exist in the outbox
+        reconciled = 0
+        for pk, project_entries in (state.get("scanned_packets") or {}).items():
+            if not isinstance(project_entries, dict):
+                continue
+            for nid, entry in list(project_entries.items()):
+                if not isinstance(entry, dict):
+                    continue
+                source_path = entry.get("source_path")
+                if source_path and not Path(source_path).exists() and entry.get("status") != "removed" and entry.get("error_code") not in ("INVALID_CONTRACT", "MISSING_CONTRACT"):
+                    entry["status"] = "removed"
+                    entry["removed_at"] = iso_now()
+                    project_entries[nid] = entry
+                    reconciled += 1
+                    # Clean up associated parse error notes
+                    error_dir = review_dir_for(PROJECT_ROUTER_SOURCE, "parse_errors")
+                    for pattern in (f"{slugify(pk)}--{nid}.md", f"*--{slugify(pk)}--{nid}.md"):
+                        for err_path in error_dir.glob(pattern):
+                            err_path.unlink(missing_ok=True)
+
         save_outbox_scan_state(state)
         print(
             json.dumps(
@@ -3553,6 +4304,7 @@ def scan_outboxes_command(args: argparse.Namespace) -> int:
                     "content_changed": content_changed,
                     "unchanged": unchanged,
                     "invalid": invalid,
+                    "reconciled": reconciled,
                     "include_self": args.include_self,
                     "packets": scanned_packets,
                 },
@@ -3617,7 +4369,7 @@ def migrate_source_layout_command(args: argparse.Namespace) -> int:
     for src, dest in operations:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(src), str(dest))
-    for note_path in iter_normalized_files_by_source({VOICE_SOURCE, PROJECT_ROUTER_SOURCE}) + iter_compiled_files_by_source({VOICE_SOURCE, PROJECT_ROUTER_SOURCE}):
+    for note_path in iter_normalized_files_by_source(set(KNOWN_SOURCES)) + iter_compiled_files_by_source(set(KNOWN_SOURCES)):
         migrate_note_references(note_path, replacements)
     for packet_path in sorted(DECISIONS_DIR.glob("*.json")):
         migrate_decision_packet(packet_path, replacements)
@@ -3649,6 +4401,10 @@ def count_raw(path: Path) -> int:
     return len(list_raw_files(path))
 
 
+def count_manifests(directory: Path | None = None) -> int:
+    return len(list_filesystem_manifests(directory))
+
+
 def status_command(args: argparse.Namespace) -> int:
     ensure_layout()
     sources = parse_source_filter(getattr(args, "source", None))
@@ -3658,22 +4414,28 @@ def status_command(args: argparse.Namespace) -> int:
     project_router_raw = sum(count_raw(path) for path in iter_source_dirs("raw", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     project_router_normalized = sum(count_markdown(path) for path in iter_source_dirs("normalized", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
     project_router_compiled = sum(count_markdown(path) for path in iter_source_dirs("compiled", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
+    filesystem_raw = count_manifests() if FILESYSTEM_SOURCE in sources else 0
+    filesystem_normalized = count_markdown(normalized_dir_for(FILESYSTEM_SOURCE)) if FILESYSTEM_SOURCE in sources else 0
+    filesystem_compiled = count_markdown(compiled_dir_for(FILESYSTEM_SOURCE)) if FILESYSTEM_SOURCE in sources else 0
     scan_state = load_outbox_scan_state() if PROJECT_ROUTER_SOURCE in sources else None
     legacy_backlog = len(legacy_source_layout_operations())
 
-    summary = {
+    summary: dict[str, Any] = {
         "sources": sorted(sources),
         "raw": {
             "voicenotes": voicenotes_raw,
             "project_router": project_router_raw,
+            "filesystem": filesystem_raw,
         },
         "normalized": {
             "voicenotes": voicenotes_normalized,
             "project_router": project_router_normalized,
+            "filesystem": filesystem_normalized,
         },
         "compiled": {
             "voicenotes": voicenotes_compiled,
             "project_router": project_router_compiled,
+            "filesystem": filesystem_compiled,
         },
         "review": {
             "voicenotes": {
@@ -3686,14 +4448,245 @@ def status_command(args: argparse.Namespace) -> int:
                 "pending_project": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "pending_project")) if PROJECT_ROUTER_SOURCE in sources else 0,
                 "needs_review": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")) if PROJECT_ROUTER_SOURCE in sources else 0,
             },
+            "filesystem": {
+                "parse_errors": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "parse_errors")) if FILESYSTEM_SOURCE in sources else 0,
+                "needs_extraction": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "needs_extraction")) if FILESYSTEM_SOURCE in sources else 0,
+                "ambiguous": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "ambiguous")) if FILESYSTEM_SOURCE in sources else 0,
+                "pending_project": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "pending_project")) if FILESYSTEM_SOURCE in sources else 0,
+                "needs_review": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "needs_review")) if FILESYSTEM_SOURCE in sources else 0,
+            },
         },
         "dispatched": sum(count_markdown(path) for path in DISPATCHED_DIR.glob("*") if path.is_dir()),
         "processed": count_markdown(PROCESSED_DIR),
         "decision_packets": len(list(DECISIONS_DIR.glob("*.json"))),
+        "inbox": _count_inbox_states(),
         "legacy_backlog": legacy_backlog,
         "scan_state_path": str(OUTBOX_SCAN_STATE_PATH),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _count_inbox_states() -> dict[str, int]:
+    """Count inbox packets by status for the status command."""
+    counts: dict[str, int] = {}
+    if INBOX_STATUS_DIR.exists():
+        for state_path in INBOX_STATUS_DIR.glob("*.json"):
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                status = state.get("status", "unknown")
+                counts[status] = counts.get(status, 0) + 1
+            except (json.JSONDecodeError, OSError):
+                counts["error"] = counts.get("error", 0) + 1
+    inbox = LOCAL_ROUTER_DIR / "inbox"
+    unprocessed = 0
+    if inbox.exists():
+        for p in inbox.iterdir():
+            if p.is_file() and p.suffix == ".md" and p.name != ".gitkeep":
+                try:
+                    pid = extract_packet_id(p)
+                except SystemExit:
+                    continue
+                if load_inbox_packet_state(pid) is None:
+                    unprocessed += 1
+    if unprocessed:
+        counts["unprocessed"] = unprocessed
+    return counts
+
+
+def inbox_intake_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    dry_run = getattr(args, "dry_run", False)
+    packets = list_inbox_packets()
+    ingested = 0
+    skipped = 0
+    errors = 0
+
+    for path, metadata, body in packets:
+        try:
+            packet_id = extract_packet_id(path)
+        except SystemExit as exc:
+            sys.stderr.write(f"Error: {exc}\n")
+            errors += 1
+            continue
+
+        existing_state = load_inbox_packet_state(packet_id)
+        if existing_state is not None:
+            skipped += 1
+            continue
+
+        is_brief = (metadata.get("capture_kind") or metadata.get("inferred_keywords")) and not metadata.get("packet_id")
+        if is_brief:
+            converted_meta, body = convert_brief_to_packet(metadata, body)
+            if not dry_run:
+                sys.stderr.write(f"Converting compiled brief '{packet_id}' to protocol packet.\n")
+            metadata = converted_meta
+
+        if "packet_id" not in metadata:
+            metadata["packet_id"] = packet_id
+
+        required = ("schema_version", "packet_id", "created_at", "source_project", "packet_type", "title", "language", "status")
+        missing = [f for f in required if f not in metadata or metadata.get(f) in (None, "", [])]
+        if missing:
+            sys.stderr.write(f"Error: {path.name} missing required fields: {', '.join(missing)}\n")
+            if not dry_run:
+                save_inbox_packet_state(packet_id, {
+                    "packet_id": packet_id,
+                    "status": "error",
+                    "error_detail": f"Missing required fields: {', '.join(missing)}",
+                    "transitions": [{"status": "error", "timestamp": iso_now(), "notes": f"Missing: {', '.join(missing)}"}],
+                })
+            errors += 1
+            continue
+
+        if dry_run:
+            print(f"[dry-run] Would intake: {packet_id} ({metadata.get('packet_type', '?')})")
+            ingested += 1
+            continue
+
+        archive_dir = LOCAL_ROUTER_ARCHIVE_DIR / packet_id
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(path), str(archive_dir / "original.md"))
+
+        now = iso_now()
+        save_inbox_packet_state(packet_id, {
+            "packet_id": packet_id,
+            "status": "open",
+            "title": metadata.get("title", ""),
+            "packet_type": metadata.get("packet_type", ""),
+            "source_project": metadata.get("source_project", ""),
+            "created_at": metadata.get("created_at", ""),
+            "ingested_at": now,
+            "transitions": [{"status": "open", "timestamp": now, "notes": "Ingested via inbox-intake"}],
+        })
+
+        path.unlink()
+        ingested += 1
+
+    summary = {"ingested": ingested, "skipped": skipped, "errors": errors}
+    print(json.dumps(summary, indent=2))
+    return 1 if errors > 0 else 0
+
+
+def inbox_status_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    show_all = getattr(args, "all", False)
+    packet_id_filter = getattr(args, "packet_id", None)
+    terminal_states = {"applied", "blocked", "rejected", "error"}
+
+    results: list[dict[str, Any]] = []
+    if INBOX_STATUS_DIR.exists():
+        for state_path in sorted(INBOX_STATUS_DIR.glob("*.json")):
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                sys.stderr.write(f"Warning: unreadable inbox state {state_path.name}: {exc}\n")
+                continue
+
+            if packet_id_filter and state.get("packet_id") != packet_id_filter:
+                continue
+
+            if not show_all and state.get("status") in terminal_states:
+                continue
+
+            results.append(state)
+
+    inbox = LOCAL_ROUTER_DIR / "inbox"
+    unprocessed = 0
+    if inbox.exists():
+        for p in inbox.iterdir():
+            if p.is_file() and p.suffix == ".md" and p.name != ".gitkeep":
+                try:
+                    pid = extract_packet_id(p)
+                except SystemExit:
+                    continue
+                if load_inbox_packet_state(pid) is None:
+                    unprocessed += 1
+
+    output: dict[str, Any] = {"packets": results, "unprocessed_in_inbox": unprocessed}
+    if packet_id_filter and len(results) == 1:
+        output = results[0]
+    print(json.dumps(output, indent=2, ensure_ascii=False))
+    return 0
+
+
+def inbox_ack_command(args: argparse.Namespace) -> int:
+    ensure_layout()
+    packet_id = require_valid_note_id(args.packet_id, field="packet-id")
+    new_status = args.status
+    notes = getattr(args, "notes", None) or ""
+    ref = getattr(args, "ref", None) or ""
+
+    state = load_inbox_packet_state(packet_id)
+    if state is None:
+        raise SystemExit(f"No inbox state found for packet '{packet_id}'. Run inbox-intake first.")
+
+    current_status = state.get("status", "")
+    terminal_states = {"applied", "blocked", "rejected", "error"}
+
+    if current_status in terminal_states:
+        raise SystemExit(f"Packet '{packet_id}' is already in terminal state '{current_status}'. Cannot re-ack.")
+
+    now = iso_now()
+    state["status"] = new_status
+    transitions = state.get("transitions", [])
+    transition: dict[str, Any] = {"status": new_status, "timestamp": now, "notes": notes}
+    if ref:
+        transition["ref"] = ref
+    transitions.append(transition)
+    state["transitions"] = transitions
+
+    if new_status in {"applied", "blocked", "rejected"}:
+        contract_path = LOCAL_ROUTER_DIR / "router-contract.json"
+        source_project = "project_router_template"
+        language = "en"
+        supported_types: list[str] | None = None
+        if contract_path.exists():
+            try:
+                contract = json.loads(contract_path.read_text(encoding="utf-8"))
+                source_project = contract.get("project_key", source_project)
+                language = contract.get("default_language", language)
+                supported_types = contract.get("supported_packet_types")
+            except (json.JSONDecodeError, OSError) as exc:
+                sys.stderr.write(f"Warning: could not read {contract_path}: {exc}. Using defaults.\n")
+
+        if supported_types is not None and "ack" not in supported_types:
+            sys.stderr.write(f"Warning: 'ack' is not in supported_packet_types {supported_types}. The emitted ack packet may fail downstream validation.\n")
+
+        ack_packet_id = f"ack_{packet_id}"
+        ack_meta: dict[str, Any] = {
+            "schema_version": "1",
+            "packet_id": ack_packet_id,
+            "created_at": now,
+            "source_project": source_project,
+            "packet_type": "ack",
+            "title": f"Acknowledgement: {state.get('title', packet_id)}",
+            "language": language,
+            "status": new_status,
+            "related_packet_id": packet_id,
+            "resolution": new_status,
+        }
+        if ref:
+            ack_meta["implementation_ref"] = ref
+        if notes:
+            ack_meta["notes"] = notes
+
+        ack_body = f"# Acknowledgement: {state.get('title', packet_id)}\n\nPacket `{packet_id}` has been marked as **{new_status}**."
+        if notes:
+            ack_body += f"\n\n## Notes\n\n{notes}"
+        if ref:
+            ack_body += f"\n\n## Reference\n\n{ref}"
+
+        ts_prefix = normalize_timestamp(now)
+        outbox_path = LOCAL_ROUTER_DIR / "outbox" / f"{ts_prefix}--{ack_packet_id}.md"
+        write_note(outbox_path, ack_meta, ack_body)
+        sys.stderr.write(f"Ack packet written to {outbox_path.relative_to(ROOT)}\n")
+
+    # Save state AFTER ack write succeeds — if the ack write fails, the
+    # packet stays non-terminal so the user can retry.
+    save_inbox_packet_state(packet_id, state)
+
+    print(json.dumps({"packet_id": packet_id, "new_status": new_status, "timestamp": now}, indent=2))
     return 0
 
 
@@ -3910,7 +4903,7 @@ def context_command(args: argparse.Namespace) -> int:
 
 
 def add_source_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--source", choices=("all", VOICE_SOURCE, PROJECT_ROUTER_SOURCE), default="all", help="Filter work to one source or use all sources.")
+    parser.add_argument("--source", choices=("all", *sorted(KNOWN_SOURCES)), default="all", help="Filter work to one source or use all sources.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -3990,6 +4983,18 @@ def build_parser() -> argparse.ArgumentParser:
     add_source_argument(context)
     context.set_defaults(func=context_command)
 
+    ingest = subparsers.add_parser("ingest", help="Ingest files from a configured filesystem inbox.")
+    ingest.add_argument("--integration", required=True, help="Integration type (currently: filesystem).")
+    ingest.add_argument("--inbox", help="Specific inbox key (default: all configured inboxes).")
+    ingest.add_argument("--dry-run", action="store_true", help="List files without ingesting.")
+    ingest.set_defaults(func=ingest_command)
+
+    extract_parser = subparsers.add_parser("extract", help="List or update extraction results for filesystem notes.")
+    extract_parser.add_argument("--note-id", help="Note ID to update extraction for.")
+    extract_parser.add_argument("--text", help="Extracted text content.")
+    extract_parser.add_argument("--observations", help="JSON observations dict.")
+    extract_parser.set_defaults(func=extract_command)
+
     init_rr = subparsers.add_parser("init-router-root", help="Create a downstream router scaffold.")
     init_rr.add_argument("--project", required=True, help="Project key (must exist in registry.shared.json).")
     init_rr.add_argument("--router-root", required=True, help="Absolute path to the router directory.")
@@ -4007,6 +5012,22 @@ def build_parser() -> argparse.ArgumentParser:
     adopt.add_argument("--dry-run", action="store_true", help="Alias for preview mode.")
     adopt.add_argument("--confirm", action="store_true", help="Required to apply changes.")
     adopt.set_defaults(func=adopt_router_root_command)
+
+    inbox_intake = subparsers.add_parser("inbox-intake", help="Validate and archive incoming inbox packets.")
+    inbox_intake.add_argument("--dry-run", action="store_true", help="Preview without mutation.")
+    inbox_intake.set_defaults(func=inbox_intake_command)
+
+    inbox_status_parser = subparsers.add_parser("inbox-status", help="List inbox packet states.")
+    inbox_status_parser.add_argument("--all", action="store_true", help="Include terminal states.")
+    inbox_status_parser.add_argument("--packet-id", help="Show single packet detail.")
+    inbox_status_parser.set_defaults(func=inbox_status_command)
+
+    inbox_ack = subparsers.add_parser("inbox-ack", help="Acknowledge an inbox packet.")
+    inbox_ack.add_argument("--packet-id", required=True, dest="packet_id", help="Packet ID to acknowledge.")
+    inbox_ack.add_argument("--status", required=True, choices=("in_progress", "applied", "blocked", "rejected"), help="New status.")
+    inbox_ack.add_argument("--notes", help="Optional notes for the acknowledgement.")
+    inbox_ack.add_argument("--ref", help="External reference (e.g., PR URL).")
+    inbox_ack.set_defaults(func=inbox_ack_command)
 
     return parser
 

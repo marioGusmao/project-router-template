@@ -5,6 +5,7 @@
   "supported_packet_types": [
     "improvement_proposal",
     "question",
-    "insight"
+    "insight",
+    "ack"
   ]
 }

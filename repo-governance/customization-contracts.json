@@ -146,15 +146,15 @@
       "validator_hooks": ["check_knowledge_structure"]
     },
     {
-      "pattern": "Knowledge/*.md",
-      "ownership": "template_owned",
-      "sync_policy": "template_sync",
-      "customization_model": "overwrite",
+      "pattern": "Knowledge/runbooks/**",
+      "ownership": "local_only",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
       "private_overlay": null,
       "bootstrap_source": null,
       "agent_load_rule": null,
       "migration_policy": "silent_ok",
-      "validator_hooks": ["check_knowledge_structure"]
+      "validator_hooks": []
     },
     {
       "pattern": "Knowledge/local/**",
@@ -166,6 +166,17 @@
       "agent_load_rule": null,
       "migration_policy": "silent_ok",
       "validator_hooks": []
+    },
+    {
+      "pattern": "Knowledge/*.md",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": ["check_knowledge_structure"]
     },
     {
       "pattern": ".gitignore",
@@ -245,7 +256,7 @@
       "validator_hooks": []
     },
     {
-      "pattern": "VERSION",
+      "pattern": "version.txt",
       "ownership": "template_owned",
       "sync_policy": "template_sync",
       "customization_model": "overwrite",
@@ -366,6 +377,17 @@
       "validator_hooks": []
     },
     {
+      "pattern": "router/archive/**",
+      "ownership": "local_only",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
       "pattern": "router/**",
       "ownership": "shared_review",
       "sync_policy": "review_required",
@@ -458,6 +480,17 @@
       "ownership": "local_only",
       "sync_policy": "blocked",
       "customization_model": "skip",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "requirements-extractors.txt",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync",
+      "customization_model": "overwrite",
       "private_overlay": null,
       "bootstrap_source": null,
       "agent_load_rule": null,

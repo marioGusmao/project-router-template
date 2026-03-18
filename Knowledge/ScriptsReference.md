@@ -33,7 +33,12 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/project_router.py doctor` | doctor | Validate a downstream project's protocol compliance | `--project` flag; downstream project has `router/` directory |
 | `scripts/project_router.py init-router-root` | init-router-root | Create a fresh downstream `router/` scaffold (contract, dirs, fixtures) | `--project` (must exist in shared registry) and `--router-root` (absolute path) |
 | `scripts/project_router.py adopt-router-root` | adopt-router-root | Migrate from legacy `inbox_path` to `router_root_path` with scaffold repair | `--project` or `--all`; `--confirm` to apply; optional `--router-root` for explicit target |
+| `scripts/project_router.py ingest` | ingest | Scan configured filesystem inboxes, copy blobs, run extractors, write manifests, archive originals | `registry.local.json` with `sources.filesystem_inboxes` configured |
+| `scripts/project_router.py extract` | extract | List notes needing AI extraction, or update extraction for a specific note | Ingested + normalized filesystem notes |
 | `scripts/project_router.py context` | context | Generate a live project briefing in the terminal from current state | None |
+| `scripts/project_router.py inbox-intake` | inbox-intake | Ingest and archive inbox packets from `router/inbox/` | Local router contract exists |
+| `scripts/project_router.py inbox-status` | inbox-status | List open inbox packet states | Inbox packets ingested |
+| `scripts/project_router.py inbox-ack` | inbox-ack | Acknowledge a packet (record decision: applied, blocked, rejected) | Inbox packets ingested; requires `--packet-id` and `--status` |
 
 ## Governance
 
@@ -52,6 +57,7 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | Script | Purpose | Prerequisites |
 |--------|---------|---------------|
 | `scripts/sync_ai_files.py` | Restore customization-contract blocks into AI files after upstream overwrite during sync | Called by `template-upstream-sync.yml` Pass 2 |
+| `scripts/render_template_sync_pr_body.py` | Render the PR body for template sync PRs with diff-only diffs | Called by `template-upstream-sync.yml` Pass 5 |
 | `scripts/apply_managed_block_sync.py` | Sync managed blocks from upstream into local README files, preserving content outside markers | Called by `template-upstream-sync.yml` Pass 3 |
 | `scripts/migrate_add_contract_block.py` | Insert customization-contract markers into CLAUDE.md/AGENTS.md for old derived repos that lack them | Run once before first sync; also called by Pass 0 of the sync workflow |
 

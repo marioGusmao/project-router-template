@@ -17,6 +17,7 @@ Your derived content goes in `Knowledge/local/` after bootstrap:
 | `Knowledge/*.md` | template_owned | Yes |
 | `Knowledge/ADR/000-099` | template_owned | Yes |
 | `Knowledge/Templates/local/` | template_owned | Yes |
+| `Knowledge/runbooks/plans/` | local_only | No (gitignored) |
 | `Knowledge/local/` | private_owned | No |
 | `Knowledge/local/ADR/100+` | private_owned | No |
 
@@ -27,6 +28,7 @@ Your derived content goes in `Knowledge/local/` after bootstrap:
 3. **Your private roadmap** goes in `Knowledge/local/Roadmap.md`.
 4. **Operational notes** (scratch, session logs, etc.) go in `Knowledge/local/notes/`.
 5. **Project-specific TLDRs** go in `Knowledge/local/TLDR/` (optional scaffold, seeded from `Knowledge/Templates/local/TLDR/README.md`).
+6. **Plan files** are operational artifacts stored in `Knowledge/runbooks/plans/` (gitignored). They are never committed or synced.
 
 ## Quick Start
 

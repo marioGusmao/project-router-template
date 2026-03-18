@@ -64,6 +64,17 @@ def prompt_for_path(project_key: str, existing_value: str | None) -> str | None:
     return response
 
 
+def prompt_for_inbox_path(inbox_key: str, existing_value: str | None) -> str | None:
+    prompt = f"Absolute inbox path for filesystem inbox '{inbox_key}'"
+    if existing_value:
+        prompt += f" [{existing_value}]"
+    prompt += " (leave blank to skip): "
+    response = input(prompt).strip()
+    if not response:
+        return existing_value
+    return response
+
+
 def build_registry_local(force: bool) -> tuple[dict[str, Any] | None, list[str], str]:
     if not REGISTRY_SHARED_PATH.exists():
         raise SystemExit(f"Missing shared registry at {REGISTRY_SHARED_PATH}.")
@@ -98,8 +109,25 @@ def build_registry_local(force: bool) -> tuple[dict[str, Any] | None, list[str],
         if selected:
             projects_payload[key] = {"router_root_path": selected}
 
+    # Filesystem inboxes
+    existing_sources = existing_local.get("sources") or {}
+    existing_fs = (existing_sources.get("filesystem_inboxes") or {})
+    sources_payload: dict[str, Any] = {}
+    fs_inboxes: dict[str, dict[str, str]] = {}
+    default_inbox_value = str((existing_fs.get("default") or {}).get("inbox_path") or "").strip() or None
+    env_inbox = str(os.environ.get("VN_FILESYSTEM_INBOX_DEFAULT") or "").strip() or None
+    selected_inbox = default_inbox_value if default_inbox_value and not force else env_inbox
+    if selected_inbox is None and os.isatty(0):
+        selected_inbox = prompt_for_inbox_path("default", default_inbox_value if force else None)
+    if selected_inbox:
+        fs_inboxes["default"] = {"inbox_path": selected_inbox}
+    if fs_inboxes:
+        sources_payload["filesystem_inboxes"] = fs_inboxes
+
     REGISTRY_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"projects": projects_payload}
+    payload: dict[str, Any] = {"projects": projects_payload}
+    if sources_payload:
+        payload["sources"] = sources_payload
     REGISTRY_LOCAL_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return payload, warnings, "wrote projects/registry.local.json"
 

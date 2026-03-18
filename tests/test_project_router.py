@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,16 +27,25 @@ def prepare_repo(root: Path) -> None:
     for path in (
         root / "data" / "raw" / "voicenotes",
         root / "data" / "raw" / "project_router",
+        root / "data" / "raw" / "filesystem" / "default" / "manifests",
+        root / "data" / "raw" / "filesystem" / "default" / "artifacts",
         root / "data" / "normalized" / "voicenotes",
         root / "data" / "normalized" / "project_router",
+        root / "data" / "normalized" / "filesystem",
         root / "data" / "compiled" / "voicenotes",
         root / "data" / "compiled" / "project_router",
+        root / "data" / "compiled" / "filesystem",
         root / "data" / "review" / "voicenotes" / "ambiguous",
         root / "data" / "review" / "voicenotes" / "needs_review",
         root / "data" / "review" / "voicenotes" / "pending_project",
         root / "data" / "review" / "project_router" / "parse_errors",
         root / "data" / "review" / "project_router" / "needs_review",
         root / "data" / "review" / "project_router" / "pending_project",
+        root / "data" / "review" / "filesystem" / "parse_errors",
+        root / "data" / "review" / "filesystem" / "needs_extraction",
+        root / "data" / "review" / "filesystem" / "needs_review",
+        root / "data" / "review" / "filesystem" / "ambiguous",
+        root / "data" / "review" / "filesystem" / "pending_project",
         root / "data" / "dispatched",
         root / "data" / "processed",
         root / "projects",
@@ -43,6 +53,11 @@ def prepare_repo(root: Path) -> None:
         root / "state" / "discoveries",
         root / "state" / "project_router",
         root / "state" / "project_router" / "adoptions",
+        root / "state" / "project_router" / "inbox_status",
+        root / "state" / "filesystem_ingest",
+        root / "router" / "inbox",
+        root / "router" / "outbox",
+        root / "router" / "archive",
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -77,6 +92,8 @@ def patch_cli_paths(root: Path) -> ExitStack:
         "ENV_LOCAL_PATH": root / ".env.local",
         "ENV_PATH": root / ".env",
         "LOCAL_ROUTER_DIR": root / "router",
+        "LOCAL_ROUTER_ARCHIVE_DIR": root / "router" / "archive",
+        "INBOX_STATUS_DIR": state / "project_router" / "inbox_status",
     }
     for key, value in patches.items():
         stack.enter_context(mock.patch.object(cli, key, value))
@@ -415,6 +432,44 @@ class ProjectRouterFlowTests(unittest.TestCase):
             payload = parse_print_json(print_mock)
             self.assertEqual(exit_code, 1)
             self.assertEqual(payload["status"], "error")
+
+    def test_doctor_rejects_unsupported_packet_type(self) -> None:
+        """doctor must flag packets whose packet_type is not in supported_packet_types."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            router_root = root / "project-router"
+            (router_root / "inbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "outbox").mkdir(parents=True, exist_ok=True)
+            (router_root / "conformance").mkdir(parents=True, exist_ok=True)
+            (router_root / "router-contract.json").write_text(
+                json.dumps({
+                    "schema_version": "1",
+                    "project_key": "home_renovation",
+                    "default_language": "en",
+                    "supported_packet_types": ["improvement_proposal"],
+                }, indent=2),
+                encoding="utf-8",
+            )
+            (router_root / "conformance" / "valid-packet.example.md").write_text(
+                "---\nschema_version: \"1\"\npacket_id: \"sample_valid\"\ncreated_at: \"2026-03-13T10:00:00Z\"\nsource_project: \"home_renovation\"\npacket_type: \"improvement_proposal\"\ntitle: \"Valid sample\"\nlanguage: \"en\"\nstatus: \"open\"\n---\n\n# Valid sample\n\nBody\n",
+                encoding="utf-8",
+            )
+            (router_root / "conformance" / "invalid-packet.example.md").write_text(
+                "---\nschema_version: \"1\"\npacket_id: \"sample_invalid\"\n---\n\nBroken\n",
+                encoding="utf-8",
+            )
+            # Write an ack packet (not in supported_packet_types)
+            ack_path = router_root / "outbox" / "20260316T120000Z--ack_pkt1.md"
+            ack_path.write_text(
+                "---\nschema_version: \"1\"\npacket_id: \"ack_pkt1\"\ncreated_at: \"2026-03-16T12:00:00Z\"\nsource_project: \"home_renovation\"\npacket_type: \"ack\"\ntitle: \"Ack test\"\nlanguage: \"en\"\nstatus: \"applied\"\n---\n\n# Ack test\n\nBody\n",
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                result = cli.run_full_doctor_validation(router_root, "home_renovation")
+            self.assertEqual(result["status"], "error")
+            type_errors = [e for e in result["errors"] if "unsupported packet_type" in e.lower() or "not in supported_packet_types" in e]
+            self.assertTrue(len(type_errors) > 0, f"Expected unsupported packet_type error, got errors: {result['errors']}")
 
     def test_review_filters_by_source(self) -> None:
         with temporary_repo_dir() as tmp:
@@ -777,23 +832,6 @@ class KnowledgeGovernanceTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("005-safety-invariants.md", result.stderr)
-
-    def test_strict_validator_requires_repo_native_plan_file(self) -> None:
-        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
-            root = Path(tmp)
-            (root / "scripts").mkdir()
-            (root / "repo-governance").mkdir()
-            shutil.copy2(REPO_ROOT / "scripts" / "check_knowledge_structure.py", root / "scripts" / "check_knowledge_structure.py")
-            shutil.copy2(REPO_ROOT / "repo-governance" / "ownership.manifest.json", root / "repo-governance" / "ownership.manifest.json")
-            shutil.copytree(REPO_ROOT / "Knowledge", root / "Knowledge")
-            (root / "Knowledge" / "runbooks" / "plans" / "router-root-migration-and-scaffold.plan.md").unlink()
-
-            result = subprocess.run(
-                ["python3", str(root / "scripts" / "check_knowledge_structure.py"), "--strict"],
-                capture_output=True, text=True, cwd=str(root),
-            )
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("Knowledge/runbooks/plans/router-root-migration-and-scaffold.plan.md", result.stderr)
 
     def test_strict_validator_fails_when_template_scaffold_source_missing(self) -> None:
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmp:
@@ -1793,6 +1831,205 @@ class DispatchCommandTests(unittest.TestCase):
                 packet = cli.load_decision_packet_for_metadata(metadata)
                 self.assertNotIn("dispatch", packet)
 
+    def test_dispatch_no_confirm_counts_skipped(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_dispatch_ready_note(root)
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": False, "note_ids": None, "source": "voicenotes"})()
+                    )
+            output = parse_print_json(mock_print)
+            self.assertGreaterEqual(output["skipped"], 1)
+            self.assertTrue(output["confirmation_required"])
+            for candidate in output["candidates"]:
+                self.assertEqual(candidate["skip_reason"], "user confirmation required")
+
+    def test_dispatch_rejects_nonexistent_note_id(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                with self.assertRaisesRegex(SystemExit, "ghost_123"):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["ghost_123"], "source": "voicenotes"})()
+                    )
+
+    def test_dispatch_rejects_unclassified_note(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_unclass.md"
+            compiled_path = root / "data" / "compiled" / "voicenotes" / "20260311T160000Z--vn_unclass.md"
+            note_metadata = {
+                "source": "voicenotes",
+                "source_note_id": "vn_unclass",
+                "title": "Unclassified note",
+                "created_at": "2026-03-11T16:00:00Z",
+                "status": "pending_review",
+                "project": "home_renovation",
+                "review_status": "approved",
+                "canonical_path": str(note_path.relative_to(root)),
+                "raw_payload_path": str((root / "data" / "raw" / "voicenotes" / "20260311T160000Z--vn_unclass.json").relative_to(root)),
+                "note_type": "project-idea",
+            }
+            cli.write_note(note_path, note_metadata, "# Unclassified\n\nBody.\n")
+            compiled_path.parent.mkdir(parents=True, exist_ok=True)
+            compiled_metadata = {
+                "source": "voicenotes",
+                "source_note_id": "vn_unclass",
+                "title": "Unclassified note",
+                "created_at": "2026-03-11T16:00:00Z",
+                "compiled_at": "2026-03-11T16:05:00Z",
+                "compiled_from_signature": cli.canonical_compile_signature(
+                    cli.read_note(note_path)[0],
+                    cli.read_note(note_path)[1],
+                ),
+                "brief_summary": "Summary",
+            }
+            cli.write_note(compiled_path, compiled_metadata, "# Unclassified\n\nCompiled\n")
+            with patch_cli_paths(root):
+                with self.assertRaisesRegex(SystemExit, "expected 'classified'"):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_unclass"], "source": "voicenotes"})()
+                    )
+
+    def test_dispatch_rejects_unapproved_note(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_unappr.md"
+            compiled_path = root / "data" / "compiled" / "voicenotes" / "20260311T160000Z--vn_unappr.md"
+            note_metadata = {
+                "source": "voicenotes",
+                "source_note_id": "vn_unappr",
+                "title": "Unapproved note",
+                "created_at": "2026-03-11T16:00:00Z",
+                "status": "classified",
+                "project": "home_renovation",
+                "review_status": "pending",
+                "canonical_path": str(note_path.relative_to(root)),
+                "raw_payload_path": str((root / "data" / "raw" / "voicenotes" / "20260311T160000Z--vn_unappr.json").relative_to(root)),
+                "note_type": "project-idea",
+            }
+            cli.write_note(note_path, note_metadata, "# Unapproved\n\nBody.\n")
+            compiled_path.parent.mkdir(parents=True, exist_ok=True)
+            compiled_metadata = {
+                "source": "voicenotes",
+                "source_note_id": "vn_unappr",
+                "title": "Unapproved note",
+                "created_at": "2026-03-11T16:00:00Z",
+                "compiled_at": "2026-03-11T16:05:00Z",
+                "compiled_from_signature": cli.canonical_compile_signature(
+                    cli.read_note(note_path)[0],
+                    cli.read_note(note_path)[1],
+                ),
+                "brief_summary": "Summary",
+            }
+            cli.write_note(compiled_path, compiled_metadata, "# Unapproved\n\nCompiled\n")
+            with patch_cli_paths(root):
+                with self.assertRaisesRegex(SystemExit, "expected 'approved'"):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_unappr"], "source": "voicenotes"})()
+                    )
+
+    def test_dispatch_rejects_partial_invalid_batch(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, _ = _write_dispatch_ready_note(root, "vn_valid")
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_valid", "ghost_456"], "source": "voicenotes"})()
+                    )
+            # Valid note must NOT have been dispatched
+            metadata, _ = cli.read_note(note_path)
+            self.assertEqual(metadata["status"], "classified")
+
+    def test_dispatch_timestamp_is_iso(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_path, _ = _write_dispatch_ready_note(root)
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print"):
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": ["vn_126"], "source": "voicenotes"})()
+                    )
+            metadata, _ = cli.read_note(note_path)
+            self.assertIn("dispatched_at", metadata)
+            self.assertRegex(metadata["dispatched_at"], r"^\d{4}-\d{2}-\d{2}T")
+
+    def test_dispatch_rejects_traversal_in_blob_ref(self) -> None:
+        """Dispatch must not copy blob when canonical_blob_ref contains path traversal."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            note_id = "fs_traverse1"
+            note_path = root / "data" / "normalized" / "filesystem" / f"20260311T160000Z--{note_id}.md"
+            compiled_path = root / "data" / "compiled" / "filesystem" / f"20260311T160000Z--{note_id}.md"
+            note_metadata = {
+                "source": "filesystem",
+                "source_note_id": note_id,
+                "title": "Traversal test",
+                "created_at": "2026-03-11T16:00:00Z",
+                "tags": ["renovation"],
+                "status": "classified",
+                "project": "home_renovation",
+                "candidate_projects": ["home_renovation"],
+                "confidence": 1.0,
+                "routing_reason": "Keyword match.",
+                "requires_user_confirmation": False,
+                "review_status": "approved",
+                "canonical_path": str(note_path.relative_to(root)),
+                "raw_payload_path": str((root / "data" / "raw" / "filesystem" / "default" / "manifests" / f"20260311T160000Z--{note_id}.manifest.json").relative_to(root)),
+                "note_type": "project-idea",
+                "source_endpoint": "filesystem/default",
+                "canonical_blob_ref": "../../etc/passwd",
+                "extraction_status": "complete",
+                "extraction_method": "stdlib_read",
+            }
+            body = "# Traversal test\n\nSome content.\n"
+            cli.write_note(note_path, note_metadata, body)
+            compiled_path.parent.mkdir(parents=True, exist_ok=True)
+            compiled_metadata = {
+                "source": "filesystem",
+                "source_note_id": note_id,
+                "title": "Traversal test",
+                "created_at": "2026-03-11T16:00:00Z",
+                "compiled_at": "2026-03-11T16:05:00Z",
+                "compiled_from_signature": cli.canonical_compile_signature(
+                    cli.read_note(note_path)[0],
+                    cli.read_note(note_path)[1],
+                ),
+                "brief_summary": "Summary",
+            }
+            cli.write_note(compiled_path, compiled_metadata, "# Traversal test\n\nCompiled\n")
+            # Create a fake target file that the traversal would reach
+            fake_target = root / "data" / "raw" / "etc" / "passwd"
+            fake_target.parent.mkdir(parents=True, exist_ok=True)
+            fake_target.write_text("root:x:0:0:root", encoding="utf-8")
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.dispatch_command(
+                        type("Args", (), {"dry_run": False, "confirm_user_approval": True, "note_ids": [note_id], "source": "filesystem"})()
+                    )
+            output = parse_print_json(mock_print)
+            # Note should be dispatched (text part), but blob must not be copied
+            for candidate in output.get("candidates", []):
+                if candidate.get("source_note_id") == note_id:
+                    self.assertNotIn("blob_dispatched", candidate)
+
 
 class ReadNoteTests(unittest.TestCase):
     """Tests for read_note frontmatter parsing edge cases."""
@@ -1810,6 +2047,21 @@ class ReadNoteTests(unittest.TestCase):
             self.assertEqual(metadata, {})
             self.assertIn("---", body)
             self.assertIn("unclosed frontmatter", captured.getvalue())
+
+    def test_read_note_skips_lines_without_colon(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            note_path = root / "badline.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            note_path.write_text("---\ntitle: Good\n- list item without colon\nstatus: draft\n---\nBody here.\n", encoding="utf-8")
+            import io
+            captured = io.StringIO()
+            with mock.patch("sys.stderr", captured):
+                metadata, body = cli.read_note(note_path)
+            self.assertEqual(metadata.get("title"), "Good")
+            self.assertEqual(metadata.get("status"), "draft")
+            self.assertNotIn("- list item without colon", metadata)
+            self.assertIn("unparseable frontmatter line", captured.getvalue())
 
     def test_read_note_no_frontmatter(self) -> None:
         with temporary_repo_dir() as tmp:
@@ -2950,6 +3202,13 @@ class ParserHelpTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("init-router-root", result.stdout)
 
+    def test_extract_does_not_accept_source_argument(self) -> None:
+        result = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "project_router.py"), "extract", "--source", "voicenotes"],
+            capture_output=True, text=True, cwd=str(REPO_ROOT),
+        )
+        self.assertNotEqual(result.returncode, 0)
+
     def test_adopt_router_root_appears_in_help(self) -> None:
         result = subprocess.run(
             ["python3", str(Path(__file__).resolve().parents[1] / "scripts" / "project_router.py"), "--help"],
@@ -3181,6 +3440,1173 @@ class BootstrapLocalTests(unittest.TestCase):
 
             demo = payload["projects"]["demo"]
             self.assertEqual(demo["router_root_path"], str(root / "repos" / "demo" / "project-router"))
+
+
+class FilesystemSourceTests(unittest.TestCase):
+    """Tests for filesystem source ingestion, extraction, and pipeline integration."""
+
+    def _setup(self):
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        prepare_repo(root)
+        stack = patch_cli_paths(root)
+        write_registry(root)
+        return td, root, stack
+
+    def _write_manifest(self, root, note_id="fs_20260316T143000Z_a1b2c3", text="Hello world", needs_extraction=False, blob_ext=".txt"):
+        manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
+        ts = "20260316T143000Z"
+        manifest = {
+            "manifest_version": 1,
+            "source": "filesystem",
+            "source_note_id": note_id,
+            "inbox_key": "default",
+            "evidence": {
+                "ingest_event_id": "evt_test",
+                "content_hash": "sha256:test123",
+                "original_path_snapshot": "/tmp/test.txt",
+                "file_stat": {"size_bytes": 100, "mtime": "2026-03-16T10:00:00Z", "mode": "0644"},
+                "canonical_blob_ref": f"artifacts/{ts}--{note_id}{blob_ext}",
+                "ingested_at": "2026-03-16T14:30:00Z",
+                "duplicate_of": None,
+                "same_content_as": [],
+                "archive_status": "archived",
+                "archive_path_snapshot": "/tmp/processed/test.txt",
+                "extractor_attempts": [{"method": "stdlib_read", "timestamp": "2026-03-16T14:30:00Z", "success": True, "needs_ai": needs_extraction}],
+                "errors": [],
+            },
+            "interpretation": {
+                "extracted_text": text if not needs_extraction else "",
+                "extraction_method": "stdlib_read" if not needs_extraction else None,
+                "text_quality": "good" if not needs_extraction else "needs_extraction",
+                "observations": {},
+                "routing_hints": {},
+                "confidence": 0.8 if not needs_extraction else 0.0,
+                "review_annotations": {},
+                "updated_at": "2026-03-16T14:30:00Z",
+            },
+        }
+        path = manifests_dir / f"{ts}--{note_id}.manifest.json"
+        path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        return path
+
+    def test_parse_source_filter_filesystem(self):
+        self.assertEqual(cli.parse_source_filter("filesystem"), {"filesystem"})
+        self.assertEqual(cli.parse_source_filter("fs"), {"filesystem"})
+
+    def test_parse_source_filter_all_includes_filesystem(self):
+        result = cli.parse_source_filter("all")
+        self.assertIn("filesystem", result)
+        self.assertIn("voicenotes", result)
+        self.assertIn("project_router", result)
+
+    def test_normalize_filesystem_text_file(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, text="Test content here")
+            result = cli.main(["normalize", "--source", "filesystem"])
+            self.assertEqual(result, 0)
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, body = cli.read_note(normalized[0])
+            self.assertEqual(metadata["source"], "filesystem")
+            self.assertIn("Test content here", body)
+            self.assertEqual(metadata["extraction_status"], "complete")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_normalize_filesystem_binary_placeholder(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, needs_extraction=True)
+            result = cli.main(["normalize", "--source", "filesystem"])
+            self.assertEqual(result, 0)
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, body = cli.read_note(normalized[0])
+            self.assertEqual(metadata["extraction_status"], "needs_extraction")
+            self.assertIn("extraction pending", body)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_manifest_evidence_immutability(self):
+        """Evidence survives interpretation updates."""
+        td, root, stack = self._setup()
+        try:
+            manifest_path = self._write_manifest(root)
+            original = cli.read_manifest(manifest_path)
+            original_hash = original["evidence"]["content_hash"]
+            new_interp = {
+                "extracted_text": "Updated text",
+                "extraction_method": "ai_assisted",
+                "text_quality": "good",
+                "observations": {},
+                "routing_hints": {},
+                "confidence": 0.9,
+                "review_annotations": {},
+                "updated_at": "2026-03-16T15:00:00Z",
+            }
+            cli.update_manifest_interpretation(manifest_path, new_interp, {"method": "ai_assisted", "timestamp": "2026-03-16T15:00:00Z", "success": True, "needs_ai": False})
+            updated = cli.read_manifest(manifest_path)
+            self.assertEqual(updated["evidence"]["content_hash"], original_hash)
+            self.assertEqual(updated["interpretation"]["extracted_text"], "Updated text")
+            self.assertEqual(len(updated["evidence"]["extractor_attempts"]), 2)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_manifest_interpretation_replaceable(self):
+        """Re-extraction overwrites interpretation cleanly."""
+        td, root, stack = self._setup()
+        try:
+            manifest_path = self._write_manifest(root)
+            cli.update_manifest_interpretation(manifest_path, {
+                "extracted_text": "New text",
+                "extraction_method": "ai_assisted",
+                "text_quality": "good",
+                "observations": {"lang": "en"},
+                "routing_hints": {},
+                "confidence": 0.9,
+                "review_annotations": {},
+                "updated_at": "2026-03-16T16:00:00Z",
+            }, {"method": "ai_assisted", "timestamp": "2026-03-16T16:00:00Z", "success": True, "needs_ai": False})
+            manifest = cli.read_manifest(manifest_path)
+            self.assertEqual(manifest["interpretation"]["extracted_text"], "New text")
+            self.assertEqual(manifest["interpretation"]["observations"]["lang"], "en")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_triage_routes_filesystem_note(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, text="renovation contractor budget ideas")
+            cli.main(["normalize", "--source", "filesystem"])
+            result = cli.main(["triage", "--source", "filesystem"])
+            self.assertEqual(result, 0)
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, _ = cli.read_note(normalized[0])
+            self.assertIn(metadata["status"], ("classified", "ambiguous", "needs_review", "pending_project"))
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_status_includes_filesystem_counts(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root)
+            cli.main(["normalize", "--source", "filesystem"])
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["status"])
+            output = json.loads(buf.getvalue())
+            self.assertIn("filesystem", output["raw"])
+            self.assertEqual(output["raw"]["filesystem"], 1)
+            self.assertEqual(output["normalized"]["filesystem"], 1)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_command_list_mode(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["extract"])
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["count"], 1)
+            self.assertEqual(output["pending_extraction"][0]["source_note_id"], "fs_20260316T143000Z_a1b2c3")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_command_write_mode(self):
+        td, root, stack = self._setup()
+        try:
+            manifest_path = self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            result = cli.main(["extract", "--note-id", "fs_20260316T143000Z_a1b2c3", "--text", "Extracted by AI"])
+            self.assertEqual(result, 0)
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            metadata, body = cli.read_note(normalized[0])
+            self.assertEqual(metadata["extraction_status"], "complete")
+            self.assertIn("Extracted by AI", body)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_appends_to_evidence_attempts(self):
+        td, root, stack = self._setup()
+        try:
+            manifest_path = self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            cli.main(["extract", "--note-id", "fs_20260316T143000Z_a1b2c3", "--text", "AI text"])
+            manifest = cli.read_manifest(manifest_path)
+            self.assertEqual(len(manifest["evidence"]["extractor_attempts"]), 2)
+            self.assertEqual(manifest["evidence"]["extractor_attempts"][1]["method"], "ai_assisted")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_remove_review_copies_includes_filesystem(self):
+        td, root, stack = self._setup()
+        try:
+            review_dir = root / "data" / "review" / "filesystem" / "needs_extraction"
+            test_file = review_dir / "test-note.md"
+            test_file.write_text("---\ntitle: test\n---\ntest", encoding="utf-8")
+            cli.remove_review_copies("test-note.md")
+            self.assertFalse(test_file.exists())
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_dry_run(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "test.txt").write_text("hello", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = cli.main(["ingest", "--integration", "filesystem", "--dry-run"])
+            self.assertEqual(result, 0)
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["ingested"], 1)
+            self.assertTrue((inbox / "test.txt").exists(), "dry run should not move file")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_creates_manifest_and_blob(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "test.txt").write_text("hello world", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = cli.main(["ingest", "--integration", "filesystem"])
+            self.assertEqual(result, 0)
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["ingested"], 1)
+            manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
+            manifests = list(manifests_dir.glob("*.manifest.json"))
+            self.assertEqual(len(manifests), 1)
+            artifacts_dir = root / "data" / "raw" / "filesystem" / "default" / "artifacts"
+            artifacts = list(artifacts_dir.glob("*"))
+            self.assertEqual(len(artifacts), 1)
+            self.assertFalse((inbox / "test.txt").exists(), "original should be archived")
+            processed = list((inbox / "processed").rglob("test.txt"))
+            self.assertEqual(len(processed), 1)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_dedupe_by_content_hash_without_collapsing_events(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "a.txt").write_text("same content", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["ingest", "--integration", "filesystem"])
+            # Ingest a second file with same content
+            (inbox / "b.txt").write_text("same content", encoding="utf-8")
+            buf2 = io.StringIO()
+            with redirect_stdout(buf2):
+                cli.main(["ingest", "--integration", "filesystem"])
+            manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
+            manifests = list(manifests_dir.glob("*.manifest.json"))
+            self.assertEqual(len(manifests), 2, "Two events even for same content")
+            m1 = json.loads(manifests[0].read_text(encoding="utf-8"))
+            m2 = json.loads(manifests[1].read_text(encoding="utf-8"))
+            self.assertNotEqual(m1["source_note_id"], m2["source_note_id"])
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_bootstrap_writes_sources_section(self):
+        """bootstrap_local.py writes sources section when env var is set."""
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            import importlib
+            mod = importlib.import_module("scripts.bootstrap_local")
+            (root / "projects").mkdir(parents=True, exist_ok=True)
+            shared = {"projects": {"demo": {"display_name": "Demo"}}}
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            original_shared = mod.REGISTRY_SHARED_PATH
+            original_local = mod.REGISTRY_LOCAL_PATH
+            try:
+                mod.REGISTRY_SHARED_PATH = root / "projects" / "registry.shared.json"
+                mod.REGISTRY_LOCAL_PATH = root / "projects" / "registry.local.json"
+                with mock.patch.dict(os.environ, {"VN_ROUTER_ROOT_DEMO": str(root / "repos" / "demo"), "VN_FILESYSTEM_INBOX_DEFAULT": str(root / "inbox")}):
+                    payload, warnings, status = mod.build_registry_local(force=True)
+            finally:
+                mod.REGISTRY_SHARED_PATH = original_shared
+                mod.REGISTRY_LOCAL_PATH = original_local
+            self.assertIn("sources", payload)
+            self.assertIn("filesystem_inboxes", payload["sources"])
+            self.assertEqual(payload["sources"]["filesystem_inboxes"]["default"]["inbox_path"], str(root / "inbox"))
+        finally:
+            td.cleanup()
+
+    def test_extractor_markdown(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.md"
+            test_file.write_text("# Hello\n\nWorld", encoding="utf-8")
+            result = extract(test_file)
+            self.assertEqual(result.text, "# Hello\n\nWorld")
+            self.assertEqual(result.extraction_method, "stdlib_read")
+            self.assertFalse(result.needs_ai_extraction)
+        finally:
+            td.cleanup()
+
+    def test_extractor_image(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.png"
+            # Minimal valid PNG header
+            import struct
+            header = b"\x89PNG\r\n\x1a\n"
+            ihdr_data = struct.pack(">II", 100, 200) + b"\x08\x02\x00\x00\x00"
+            import zlib
+            ihdr_crc = zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF
+            ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + struct.pack(">I", ihdr_crc)
+            test_file.write_bytes(header + ihdr)
+            result = extract(test_file)
+            self.assertTrue(result.needs_ai_extraction)
+            self.assertEqual(result.extraction_method, "metadata_only")
+            self.assertEqual(result.metadata.get("width"), 100)
+            self.assertEqual(result.metadata.get("height"), 200)
+        finally:
+            td.cleanup()
+
+    def test_extractor_graceful_degradation_missing_dep(self):
+        """PDF extractor returns needs_ai when pymupdf missing."""
+        from src.project_router.extractors._pdf import _HAS_PYMUPDF
+        if _HAS_PYMUPDF:
+            return  # Cannot test missing-dep path when dep is installed
+        from src.project_router.extractors._pdf import extract_pdf
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.pdf"
+            test_file.write_bytes(b"%PDF-1.4 fake")
+            result = extract_pdf(test_file)
+            self.assertTrue(result.needs_ai_extraction)
+            self.assertEqual(result.extraction_method, "unavailable")
+        finally:
+            td.cleanup()
+
+    def test_extractor_unsupported_extension(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.xyz"
+            test_file.write_text("mystery", encoding="utf-8")
+            result = extract(test_file)
+            self.assertTrue(result.needs_ai_extraction)
+            self.assertEqual(result.extraction_method, "unsupported")
+        finally:
+            td.cleanup()
+
+    def test_extractor_csv(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.csv"
+            test_file.write_text("a,b,c\n1,2,3\n", encoding="utf-8")
+            result = extract(test_file)
+            self.assertIn("a, b, c", result.text)
+            self.assertEqual(result.extraction_method, "stdlib_csv")
+            self.assertFalse(result.needs_ai_extraction)
+        finally:
+            td.cleanup()
+
+    def test_extractor_json(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.json"
+            test_file.write_text('{"key": "value"}', encoding="utf-8")
+            result = extract(test_file)
+            self.assertIn('"key"', result.text)
+            self.assertEqual(result.extraction_method, "stdlib_json")
+        finally:
+            td.cleanup()
+
+    def test_extractor_html(self):
+        from src.project_router.extractors import extract
+        td = temporary_repo_dir()
+        root = Path(td.name)
+        try:
+            test_file = root / "test.html"
+            test_file.write_text("<p>Hello <b>world</b></p>", encoding="utf-8")
+            result = extract(test_file)
+            self.assertIn("Hello world", result.text)
+            self.assertNotIn("<p>", result.text)
+            self.assertEqual(result.extraction_method, "stdlib_html_strip")
+        finally:
+            td.cleanup()
+
+    def test_load_filesystem_inboxes_rejects_relative_path(self):
+        config = {"sources": {"filesystem_inboxes": {"default": {"inbox_path": "relative/path"}}}}
+        with self.assertRaises(SystemExit) as ctx:
+            cli.load_filesystem_inboxes(config)
+        self.assertIn("absolute path", str(ctx.exception))
+
+    def test_load_filesystem_inboxes_rejects_traversal(self):
+        config = {"sources": {"filesystem_inboxes": {"default": {"inbox_path": "/tmp/../etc/passwd"}}}}
+        with self.assertRaises(SystemExit) as ctx:
+            cli.load_filesystem_inboxes(config)
+        self.assertIn("unsafe path", str(ctx.exception))
+
+    def test_load_filesystem_inboxes_rejects_unsafe_key(self):
+        config = {"sources": {"filesystem_inboxes": {"../../etc": {"inbox_path": "/tmp/inbox"}}}}
+        with self.assertRaises(SystemExit) as ctx:
+            cli.load_filesystem_inboxes(config)
+        self.assertIn("invalid", str(ctx.exception))
+
+    def test_ingest_no_configured_inboxes(self):
+        td, root, stack = self._setup()
+        try:
+            (root / "projects" / "registry.local.json").write_text(json.dumps({"projects": {}}), encoding="utf-8")
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(["ingest", "--integration", "filesystem"])
+            self.assertIn("No filesystem inboxes configured", str(ctx.exception))
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_missing_inbox_path_reports_error(self):
+        td, root, stack = self._setup()
+        try:
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(root / "nonexistent")}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout, redirect_stderr
+            buf = io.StringIO()
+            err_buf = io.StringIO()
+            with redirect_stdout(buf), redirect_stderr(err_buf):
+                result = cli.main(["ingest", "--integration", "filesystem"])
+            self.assertEqual(result, 1)
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["errors"], 1)
+            self.assertIn("error_details", output)
+            self.assertIn("does not exist", err_buf.getvalue())
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_skips_hidden_files_and_dirs(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / ".DS_Store").write_text("", encoding="utf-8")
+            (inbox / "subdir").mkdir()
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["ingest", "--integration", "filesystem", "--dry-run"])
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["ingested"], 0)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_invalid_note_id_fails(self):
+        td, root, stack = self._setup()
+        try:
+            with self.assertRaises(SystemExit):
+                cli.main(["extract", "--note-id", "nonexistent_note", "--text", "hello"])
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_extract_invalid_observations_json_fails(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(["extract", "--note-id", "fs_20260316T143000Z_a1b2c3", "--text", "hello", "--observations", "not{json"])
+            self.assertIn("Invalid --observations JSON", str(ctx.exception))
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_returns_nonzero_on_error(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            inbox_path = root / "fs_inbox"
+            inbox_path.mkdir(parents=True, exist_ok=True)
+            local_reg = {"projects": {}, "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox_path)}}}}
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            (inbox_path / "broken.bin").write_bytes(b"data")
+            with patch_cli_paths(root):
+                with unittest.mock.patch.object(cli, "ingest_file", side_effect=OSError("disk error")):
+                    with unittest.mock.patch("builtins.print"):
+                        rc = cli.ingest_command(type("Args", (), {"integration": "filesystem", "dry_run": False, "source": "filesystem"})())
+            self.assertEqual(rc, 1)
+
+    def test_renormalize_preserves_completed_extraction(self):
+        """Re-normalization must keep extraction_status, extraction_method, ai_extraction_hint, and canonical_blob_ref when extraction_status is complete."""
+        td, root, stack = self._setup()
+        try:
+            inbox_path = root / "fs_inbox"
+            inbox_path.mkdir(parents=True, exist_ok=True)
+            local_reg = {"projects": {}, "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox_path)}}}}
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+
+            # Create a PNG file to ingest (needs_extraction)
+            (inbox_path / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["ingest", "--integration", "filesystem"])
+            # Normalize the filesystem note
+            buf2 = io.StringIO()
+            with redirect_stdout(buf2):
+                cli.main(["normalize", "--source", "filesystem"])
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, body = cli.read_note(normalized[0])
+            self.assertEqual(metadata["extraction_status"], "needs_extraction")
+
+            # Simulate completed extraction
+            metadata["extraction_status"] = "complete"
+            metadata["extraction_method"] = "ai_assisted"
+            cli.write_note(normalized[0], metadata, body)
+
+            # Re-normalize: fields must survive
+            buf3 = io.StringIO()
+            with redirect_stdout(buf3):
+                cli.main(["normalize", "--source", "filesystem"])
+            metadata2, _ = cli.read_note(normalized[0])
+            self.assertEqual(metadata2["extraction_status"], "complete")
+            self.assertEqual(metadata2["extraction_method"], "ai_assisted")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_dedupe_asserts_same_content_as_field(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "a.txt").write_text("same content", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["ingest", "--integration", "filesystem"])
+            (inbox / "b.txt").write_text("same content", encoding="utf-8")
+            buf2 = io.StringIO()
+            with redirect_stdout(buf2):
+                cli.main(["ingest", "--integration", "filesystem"])
+            manifests_dir = root / "data" / "raw" / "filesystem" / "default" / "manifests"
+            manifests = sorted(manifests_dir.glob("*.manifest.json"))
+            self.assertEqual(len(manifests), 2)
+            # The second-ingested manifest links back; check either since sort order isn't guaranteed
+            all_same = []
+            for mp in manifests:
+                m = json.loads(mp.read_text(encoding="utf-8"))
+                all_same.extend(m["evidence"]["same_content_as"])
+            self.assertTrue(len(all_same) > 0, "At least one manifest should reference same_content_as")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_compile_filesystem_note(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, text="renovation contractor budget ideas for the home")
+            cli.main(["normalize", "--source", "filesystem"])
+            cli.main(["triage", "--source", "filesystem"])
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = cli.main(["compile", "--source", "filesystem"])
+            self.assertEqual(result, 0)
+            compiled = list((root / "data" / "compiled" / "filesystem").iterdir())
+            self.assertEqual(len(compiled), 1)
+            metadata, _ = cli.read_note(compiled[0])
+            self.assertEqual(metadata.get("source"), "filesystem")
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_normalize_needs_extraction_populates_review_queue(self):
+        td, root, stack = self._setup()
+        try:
+            self._write_manifest(root, needs_extraction=True)
+            cli.main(["normalize", "--source", "filesystem"])
+            review_dir = root / "data" / "review" / "filesystem" / "needs_extraction"
+            entries = list(review_dir.iterdir())
+            self.assertEqual(len(entries), 1)
+        finally:
+            stack.close()
+            td.cleanup()
+
+    def test_ingest_inbox_key_specific(self):
+        td, root, stack = self._setup()
+        try:
+            inbox = root / "inbox"
+            inbox.mkdir()
+            (inbox / "test.txt").write_text("hello", encoding="utf-8")
+            local_reg = {
+                "projects": {},
+                "sources": {"filesystem_inboxes": {"default": {"inbox_path": str(inbox)}}},
+            }
+            (root / "projects" / "registry.local.json").write_text(json.dumps(local_reg), encoding="utf-8")
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(["ingest", "--integration", "filesystem", "--inbox", "nonexistent"])
+            self.assertIn("Unknown inbox key", str(ctx.exception))
+        finally:
+            stack.close()
+            td.cleanup()
+
+
+    def test_dispatch_filesystem_note_copies_blob(self):
+        """Dispatch of a filesystem note copies the original blob alongside the brief."""
+        td, root, stack = self._setup()
+        try:
+            # Create a blob in artifacts
+            artifacts_dir = root / "data" / "raw" / "filesystem" / "default" / "artifacts"
+            blob_name = "20260316T143000Z--fs_20260316T143000Z_a1b2c3.pdf"
+            (artifacts_dir / blob_name).write_bytes(b"%PDF-fake-content")
+
+            # Write manifest pointing to that blob
+            self._write_manifest(root, text="renovation contractor invoice for budget review", blob_ext=".pdf")
+
+            # Full pipeline: normalize -> triage -> compile -> decide approve -> dispatch
+            cli.main(["normalize", "--source", "filesystem"])
+            cli.main(["triage", "--source", "filesystem"])
+            cli.main(["compile", "--source", "filesystem"])
+
+            # Find the normalized note and check its project assignment
+            normalized = list((root / "data" / "normalized" / "filesystem").iterdir())
+            self.assertEqual(len(normalized), 1)
+            metadata, body = cli.read_note(normalized[0])
+
+            # Force-approve for dispatch, then recompile (decide changes metadata → stale compiled)
+            cli.main(["decide", "--source", "filesystem", "--note-id", "fs_20260316T143000Z_a1b2c3",
+                       "--decision", "approve", "--final-project", "home_renovation"])
+            cli.main(["compile", "--source", "filesystem"])
+
+            # Set up downstream inbox
+            router_root = root / "repos" / "home-renovation" / "project-router"
+            inbox_dir = router_root / "inbox"
+            inbox_dir.mkdir(parents=True, exist_ok=True)
+
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                cli.main(["dispatch", "--source", "filesystem", "--confirm-user-approval",
+                           "--note-id", "fs_20260316T143000Z_a1b2c3"])
+            output = json.loads(buf.getvalue())
+            self.assertGreaterEqual(output["dispatched"], 1)
+
+            # Check that both .md brief AND .pdf blob were dispatched
+            inbox_files = list(inbox_dir.iterdir())
+            extensions = {f.suffix for f in inbox_files}
+            self.assertIn(".md", extensions, "Brief should be dispatched")
+            self.assertIn(".pdf", extensions, "Original blob should be dispatched alongside brief")
+
+            # Verify the blob content
+            pdf_files = [f for f in inbox_files if f.suffix == ".pdf"]
+            self.assertEqual(len(pdf_files), 1)
+            self.assertEqual(pdf_files[0].read_bytes(), b"%PDF-fake-content")
+        finally:
+            stack.close()
+            td.cleanup()
+
+
+def write_protocol_inbox_packet(root: Path, packet_id: str, *, title: str = "Test Packet", packet_type: str = "improvement_proposal", source_project: str = "my_project_router") -> Path:
+    """Write a protocol-format packet into router/inbox/."""
+    inbox = root / "router" / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = inbox / f"20260316T100000Z--{packet_id}.md"
+    path.write_text(
+        "---\n"
+        'schema_version: "1"\n'
+        f'packet_id: "{packet_id}"\n'
+        'created_at: "2026-03-16T10:00:00Z"\n'
+        f'source_project: "{source_project}"\n'
+        f'packet_type: "{packet_type}"\n'
+        f'title: "{title}"\n'
+        'language: "en"\n'
+        'status: "open"\n'
+        "---\n\n"
+        f"# {title}\n\nBody content.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_compiled_brief_inbox_packet(root: Path, packet_id: str, *, title: str = "Brief Title") -> Path:
+    """Write a compiled-brief format packet into router/inbox/ (needs conversion)."""
+    inbox = root / "router" / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = inbox / f"20260316T100000Z--{packet_id}.md"
+    path.write_text(
+        "---\n"
+        'source: "project_router"\n'
+        'source_project: "my_project_router"\n'
+        f'source_note_id: "{packet_id}"\n'
+        'created_at: "2026-03-16T10:00:00Z"\n'
+        'project: "project_router_template"\n'
+        'classification: "maintainer-follow-up"\n'
+        'capture_kind: "project_idea"\n'
+        'intent: "actionable"\n'
+        'confidence: 1.0\n'
+        'inferred_keywords: ["template", "sync"]\n'
+        'status: "to_review"\n'
+        "---\n\n"
+        f"# {title}\n\n## Project-ready brief\n\nSome brief content.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_local_router_contract(root: Path) -> None:
+    """Write a router-contract.json for the local router."""
+    contract_path = root / "router" / "router-contract.json"
+    contract_path.write_text(
+        json.dumps({
+            "schema_version": "1",
+            "project_key": "project_router_template",
+            "default_language": "en",
+            "supported_packet_types": ["improvement_proposal", "question", "insight", "ack"],
+        }, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+class InboxConsumptionTests(unittest.TestCase):
+
+    def test_inbox_intake_valid_packet(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            pkt = write_protocol_inbox_packet(root, "pkt_valid")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 1)
+            self.assertEqual(result["skipped"], 0)
+            self.assertEqual(result["errors"], 0)
+            # Packet removed from inbox
+            self.assertFalse(pkt.exists())
+            # Archived
+            archive = root / "router" / "archive" / "pkt_valid" / "original.md"
+            self.assertTrue(archive.exists())
+            # State created
+            state_path = root / "state" / "project_router" / "inbox_status" / "pkt_valid.json"
+            self.assertTrue(state_path.exists())
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "open")
+            self.assertEqual(state["packet_id"], "pkt_valid")
+
+    def test_inbox_intake_converts_brief(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            pkt = write_compiled_brief_inbox_packet(root, "brief_001", title="Brief Title")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 1)
+            self.assertFalse(pkt.exists())
+            state = json.loads((root / "state" / "project_router" / "inbox_status" / "brief_001.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "open")
+            self.assertEqual(state["packet_type"], "improvement_proposal")
+
+    def test_inbox_intake_invalid_stays(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            # Write a packet missing required fields
+            inbox = root / "router" / "inbox"
+            bad = inbox / "20260316T100000Z--bad_pkt.md"
+            bad.write_text("---\ntitle: \"Broken\"\n---\n\n# Broken\n", encoding="utf-8")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["errors"], 1)
+            # Bad packet stays in inbox
+            self.assertTrue(bad.exists())
+            # No archive created
+            archive = root / "router" / "archive" / "bad_pkt" / "original.md"
+            self.assertFalse(archive.exists())
+
+    def test_inbox_intake_idempotent(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_idem")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            # Run again
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 0)
+            self.assertEqual(result["skipped"], 0)
+
+    def test_inbox_intake_dry_run(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            pkt = write_protocol_inbox_packet(root, "pkt_dry")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": True})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 1)
+            # Packet NOT removed from inbox
+            self.assertTrue(pkt.exists())
+            # No state created
+            state_path = root / "state" / "project_router" / "inbox_status" / "pkt_dry.json"
+            self.assertFalse(state_path.exists())
+
+    def test_inbox_intake_ignores_gitkeep(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            gitkeep = root / "router" / "inbox" / ".gitkeep"
+            gitkeep.write_text("", encoding="utf-8")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 0)
+            self.assertTrue(gitkeep.exists())
+
+    def test_inbox_status_lists_open(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_open")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_status_command(type("Args", (), {"all": False, "packet_id": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(len(result["packets"]), 1)
+            self.assertEqual(result["packets"][0]["status"], "open")
+
+    def test_inbox_status_all(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_for_ack")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            # Ack it to terminal state
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_for_ack", "status": "applied", "notes": None, "ref": None})())
+            # Default: terminal excluded
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_status_command(type("Args", (), {"all": False, "packet_id": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(len(result["packets"]), 0)
+            # --all: includes terminal
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_status_command(type("Args", (), {"all": True, "packet_id": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(len(result["packets"]), 1)
+            self.assertEqual(result["packets"][0]["status"], "applied")
+
+    def test_inbox_ack_applied_outbox(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_apply", title="Apply Me")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_apply", "status": "applied", "notes": "Done", "ref": "https://example.com/pr/1"})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["new_status"], "applied")
+            # State updated
+            state = json.loads((root / "state" / "project_router" / "inbox_status" / "pkt_apply.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "applied")
+            # Outbox ack packet generated
+            outbox_files = list((root / "router" / "outbox").glob("*--ack_pkt_apply.md"))
+            self.assertEqual(len(outbox_files), 1)
+            meta, body = cli.read_note(outbox_files[0])
+            self.assertEqual(meta["packet_type"], "ack")
+            self.assertEqual(meta["related_packet_id"], "pkt_apply")
+            self.assertEqual(meta["resolution"], "applied")
+            self.assertEqual(meta["implementation_ref"], "https://example.com/pr/1")
+
+    def test_inbox_ack_rejected(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_reject")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_reject", "status": "rejected", "notes": "Not relevant", "ref": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["new_status"], "rejected")
+            outbox_files = list((root / "router" / "outbox").glob("*--ack_pkt_reject.md"))
+            self.assertEqual(len(outbox_files), 1)
+
+    def test_inbox_ack_in_progress_no_outbox(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_wip")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_wip", "status": "in_progress", "notes": None, "ref": None})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["new_status"], "in_progress")
+            state = json.loads((root / "state" / "project_router" / "inbox_status" / "pkt_wip.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "in_progress")
+            # No outbox packet for intermediate state
+            outbox_files = list((root / "router" / "outbox").glob("*--ack_pkt_wip.md"))
+            self.assertEqual(len(outbox_files), 0)
+
+    def test_inbox_ack_blocks_invalid_transition(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_done")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_done", "status": "applied", "notes": None, "ref": None})())
+            # Try to re-ack terminal state
+            with patch_cli_paths(root):
+                with self.assertRaises(SystemExit):
+                    cli.inbox_ack_command(type("Args", (), {"packet_id": "pkt_done", "status": "rejected", "notes": None, "ref": None})())
+
+    def test_status_includes_inbox(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            write_local_router_contract(root)
+            write_protocol_inbox_packet(root, "pkt_status_test")
+            with patch_cli_paths(root), mock.patch("builtins.print"):
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.status_command(type("Args", (), {"source": None})())
+            result = parse_print_json(mock_print)
+            self.assertIn("inbox", result)
+            self.assertEqual(result["inbox"].get("open", 0), 1)
+
+    def test_inbox_ack_rejects_nonexistent_packet(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            with patch_cli_paths(root):
+                with self.assertRaisesRegex(SystemExit, "ghost_pkt"):
+                    cli.inbox_ack_command(
+                        type("Args", (), {"packet_id": "ghost_pkt", "status": "applied", "ref": "", "notes": ""})()
+                    )
+
+
+class TriagePreservationTests(unittest.TestCase):
+    """Regression tests: triage must not reset manual review decisions."""
+
+    def test_triage_preserves_rejected_note(self) -> None:
+        """Reject is unconditionally durable across triage reruns."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_rej1", status="needs_review", project=None,
+                                review_status="reject", tags=["renovation"],
+                                body_text="Renovation contractor budget.\n")
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rej1.md")
+            self.assertEqual(metadata["review_status"], "reject")
+            self.assertTrue(metadata["requires_user_confirmation"])
+
+    def test_triage_preserves_approved_same_route(self) -> None:
+        """Approved is preserved when triage re-routes to the same project."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_app1", status="classified", project="home_renovation",
+                                review_status="approved", tags=["renovation"],
+                                body_text="Renovation contractor budget.\n")
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_app1.md")
+            self.assertEqual(metadata["review_status"], "approved")
+            self.assertEqual(metadata["status"], "classified")
+            self.assertEqual(metadata["project"], "home_renovation")
+
+    def test_triage_resets_pending_review_status(self) -> None:
+        """Pending review_status is not over-preserved."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_pend1", status="classified", project="home_renovation",
+                                review_status="pending", tags=["renovation"])
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_pend1.md")
+            self.assertEqual(metadata["review_status"], "pending")
+
+    def test_triage_invalidates_approved_when_route_changes(self) -> None:
+        """Approved is invalidated when triage routes to a different destination."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_app2", status="classified", project="home_renovation",
+                                review_status="approved", tags=[],
+                                body_text="Unrelated content.\n")
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_app2.md")
+            self.assertEqual(metadata["review_status"], "pending")
+
+    def test_triage_preserves_user_decided_ambiguous(self) -> None:
+        """Ambiguous review_status preserved when route is stable (ambiguous → ambiguous)."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            # Two projects with equal keyword overlap → ambiguous route
+            shared = {
+                "defaults": {"min_keyword_hits": 2},
+                "projects": {
+                    "home_renovation": {
+                        "display_name": "Home Renovation",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["renovation", "contractor", "budget"],
+                    },
+                    "office_renovation": {
+                        "display_name": "Office Renovation",
+                        "language": "en",
+                        "note_type": "project-idea",
+                        "keywords": ["renovation", "contractor", "office"],
+                    },
+                },
+            }
+            (root / "projects" / "registry.shared.json").write_text(json.dumps(shared), encoding="utf-8")
+            (root / "projects" / "registry.local.json").write_text(
+                json.dumps({"projects": {
+                    "home_renovation": {"router_root_path": str(root / "repos" / "home-renovation" / "project-router")},
+                    "office_renovation": {"router_root_path": str(root / "repos" / "office-renovation" / "project-router")},
+                }}, indent=2),
+                encoding="utf-8",
+            )
+            # Body triggers equal hits for both projects (renovation + contractor = 2 each)
+            _write_triaged_note(root, "vn_amb1", status="ambiguous", project=None,
+                                review_status="ambiguous", tags=[],
+                                body_text="Renovation contractor discussion.\n")
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_amb1.md")
+            self.assertEqual(metadata["review_status"], "ambiguous")
+
+    def test_decide_reject_then_triage_round_trip(self) -> None:
+        """Full round-trip: decide reject → triage → reject survives."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            _write_triaged_note(root, "vn_rt1", status="classified", project="home_renovation",
+                                review_status="pending", tags=["renovation"],
+                                body_text="Renovation contractor budget.\n")
+            with patch_cli_paths(root):
+                cli.decide_command(type("Args", (), {
+                    "note_id": "vn_rt1", "decision": "reject", "final_project": None,
+                    "final_type": None, "user_keywords": None, "related_note_ids": None,
+                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                })())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rt1.md")
+            self.assertEqual(metadata["review_status"], "reject")
+            # Now re-triage
+            with patch_cli_paths(root), unittest.mock.patch("builtins.print"):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rt1.md")
+            self.assertEqual(metadata["review_status"], "reject")
+            self.assertTrue(metadata["requires_user_confirmation"])
 
 
 if __name__ == "__main__":

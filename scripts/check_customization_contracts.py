@@ -81,6 +81,31 @@ def classify_contract_path(path: str, surfaces: list[dict]) -> dict | None:
     return None
 
 
+def tracked_repo_files() -> list[str]:
+    """Return sorted list of repo-relative paths for committed/tracked files only."""
+    try:
+        repo_root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if Path(repo_root).resolve() != ROOT.resolve():
+            raise subprocess.CalledProcessError(returncode=1, cmd=["git", "rev-parse", "--show-toplevel"])
+        result = subprocess.run(
+            ["git", "ls-files", "--cached"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        print("WARNING: git not available or repo root mismatch — tracked-file coverage check skipped", file=sys.stderr)
+        return []
+
+
 def visible_repo_files() -> list[str]:
     try:
         repo_root = subprocess.run(
@@ -279,6 +304,15 @@ def check_release_note_requirements(changed_paths: list[str], surfaces: list[dic
     ]
 
 
+def check_tracked_file_coverage(surfaces: list[dict]) -> list[str]:
+    """Fail if any committed file is not covered by any contract pattern."""
+    errors: list[str] = []
+    for file in tracked_repo_files():
+        if classify_contract_path(file, surfaces) is None:
+            errors.append(f"{file}: tracked file not covered by any contract pattern")
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if not CONTRACTS_PATH.exists():
@@ -300,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
     errors.extend(check_contract_markers(surfaces))
     errors.extend(check_repo_artifacts(visible_repo_files()))
     errors.extend(check_release_note_requirements(changed_paths, surfaces))
+    errors.extend(check_tracked_file_coverage(surfaces))
 
     if errors:
         for error in errors:

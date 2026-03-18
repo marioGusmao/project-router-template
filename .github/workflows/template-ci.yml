@@ -64,18 +64,18 @@ jobs:
           import json
           from pathlib import Path
 
-          version = Path("VERSION").read_text(encoding="utf-8").strip()
+          version = Path("version.txt").read_text(encoding="utf-8").strip()
           template_meta = json.loads(Path("template.meta.json").read_text(encoding="utf-8"))
           release_manifest = json.loads(Path(".release-please-manifest.json").read_text(encoding="utf-8"))
 
           errors = []
           if template_meta.get("version") != version:
               errors.append(
-                  f"template.meta.json version {template_meta.get('version')!r} does not match VERSION {version!r}"
+                  f"template.meta.json version {template_meta.get('version')!r} does not match version.txt {version!r}"
               )
           if release_manifest.get(".") != version:
               errors.append(
-                  f".release-please-manifest.json version {release_manifest.get('.')!r} does not match VERSION {version!r}"
+                  f".release-please-manifest.json version {release_manifest.get('.')!r} does not match version.txt {version!r}"
               )
 
           if errors:

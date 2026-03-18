@@ -42,6 +42,11 @@
       "sync_policy": "template_sync"
     },
     {
+      "pattern": "Knowledge/runbooks/**",
+      "ownership": "local_only",
+      "sync_policy": "blocked"
+    },
+    {
       "pattern": "Knowledge/*.md",
       "ownership": "template_owned",
       "sync_policy": "template_sync"
@@ -87,6 +92,11 @@
       "sync_policy": "template_sync"
     },
     {
+      "pattern": "router/archive/**",
+      "ownership": "local_only",
+      "sync_policy": "blocked"
+    },
+    {
       "pattern": "router/**",
       "ownership": "shared_review",
       "sync_policy": "review_required"
@@ -102,7 +112,7 @@
       "sync_policy": "template_sync"
     },
     {
-      "pattern": "VERSION",
+      "pattern": "version.txt",
       "ownership": "template_owned",
       "sync_policy": "template_sync"
     },
@@ -215,6 +225,11 @@
       "pattern": "state/**",
       "ownership": "local_only",
       "sync_policy": "blocked"
+    },
+    {
+      "pattern": "requirements-extractors.txt",
+      "ownership": "template_owned",
+      "sync_policy": "template_sync"
     }
   ]
 }

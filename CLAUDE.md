@@ -50,6 +50,12 @@ python3 scripts/project_router.py init-router-root --project home_renovation --r
 python3 scripts/project_router.py adopt-router-root --project home_renovation  # migrate inbox_path → router_root_path
 python3 scripts/project_router.py migrate-source-layout --dry-run  # preview legacy migration
 
+# Filesystem ingestion
+python3 scripts/project_router.py ingest --integration filesystem  # ingest files from local inbox
+python3 scripts/project_router.py ingest --integration filesystem --dry-run  # preview ingest
+python3 scripts/project_router.py extract  # list notes needing extraction
+python3 scripts/project_router.py extract --note-id fs_xxx --text "..." --observations '{}'  # update extraction
+
 # Record user decisions
 python3 scripts/project_router.py decide --note-id vn_123 --decision approve
 
@@ -89,15 +95,18 @@ No linter or formatter is configured. No build step required.
 
 **Entry point:** `scripts/project_router.py` → `src/project_router/cli.py::main(argv)` using argparse subcommands.
 
-**Single-module CLI:** All logic lives in `src/project_router/cli.py`. No external dependencies — stdlib only.
+**CLI module + extractors:** Core pipeline logic lives in `src/project_router/cli.py`. Modular content extractors live in `src/project_router/extractors/`. The core pipeline has zero external dependencies (stdlib only); extractors may use optional packages (`pymupdf`, `python-docx`) per ADR-007.
 
-**Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`, plus read-only downstream intake via `scan-outboxes`
+**Pipeline flow:** `sync → normalize → triage → compile → review/decide → dispatch`, plus read-only downstream intake via `scan-outboxes`, and `ingest → normalize → extract → triage → compile → dispatch` for the filesystem source.
 
 Each stage reads from the previous stage's source-aware output directory:
 - `data/raw/voicenotes/` → `normalize --source voicenotes` → `data/normalized/voicenotes/`
 - `data/raw/project_router/<project>/` → `normalize --source project_router` → `data/normalized/project_router/<project>/`
+- `data/raw/filesystem/<inbox_key>/manifests/` → `normalize --source filesystem` → `data/normalized/filesystem/`
 - `data/normalized/...` → `triage` / `compile` → source-aware `data/review/...` and `data/compiled/...`
 - `data/compiled/...` → `dispatch` → `data/dispatched/` + downstream inbox mirror
+
+**Extractors:** Modular content extraction in `src/project_router/extractors/`. Stdlib-only for text formats; optional `pymupdf` and `python-docx` for binary formats (see `requirements-extractors.txt`). Core pipeline remains zero-dep per ADR-001; extractors gracefully degrade when optional deps are missing.
 
 **State directory** (`state/`, gitignored): sync checkpoints, user decision packets (JSON), discovery reports.
 
@@ -149,9 +158,18 @@ At the beginning of a session:
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`
-5. Run `python3 scripts/project_router.py review`
-6. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`
-7. Stop there and ask the user what to approve, reject, or refine
+5. If filesystem inboxes are configured, run:
+   - `python3 scripts/project_router.py ingest --integration filesystem`
+   - `python3 scripts/project_router.py normalize --source filesystem`
+   - `python3 scripts/project_router.py extract` (list pending, then extract each)
+   - `python3 scripts/project_router.py triage --source filesystem`
+   - `python3 scripts/project_router.py compile --source filesystem`
+6. Run `python3 scripts/project_router.py review`
+7. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`
+8. If router inbox packets exist, run:
+   - `python3 scripts/project_router.py inbox-intake`
+   - `python3 scripts/project_router.py inbox-status`
+9. Stop there and ask the user what to approve, reject, or refine
 
 If `.env.local` is missing, skip `sync` and explain that the local VoiceNotes token is not configured on this machine.
 
@@ -166,7 +184,7 @@ These are critical — never violate:
 - **Compiled packages must be fresh** relative to the canonical normalized note before dispatch
 - **Never write to a downstream project during session opening or review analysis** — stop at `review` and ask the user what to approve
 - **Never mutate downstream `router/outbox/` content during scan or review** — `scan-outboxes` is read-only
-- **Send uncertain notes to the source-aware review queues** under `data/review/voicenotes/` or `data/review/project_router/` when no current project/rule exists yet
+- **Send uncertain notes to the source-aware review queues** under `data/review/voicenotes/`, `data/review/project_router/`, or `data/review/filesystem/` when no current project/rule exists yet
 - **Registry paths must be absolute** — `router_root_path` and `inbox_path` in the registry use absolute paths; placeholder paths trigger validation errors during dispatch. Internal metadata paths (`canonical_path`, `raw_payload_path`, `compiled_from_path`) use project-relative paths.
 - **Fail closed** when local config is missing or uses placeholder paths
 - **Canonical metadata lives in source-aware `data/normalized/` paths** — review copies are queue views, not the source of truth
@@ -199,9 +217,11 @@ These are critical — never violate:
 ## Workflow Preferences
 
 - Prefer `python3 scripts/project_router_client.py` for direct VoiceNotes API access — do not use ad-hoc `curl`
-- Prefer `python3 scripts/project_router.py doctor` before trusting a downstream `router/` surface
+- Prefer `python3 scripts/project_router.py doctor --project <key>` before trusting a downstream `router/` surface
 - Prefer `python3 scripts/project_router.py migrate-source-layout --dry-run` before changing or auditing old local copies that still use the flat pre-source-aware layout
 - Validate with focused commands first, then broader checks if the repository grows more tooling later
+- Prefer the local skill `project-router-session-opener` at the beginning of a session
+- Prefer the local skill `project-router-inbox-consumer` for consuming incoming packets from the router inbox
 
 ## Claude Skills
 

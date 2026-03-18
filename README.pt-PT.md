@@ -43,24 +43,31 @@ data/
   raw/
     voicenotes/
     project_router/
+    filesystem/
   normalized/
     voicenotes/
     project_router/
+    filesystem/
   compiled/
     voicenotes/
     project_router/
+    filesystem/
   review/
     voicenotes/
     project_router/
+    filesystem/
   dispatched/
   processed/
 Knowledge/
   ADR/
   Templates/
+  local/
+  runbooks/plans/
 router/
   inbox/
   outbox/
   conformance/
+  archive/
 projects/
   registry.shared.json
   registry.example.json
@@ -92,9 +99,11 @@ src/
 .codex/skills/
 .claude/skills/
 .github/workflows/
-VERSION
+version.txt
 CHANGELOG.md
 template.meta.json
+template-base.json
+private.meta.json
 ```
 
 ## Knowledge
@@ -150,6 +159,17 @@ O registry de routing está dividido em três ficheiros:
 O template inclui projetos de exemplo neutros, como `home_renovation` e `weekly_meal_prep`. Os `router_root_path` reais existem apenas em `projects/registry.local.json`.
 
 A classificação pode correr apenas com o registry partilhado. O dispatch real exige o overlay local.
+
+## Contrato Project-Router Local
+
+Cada repositório participante deve expor:
+
+- `router/router-contract.json`
+- `router/inbox/`
+- `router/outbox/`
+- `router/conformance/`
+
+O router central lê as pastas downstream `outbox/` em modo read-only via `scan-outboxes`. Nunca move nem reescreve ficheiros em repositórios downstream durante scan ou review.
 
 ## Workflow
 
@@ -233,7 +253,7 @@ Num repositório privado derivado, o sync do template nunca deve tocar em caminh
 
 O template é versionado com semantic releases:
 
-- `VERSION`
+- `version.txt`
 - `CHANGELOG.md`
 - `template.meta.json`
 - `.github/workflows/template-release.yml`
