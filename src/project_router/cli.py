@@ -2118,7 +2118,7 @@ def compile_command(args: argparse.Namespace) -> int:
             artifact_metadata["compiled_at"] = iso_now()
             write_note(artifact_path, artifact_metadata, artifact_body)
             packet["compiled"] = {
-                "path": str(artifact_path),
+                "path": relative_or_absolute(artifact_path),
                 "compiled_at": artifact_metadata.get("compiled_at"),
                 "brief_summary": artifact_metadata.get("brief_summary"),
                 "entities": artifact_metadata.get("entities", []),
@@ -2132,7 +2132,7 @@ def compile_command(args: argparse.Namespace) -> int:
             continue
         write_note(artifact_path, artifact_metadata, artifact_body)
         packet["compiled"] = {
-            "path": str(artifact_path),
+            "path": relative_or_absolute(artifact_path),
             "compiled_at": artifact_metadata.get("compiled_at"),
             "brief_summary": artifact_metadata.get("brief_summary"),
             "entities": artifact_metadata.get("entities", []),
@@ -4096,6 +4096,7 @@ def doctor_command(args: argparse.Namespace) -> int:
             path,
             expected_project_key=str(contract.get("project_key") or expected_project_key),
             strict=args.strict,
+            supported_packet_types=contract.get("supported_packet_types"),
         )
         packet_id = normalized.get("source_note_id")
         if packet_id in packet_ids:

@@ -19,7 +19,7 @@ For a broader orientation, see `Knowledge/ContextPack.md`.
 5. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
    - `python3 scripts/project_router.py ingest --integration filesystem`
    - `python3 scripts/project_router.py normalize --source filesystem`
-   - `python3 scripts/project_router.py extract --source filesystem` (list pending, then extract each)
+   - `python3 scripts/project_router.py extract` (list pending, then extract each)
    - `python3 scripts/project_router.py triage --source filesystem`
    - `python3 scripts/project_router.py compile --source filesystem`
 6. Show pending packets:

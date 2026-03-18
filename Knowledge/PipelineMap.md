@@ -105,7 +105,7 @@ The filesystem source adds two pipeline stages before normalize:
 5. Writes `.manifest.json` to `data/raw/filesystem/<inbox_key>/manifests/`
 6. Archives original to `inbox/processed/YYYY-MM-DD/`
 
-**Extract** (`python3 scripts/project_router.py extract --source filesystem`):
+**Extract** (`python3 scripts/project_router.py extract`):
 1. Lists notes with `extraction_status: needs_extraction`
 2. Agent reads each file (multimodal) and provides extracted text
 3. `extract --note-id <id> --text "..." --observations '{...}'`

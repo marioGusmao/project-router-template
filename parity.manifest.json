@@ -31,7 +31,7 @@
     "python3 scripts/check_adr_related_links.py",
     "python3 scripts/project_router.py migrate-source-layout --dry-run",
     "python3 scripts/project_router.py ingest --integration filesystem",
-    "python3 scripts/project_router.py extract --source filesystem",
+    "python3 scripts/project_router.py extract",
     "python3 scripts/project_router.py inbox-intake",
     "python3 scripts/project_router.py inbox-status",
     "python3 scripts/project_router.py inbox-ack"
