@@ -260,6 +260,10 @@ O template é versionado com semantic releases:
 
 A automação de release usa Conventional Commits e `release-please`.
 
+O workflow de release precisa do secret `RELEASE_PLEASE_TOKEN` com permissões `contents: write` e `pull-requests: write`.
+Não uses o `GITHUB_TOKEN` por omissão para abrir o PR de release, porque esse token não dispara os checks obrigatórios do `template-ci` em `pull_request`.
+Mantém o auto-merge do repositório ativo se quiseres que os PRs de release fiquem em espera até os checks e a review obrigatória estarem concluídos.
+
 ## Template Upstream Sync
 
 O template também inclui `.github/workflows/template-upstream-sync.yml` para repositórios derivados.
@@ -311,6 +315,7 @@ Antes de publicar o template:
 10. Confirma que `.agents/skills/`, `.codex/skills/` e `.claude/skills/` continuam alinhados
 11. Ativa o modo GitHub Template Repository no upstream
 12. Ativa branch protection e required checks para testes, parity, ownership e release automation
+13. Ativa o auto-merge do repositório para os PRs de release poderem ficar pendentes sem falhar logo
 
 ## Contribuir
 
