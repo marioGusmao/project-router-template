@@ -869,8 +869,8 @@ def ingest_file(file_path: Path, inbox_key: str, inbox_path: Path) -> dict[str, 
         try:
             existing_manifest = read_manifest(existing)
             same_content_as.append(existing_manifest.get("source_note_id", ""))
-        except SystemExit:
-            pass
+        except SystemExit as exc:
+            sys.stderr.write(f"Warning: could not read manifest {existing}: {exc}\n")
 
     note_id = generate_filesystem_note_id()
     timestamp = iso_now()
@@ -1048,7 +1048,7 @@ def ingest_command(args: argparse.Namespace) -> int:
                 detail = {"file": str(item), "inbox": inbox_key, "error": str(exc)}
                 error_details.append(detail)
                 print(f"error: failed to ingest {item}: {exc}", file=sys.stderr)
-            except Exception as exc:
+            except Exception as exc:  # Extractors may raise arbitrary types; log and continue
                 results["errors"] += 1
                 detail = {"file": str(item), "inbox": inbox_key, "error": f"{type(exc).__name__}: {exc}"}
                 error_details.append(detail)
