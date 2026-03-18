@@ -14,18 +14,18 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Require release automation token
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_PLEASE_TOKEN" ]; then
+            echo "Missing required secret RELEASE_PLEASE_TOKEN." >&2
+            echo "Configure a PAT or GitHub App token with contents:write and pull-requests:write so release PRs can trigger template-ci." >&2
+            exit 1
+          fi
       - uses: googleapis/release-please-action@v4
         id: release
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
-      - name: Auto-merge release PR
-        if: steps.release.outputs.pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_JSON: ${{ steps.release.outputs.pr }}
-        run: |
-          PR_NUMBER="$(echo "$PR_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["number"])')"
-          gh pr merge "$PR_NUMBER" \
-            --squash --admin --delete-branch \
-            --repo "${{ github.repository }}"

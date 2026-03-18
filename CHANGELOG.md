@@ -23,6 +23,44 @@ All notable changes to the shared Project Router starter will be documented in t
 - Registered `Knowledge/runbooks/**` as local-only in ownership manifest and customization contracts.
 - Gitignored `Knowledge/runbooks/plans/` as operational artifacts.
 
+## [0.5.1](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.5.0...project-router-template-v0.5.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* restore CI for release-please PRs ([#9](https://github.com/marioGusmao/project-router-template/issues/9)) ([7a7704e](https://github.com/marioGusmao/project-router-template/commit/7a7704e62df698ab52c3f4468d2fa1dd1dab5e4a))
+
+## [0.5.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.4.0...project-router-template-v0.5.0) (2026-03-18)
+
+
+### Features
+
+* add filesystem source with ingestion protocol and modular extractors ([824a885](https://github.com/marioGusmao/project-router-template/commit/824a885e005672695b1e60323bdb4633515e303e))
+* add filesystem source, inbox consumption, and dispatch hardening ([c2a362e](https://github.com/marioGusmao/project-router-template/commit/c2a362eb132475df9e89a6c739e0b91df13c63f4))
+* add router inbox consumption with inbox-intake, inbox-status, inbox-ack ([30f65c5](https://github.com/marioGusmao/project-router-template/commit/30f65c5f00b1f2db78d6d83d9e4df80b4cf3b1ad))
+* dispatch original blob alongside compiled brief for filesystem notes ([3308d47](https://github.com/marioGusmao/project-router-template/commit/3308d470fd28276105629b98a6366e3064e6bad6))
+* enforce supported_packet_types in outbox validation and doctor ([bf45962](https://github.com/marioGusmao/project-router-template/commit/bf45962f8ce12fba9d55b6735502e10ea8ad0b7f))
+* harden dispatch validation, gitignore plans, add tracked-file coverage gate ([daab033](https://github.com/marioGusmao/project-router-template/commit/daab0333e26a3cd4361254960c9a4aaa9106b1d4))
+
+
+### Bug Fixes
+
+* add error handling to read_registry_config ([6ccb521](https://github.com/marioGusmao/project-router-template/commit/6ccb52193619b6f9f22f1e362f43da82797b8901))
+* address Codex review — ack default types, scan reconciliation ([2f18557](https://github.com/marioGusmao/project-router-template/commit/2f1855788c2fb5160e42ae0d5a94584d42dbaac0))
+* address review findings — crash recovery, error handling, test gaps ([a731a5a](https://github.com/marioGusmao/project-router-template/commit/a731a5a0dca9bbd82c71bd98ae8bfdcea2bb2452))
+* document intentional broad except in ingest, warn on manifest corruption ([425794e](https://github.com/marioGusmao/project-router-template/commit/425794e08ec96a71ec8ce60534f3ef405cc778b4))
+* guard blob dispatch against path traversal in blob_ref and inbox_key ([e956c29](https://github.com/marioGusmao/project-router-template/commit/e956c299ae688b8ac05d581364f9092795b07b47))
+* guard frontmatter parser against colon-free lines ([eb469a8](https://github.com/marioGusmao/project-router-template/commit/eb469a8edeeb2411d0ed656dca3294f6309b347d))
+* harden inbox commands — non-zero exit on error, warn on corrupt state/contract ([442e5cf](https://github.com/marioGusmao/project-router-template/commit/442e5cf05a4f9593f33254ea2d4322ea65a6da9f))
+* preserve extraction fields across re-normalization ([3a62185](https://github.com/marioGusmao/project-router-template/commit/3a621850c610eb3b9f231af80b7687ac9d415fdb))
+* preserve manual review decisions (reject/approved) across triage reruns ([ce0cd7b](https://github.com/marioGusmao/project-router-template/commit/ce0cd7b479797f225c12ba71420c035033769161))
+* remove dead --source argument from extract subcommand ([ef31003](https://github.com/marioGusmao/project-router-template/commit/ef310039ee1f90373f30c935c9e754f636751c47))
+* remove stale extract --source, thread packet types in doctor, use relative compiled paths ([cd452d7](https://github.com/marioGusmao/project-router-template/commit/cd452d741f90b77a22aa6518b18c12079c6fa06a))
+* resolve 6 documentation and config inconsistencies from project audit ([f08a5bf](https://github.com/marioGusmao/project-router-template/commit/f08a5bf03a8db47c65415a5d33daf6b6afef930e))
+* return non-zero exit code from ingest_command on errors ([06ac9cf](https://github.com/marioGusmao/project-router-template/commit/06ac9cff9fbf0de1eedb37d79544f40036979140))
+* save inbox state after ack write to prevent stuck terminal packets ([b77688e](https://github.com/marioGusmao/project-router-template/commit/b77688effc0756dadd4693068420cac1ee0585d8))
+* warn on corrupt ingest state instead of silent None ([62dd7b6](https://github.com/marioGusmao/project-router-template/commit/62dd7b61b5cc64231331512f98aeddd6e53f92ec))
+
 ## [0.4.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.3.0...project-router-template-v0.4.0) (2026-03-16)
 
 
