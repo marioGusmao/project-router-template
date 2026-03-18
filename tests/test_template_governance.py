@@ -84,6 +84,24 @@ class TemplateGovernanceTests(unittest.TestCase):
         self.assertIn("read-only by default", inbox_consumer)
         self.assertIn("project-router` inbox/outbox", inbox_consumer)
 
+    def test_reference_surfaces_reinforce_inbox_first_downstream_policy(self) -> None:
+        session_flow = (REPO_ROOT / ".codex" / "skills" / "project-router-session-opener" / "references" / "session-flow.md").read_text(encoding="utf-8")
+        triage_contract = (REPO_ROOT / ".codex" / "skills" / "project-router-triage-review" / "references" / "triage-contract.md").read_text(encoding="utf-8")
+        agent_direct_sync = (REPO_ROOT / ".agents" / "skills" / "project-router-direct-sync" / "SKILL.md").read_text(encoding="utf-8")
+        claude_direct_sync = (REPO_ROOT / ".claude" / "skills" / "project-router-direct-sync" / "SKILL.md").read_text(encoding="utf-8")
+        codex_direct_sync = (REPO_ROOT / ".codex" / "skills" / "project-router-direct-sync" / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("read-only by default", session_flow)
+        self.assertIn("project-router` inbox/outbox", session_flow)
+        self.assertIn("read-only by default", triage_contract)
+        self.assertIn("project-router` inbox/outbox", triage_contract)
+        self.assertIn("read-only by default", agent_direct_sync)
+        self.assertIn("project-router` inbox/outbox", agent_direct_sync)
+        self.assertIn("read-only by default", claude_direct_sync)
+        self.assertIn("project-router` inbox/outbox", claude_direct_sync)
+        self.assertIn("read-only by default", codex_direct_sync)
+        self.assertIn("project-router` inbox/outbox", codex_direct_sync)
+
     def test_workflow_uses_runner_temp_for_diff_only_output(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "template-upstream-sync.yml").read_text(encoding="utf-8")
         self.assertIn("$RUNNER_TEMP/template-sync-diffs.diff", workflow)

@@ -1501,6 +1501,21 @@ class PR1FixTests(unittest.TestCase):
             self.assertIn("- **review** (1): project_router=1", output)
             self.assertNotIn("project_router=2", output)
 
+    def test_context_surfaces_downstream_guardrail_when_local_projects_exist(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    cli.context_command(type("Args", (), {"source": "all"})())
+            output = mock_print.call_args[0][0]
+            self.assertIn("## Downstream Guardrail", output)
+            self.assertIn("Configured downstream repos: home_renovation", output)
+            self.assertIn("read-only by default", output)
+            self.assertIn("project-router` inbox/outbox", output)
+            self.assertIn("doctor --project <key>", output)
+
     def test_metadata_paths_are_relative(self) -> None:
         """Decision packets must use project-relative paths for internal metadata."""
         with temporary_repo_dir() as tmp:

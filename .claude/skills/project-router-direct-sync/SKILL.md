@@ -12,6 +12,7 @@ Use this workflow to interact with VoiceNotes directly from the repository witho
 - Ensure `VOICENOTES_API_KEY` is available through `.env.local` or the shell environment.
 - Prefer the neutral repository entrypoint `python3 scripts/project_router_client.py ...` instead of ad-hoc `curl`.
 - If the task depends on routing or dispatch, review the repository safety rules before writing anywhere.
+- Treat downstream repositories as read-only by default from this hub. If a synced note implies work in another repository, prefer that downstream repository's `project-router` inbox/outbox surfaces before suggesting direct edits.
 
 ## Workflow
 

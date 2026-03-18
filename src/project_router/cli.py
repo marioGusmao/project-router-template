@@ -4814,6 +4814,7 @@ def context_command(args: argparse.Namespace) -> int:
 
     # --- Environment notes ---
     env_notes: list[str] = []
+    configured_downstreams: list[str] = []
     if REGISTRY_LOCAL_PATH.exists():
         try:
             local_reg = json.loads(REGISTRY_LOCAL_PATH.read_text(encoding="utf-8"))
@@ -4821,6 +4822,11 @@ def context_command(args: argparse.Namespace) -> int:
             demo_paths = [k for k, v in local_projects.items() if isinstance(v, dict) and "demo-inboxes" in str(v.get("router_root_path", ""))]
             if demo_paths:
                 env_notes.append(f"Demo mode active (demo-inboxes configured for: {', '.join(demo_paths)})")
+            configured_downstreams = sorted(
+                key
+                for key, value in local_projects.items()
+                if isinstance(value, dict) and any(value.get(field) for field in ("router_root_path", "inbox_path"))
+            )
         except json.JSONDecodeError:
             env_notes.append("WARNING: registry.local.json contains invalid JSON")
         except OSError:
@@ -4836,6 +4842,16 @@ def context_command(args: argparse.Namespace) -> int:
         sections.append("")
         for note in env_notes:
             sections.append(f"- {note}")
+        sections.append("")
+
+    if configured_downstreams:
+        sections.append("## Downstream Guardrail")
+        sections.append("")
+        sections.append(f"- Configured downstream repos: {', '.join(configured_downstreams)}")
+        sections.append("- Treat downstream repositories as read-only by default from this hub.")
+        sections.append("- Prefer the downstream repo's `project-router` inbox/outbox surfaces for cross-project requests and follow-up.")
+        sections.append("- Validate a downstream surface first with `python3 scripts/project_router.py doctor --project <key>`.")
+        sections.append("- Switch to direct edits only when the user explicitly asks for changes in that target repository.")
         sections.append("")
 
     # --- Available scripts ---
