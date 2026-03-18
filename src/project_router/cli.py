@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -48,153 +49,183 @@ FILESYSTEM_REVIEW_STATUSES = ("parse_errors", "needs_extraction", "needs_review"
 AMBIGUOUS_DIR = REVIEW_DIR / VOICE_SOURCE / "ambiguous"
 NEEDS_REVIEW_DIR = REVIEW_DIR / VOICE_SOURCE / "needs_review"
 PENDING_PROJECT_DIR = REVIEW_DIR / VOICE_SOURCE / "pending_project"
+PARSER_LANGUAGE_PROFILES_PATH = Path(__file__).resolve().with_name("parser_language_profiles.json")
+GENERIC_PARSER_STOPWORDS = frozenset(
+    {
+        "capture",
+        "meeting",
+        "note",
+        "notes",
+        "nota",
+        "notas",
+        "space",
+        "speaker",
+        "test",
+        "teste",
+        "uhum",
+        "voice",
+        "voicenotes",
+        "welcome",
+    }
+)
+PROFILE_TERM_FIELDS = (
+    "stopwords",
+    "summary_terms",
+    "follow_up_terms",
+    "calendar_terms",
+    "project_idea_terms",
+    "task_terms",
+    "purchase_terms",
+    "journal_terms",
+    "task_capture_terms",
+    "project_idea_capture_terms",
+    "task_triggers",
+    "decision_triggers",
+    "open_question_triggers",
+    "follow_up_triggers",
+    "timeline_terms",
+    "fact_terms",
+)
 
-STOPWORDS = {
-    "a",
-    "about",
-    "after",
-    "again",
-    "agora",
-    "acho",
-    "algo",
-    "ainda",
-    "alguma",
-    "algumas",
-    "algum",
-    "alguns",
-    "and",
-    "antes",
-    "ao",
-    "apenas",
-    "aqui",
-    "assim",
-    "ate",
-    "até",
-    "can",
-    "capture",
-    "coisa",
-    "coisas",
-    "com",
-    "como",
-    "da",
-    "das",
-    "de",
-    "delas",
-    "deles",
-    "depois",
-    "do",
-    "dos",
-    "e",
-    "ela",
-    "elas",
-    "ele",
-    "eles",
-    "em",
-    "entre",
-    "entao",
-    "então",
-    "era",
-    "essa",
-    "essas",
-    "esse",
-    "esses",
-    "esta",
-    "está",
-    "estao",
-    "estas",
-    "este",
-    "estes",
-    "eu",
-    "faz",
-    "fazer",
-    "fica",
-    "ficar",
-    "foi",
-    "for",
-    "from",
-    "gente",
-    "have",
-    "isso",
-    "isto",
-    "ja",
-    "já",
-    "just",
-    "last",
-    "mais",
-    "me",
-    "mesmo",
-    "meu",
-    "minha",
-    "meeting",
-    "meia",
-    "muita",
-    "muitas",
-    "muito",
-    "muitos",
-    "nao",
-    "nas",
-    "need",
-    "new",
-    "no",
-    "nos",
-    "nota",
-    "note",
-    "notes",
-    "num",
-    "numa",
-    "não",
-    "nós",
-    "o",
-    "os",
-    "ora",
-    "ou",
-    "over",
-    "para",
-    "pela",
-    "pelas",
-    "pelo",
-    "pelos",
-    "por",
-    "porque",
-    "pra",
-    "quando",
-    "quanto",
-    "que",
-    "sei",
-    "sem",
-    "ser",
-    "seu",
-    "space",
-    "speaker",
-    "sua",
-    "sobre",
-    "sim",
-    "tambem",
-    "também",
-    "tem",
-    "tenho",
-    "ter",
-    "test",
-    "teste",
-    "the",
-    "this",
-    "todo",
-    "tudo",
-    "uhum",
-    "um",
-    "uma",
-    "umas",
-    "uns",
-    "voice",
-    "voicenotes",
-    "vai",
-    "ver",
-    "vou",
-    "welcome",
-    "with",
-    "you",
-    "your",
-}
+
+def _normalize_term_list(values: Any, *, field: str, profile: str) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list):
+        raise SystemExit(f"Parser language profile '{profile}' field '{field}' must be a list.")
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        term = str(value).strip().lower()
+        if not term or term in seen:
+            continue
+        seen.add(term)
+        normalized.append(term)
+    return tuple(normalized)
+
+
+@lru_cache(maxsize=1)
+def load_parser_language_profiles() -> dict[str, Any]:
+    try:
+        raw = json.loads(PARSER_LANGUAGE_PROFILES_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Missing parser language profile config at {PARSER_LANGUAGE_PROFILES_PATH}.") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid parser language profile config at {PARSER_LANGUAGE_PROFILES_PATH}: {exc}") from exc
+
+    profiles = raw.get("profiles")
+    if not isinstance(profiles, dict) or not profiles:
+        raise SystemExit("Parser language profile config must define a non-empty 'profiles' object.")
+
+    normalized_profiles: dict[str, dict[str, tuple[str, ...]]] = {}
+    for raw_key, raw_profile in profiles.items():
+        profile_key = str(raw_key).strip().lower()
+        if not profile_key:
+            raise SystemExit("Parser language profile keys cannot be empty.")
+        if not isinstance(raw_profile, dict):
+            raise SystemExit(f"Parser language profile '{profile_key}' must be an object.")
+        normalized_profiles[profile_key] = {
+            field: _normalize_term_list(raw_profile.get(field, []), field=field, profile=profile_key)
+            for field in PROFILE_TERM_FIELDS
+        }
+
+    enabled_profiles_raw = raw.get("enabled_profiles") or sorted(normalized_profiles)
+    if not isinstance(enabled_profiles_raw, list) or not enabled_profiles_raw:
+        raise SystemExit("Parser language profile config must define a non-empty 'enabled_profiles' list.")
+
+    enabled_profiles: list[str] = []
+    for value in enabled_profiles_raw:
+        key = str(value).strip().lower()
+        if key not in normalized_profiles:
+            raise SystemExit(f"Enabled parser language profile '{key}' is not defined in {PARSER_LANGUAGE_PROFILES_PATH.name}.")
+        if key not in enabled_profiles:
+            enabled_profiles.append(key)
+
+    return {"enabled_profiles": tuple(enabled_profiles), "profiles": normalized_profiles}
+
+
+def active_parser_profile_keys() -> tuple[str, ...]:
+    return load_parser_language_profiles()["enabled_profiles"]
+
+
+def active_parser_profiles() -> dict[str, dict[str, tuple[str, ...]]]:
+    config = load_parser_language_profiles()
+    profiles = config["profiles"]
+    return {key: profiles[key] for key in config["enabled_profiles"]}
+
+
+def active_parser_terms(field: str) -> tuple[str, ...]:
+    if field not in PROFILE_TERM_FIELDS:
+        raise SystemExit(f"Unsupported parser language profile field '{field}'.")
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for profile in active_parser_profiles().values():
+        for value in profile.get(field, ()):
+            if value in seen:
+                continue
+            seen.add(value)
+            ordered.append(value)
+    return tuple(ordered)
+
+
+def active_parser_stopwords() -> set[str]:
+    return set(GENERIC_PARSER_STOPWORDS) | set(active_parser_terms("stopwords"))
+
+
+def contains_any_term(text: str, terms: tuple[str, ...]) -> bool:
+    return any(term in text for term in terms)
+
+
+def detect_note_languages(metadata: dict[str, Any], body: str) -> dict[str, Any]:
+    sample_parts = [str(metadata.get("title") or "")]
+    sample_parts.extend(str(tag).strip() for tag in metadata.get("tags", []) if str(tag).strip())
+    sample_parts.append(body_excerpt(body, limit=1200))
+    sample = " ".join(part for part in sample_parts if part).lower()
+    sample_tokens = re.findall(r"[a-z0-9à-ÿ][a-z0-9à-ÿ_-]{1,}", sample)
+    if not sample_tokens:
+        return {
+            "source_language": "unknown",
+            "language_confidence": 0.0,
+            "matched_languages": [],
+            "mixed_languages": False,
+            "active_parser_languages": list(active_parser_profile_keys()),
+        }
+
+    scores: list[tuple[str, int]] = []
+    for profile_key, profile in active_parser_profiles().items():
+        stopword_hits = sum(1 for token in sample_tokens if token in profile.get("stopwords", ()))
+        phrase_hits = 0
+        for field in PROFILE_TERM_FIELDS:
+            if field == "stopwords":
+                continue
+            phrase_hits += sum(1 for term in profile.get(field, ()) if term and term in sample)
+        score = stopword_hits + (2 * phrase_hits)
+        if score > 0:
+            scores.append((profile_key, score))
+
+    if not scores:
+        return {
+            "source_language": "unknown",
+            "language_confidence": 0.0,
+            "matched_languages": [],
+            "mixed_languages": False,
+            "active_parser_languages": list(active_parser_profile_keys()),
+        }
+
+    scores.sort(key=lambda item: item[1], reverse=True)
+    total = sum(score for _, score in scores)
+    top_language, top_score = scores[0]
+    second_score = scores[1][1] if len(scores) > 1 else 0
+    confidence = round(min(0.95, top_score / max(1, total)), 2)
+    mixed_languages = len(scores) > 1 and second_score >= max(2, int(top_score * 0.6))
+    matched_languages = [language for language, _ in scores]
+    return {
+        "source_language": top_language,
+        "language_confidence": confidence,
+        "matched_languages": matched_languages,
+        "mixed_languages": mixed_languages,
+        "active_parser_languages": list(active_parser_profile_keys()),
+    }
 
 
 @dataclass
@@ -673,6 +704,11 @@ def write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
         "destination_reason",
         "user_keywords",
         "inferred_keywords",
+        "source_language",
+        "language_confidence",
+        "matched_languages",
+        "mixed_languages",
+        "active_parser_languages",
         "transcript_format",
         "summary_available",
         "summary_source",
@@ -1205,7 +1241,8 @@ def body_excerpt(body: str, limit: int = 240) -> str:
 def keyword_tokens(text: str) -> list[str]:
     lowered = text.lower()
     tokens = re.findall(r"[a-z0-9à-ÿ][a-z0-9à-ÿ_-]{2,}", lowered)
-    return [token for token in tokens if token not in STOPWORDS and not token.isdigit()]
+    stopwords = active_parser_stopwords()
+    return [token for token in tokens if token not in stopwords and not token.isdigit()]
 
 
 def extract_keywords(metadata: dict[str, Any], body: str, *, limit: int = 8) -> list[str]:
@@ -1215,13 +1252,14 @@ def extract_keywords(metadata: dict[str, Any], body: str, *, limit: int = 8) -> 
     body_source = body_excerpt(body, limit=600) if capture_kind in {"meeting_recording", "meeting_summary"} else body
     body_tokens = keyword_tokens(body_source)
     tag_tokens = [str(tag).strip().lower() for tag in metadata.get("tags", []) if str(tag).strip()]
+    stopwords = active_parser_stopwords()
 
     for token in title_tokens:
         counter[token] += 4 if capture_kind in {"meeting_recording", "meeting_summary"} else 3
     for token in body_tokens:
         counter[token] += 1
     for token in tag_tokens:
-        if token not in STOPWORDS:
+        if token not in stopwords:
             counter[token] += 4
 
     return [token for token, _ in counter.most_common(limit)]
@@ -1237,6 +1275,11 @@ def ensure_note_metadata_defaults(metadata: dict[str, Any]) -> dict[str, Any]:
     metadata.setdefault("destination_reason", "")
     metadata.setdefault("user_keywords", [])
     metadata.setdefault("inferred_keywords", [])
+    metadata.setdefault("source_language", "unknown")
+    metadata.setdefault("language_confidence", 0.0)
+    metadata.setdefault("matched_languages", [])
+    metadata.setdefault("mixed_languages", False)
+    metadata.setdefault("active_parser_languages", list(active_parser_profile_keys()))
     metadata.setdefault("summary_available", False)
     metadata.setdefault("summary_source", None)
     metadata.setdefault("audio_available", False)
@@ -1257,7 +1300,8 @@ def note_keyword_set(metadata: dict[str, Any]) -> set[str]:
     values.extend(str(tag).strip().lower() for tag in metadata.get("tags", []))
     values.extend(str(tag).strip().lower() for tag in metadata.get("user_keywords", []))
     values.extend(str(tag).strip().lower() for tag in metadata.get("inferred_keywords", []))
-    return {value for value in values if value and value not in STOPWORDS}
+    stopwords = active_parser_stopwords()
+    return {value for value in values if value and value not in stopwords}
 
 
 def extract_signal_list(metadata: dict[str, Any], body: str) -> list[str]:
@@ -1270,17 +1314,17 @@ def extract_signal_list(metadata: dict[str, Any], body: str) -> list[str]:
         if cleaned:
             signals.append(f"tag:{cleaned}")
     title = str(metadata.get("title") or "").lower()
-    if "summary" in title or "resumo" in title:
+    if contains_any_term(title, active_parser_terms("summary_terms")):
         signals.append("title:summary")
-    if "follow-up" in title or "follow up" in title or "seguimento" in title or "continuação" in title:
+    if contains_any_term(title, active_parser_terms("follow_up_terms")):
         signals.append("title:follow_up")
-    if "calendar" in title or "calend" in title:
+    if contains_any_term(title, active_parser_terms("calendar_terms")):
         signals.append("title:calendar")
-    if "idea" in title or "ideia" in title or "project" in title or "projeto" in title:
+    if contains_any_term(title, active_parser_terms("project_idea_terms")):
         signals.append("title:project_idea")
-    if "task" in title or "tarefa" in title:
+    if contains_any_term(title, active_parser_terms("task_terms")):
         signals.append("title:task")
-    if "buy" in title or "bought" in title or "comprei" in title or "garantia" in title or "warranty" in title:
+    if contains_any_term(title, active_parser_terms("purchase_terms")):
         signals.append("title:purchase")
     compact_body = body.lower()
     if "speaker 1" in compact_body or "speaker 2" in compact_body:
@@ -1295,22 +1339,28 @@ def classify_capture_kind(metadata: dict[str, Any], body: str) -> tuple[str, lis
     signal_set = set(signals)
     title = str(metadata.get("title") or "").lower()
     compact_body = body.lower()
+    project_idea_terms = active_parser_terms("project_idea_terms")
+    calendar_terms = active_parser_terms("calendar_terms")
+    purchase_terms = active_parser_terms("purchase_terms")
+    task_capture_terms = active_parser_terms("task_capture_terms")
+    project_idea_capture_terms = active_parser_terms("project_idea_capture_terms")
+    journal_terms = active_parser_terms("journal_terms")
 
     if "tag:meeting" in signal_set or "recording_type:2" in signal_set or "body:speaker_markers" in signal_set:
         if "title:summary" in signal_set:
             return "meeting_summary", signals
         return "meeting_recording", signals
-    if any(token in title for token in ("automation", "integration", "codex", "obsidian", "idea", "ideia", "project", "projeto")):
+    if any(token in title for token in ("automation", "integration", "codex", "obsidian")) or contains_any_term(title, project_idea_terms):
         return "project_idea", signals
-    if "title:calendar" in signal_set or "calendar" in compact_body or "calend" in compact_body:
+    if "title:calendar" in signal_set or contains_any_term(compact_body, calendar_terms):
         return "calendar_change", signals
-    if "title:purchase" in signal_set or "comprei" in compact_body or "garantia" in compact_body or "warranty" in compact_body:
+    if "title:purchase" in signal_set or contains_any_term(compact_body, purchase_terms):
         return "purchase_record", signals
-    if "title:task" in signal_set or "tenho que" in compact_body or "tenho de" in compact_body or "todo:" in compact_body:
+    if "title:task" in signal_set or contains_any_term(compact_body, task_capture_terms):
         return "task_capture", signals
-    if "title:project_idea" in signal_set or "ideia" in compact_body or "project idea" in compact_body:
+    if "title:project_idea" in signal_set or contains_any_term(compact_body, project_idea_capture_terms):
         return "project_idea", signals
-    if "journal" in title or "diário" in title or "journal" in compact_body:
+    if contains_any_term(title, journal_terms) or contains_any_term(compact_body, journal_terms):
         return "journal", signals
     if metadata.get("recording_type") == 3:
         return "voice_memo", signals
@@ -1339,6 +1389,7 @@ def derive_outputs(capture_kind: str) -> list[str]:
 
 def enrich_note_metadata(metadata: dict[str, Any], body: str) -> dict[str, Any]:
     metadata = ensure_note_metadata_defaults(metadata)
+    metadata.update(detect_note_languages(metadata, body))
     capture_kind, signals = classify_capture_kind(metadata, body)
     metadata["capture_kind"] = capture_kind
     metadata["classification_basis"] = signals
@@ -1424,6 +1475,11 @@ def build_decision_packet(
             "destination_reason": metadata.get("destination_reason"),
             "user_keywords": metadata.get("user_keywords", []),
             "inferred_keywords": metadata.get("inferred_keywords", []),
+            "source_language": metadata.get("source_language"),
+            "language_confidence": metadata.get("language_confidence"),
+            "matched_languages": metadata.get("matched_languages", []),
+            "mixed_languages": metadata.get("mixed_languages", False),
+            "active_parser_languages": metadata.get("active_parser_languages", []),
             "summary_available": metadata.get("summary_available", False),
             "summary_source": metadata.get("summary_source"),
             "audio_available": metadata.get("audio_available", False),
@@ -1801,6 +1857,8 @@ def extract_entities(metadata: dict[str, Any], body: str) -> list[str]:
 
 def extract_facts(metadata: dict[str, Any], sentences: list[str]) -> list[str]:
     facts: list[str] = []
+    fact_terms = active_parser_terms("fact_terms")
+    timeline_terms = active_parser_terms("timeline_terms")
     if metadata.get("created_at"):
         facts.append(f"captured_at: {metadata['created_at']}")
     if metadata.get("recorded_at") and metadata.get("recorded_at") != metadata.get("created_at"):
@@ -1821,41 +1879,23 @@ def extract_facts(metadata: dict[str, Any], sentences: list[str]) -> list[str]:
                 facts.append(f"duration_seconds: {duration_value:g}")
     for sentence in sentences:
         lowered = sentence.lower()
-        if re.search(r"\b\d[\d.,]*\b", sentence) or any(token in lowered for token in ("€", "eur", "days", "meses", "months", "ano", "year", "202", "tomorrow", "amanhã", "hoje")):
+        if re.search(r"\b\d[\d.,]*\b", sentence) or "202" in lowered or contains_any_term(lowered, fact_terms) or contains_any_term(lowered, timeline_terms):
             facts.append(sentence)
     return unique_preserve(facts, limit=8)
 
 
 def extract_tasks(sentences: list[str]) -> list[str]:
-    triggers = (
-        "preciso",
-        "preciso de",
-        "tenho que",
-        "tenho de",
-        "need to",
-        "to do",
-        "todo",
-        "follow up",
-        "follow-up",
-        "fazer",
-        "enviar",
-        "ligar",
-        "marcar",
-        "schedule",
-        "book",
-        "remember",
-        "lembrar",
-    )
+    triggers = active_parser_terms("task_triggers")
     return unique_preserve([sentence for sentence in sentences if any(trigger in sentence.lower() for trigger in triggers)], limit=8)
 
 
 def extract_decisions(sentences: list[str]) -> list[str]:
-    triggers = ("decid", "ficou", "agreed", "vamos", "we will", "resolved", "decisão")
+    triggers = active_parser_terms("decision_triggers")
     return unique_preserve([sentence for sentence in sentences if any(trigger in sentence.lower() for trigger in triggers)], limit=6)
 
 
 def extract_open_questions(sentences: list[str]) -> list[str]:
-    triggers = ("não sei", "nao sei", "dúvida", "duvida", "question", "perceber", "confirmar", "verify", "validar")
+    triggers = active_parser_terms("open_question_triggers")
     return unique_preserve([sentence for sentence in sentences if sentence.endswith("?") or any(trigger in sentence.lower() for trigger in triggers)], limit=6)
 
 
@@ -1865,7 +1905,7 @@ def extract_follow_ups(metadata: dict[str, Any], sentences: list[str]) -> list[s
         follow_ups.append(f"Continuation of note {metadata['continuation_of']}.")
     if metadata.get("related_note_ids"):
         follow_ups.append(f"Related notes: {', '.join(metadata['related_note_ids'])}.")
-    triggers = ("follow up", "follow-up", "next step", "próximo", "proximo", "depois", "later", "continuar", "continuação", "continuação")
+    triggers = active_parser_terms("follow_up_triggers")
     for sentence in sentences:
         if any(trigger in sentence.lower() for trigger in triggers):
             follow_ups.append(sentence)
@@ -1879,11 +1919,11 @@ def extract_timeline(metadata: dict[str, Any], sentences: list[str]) -> list[str
     patterns = (
         r"\b20\d{2}-\d{2}-\d{2}\b",
         r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
-        r"\b(?:today|tomorrow|yesterday|hoje|amanhã|amanha|ontem|next week|esta semana)\b",
     )
+    timeline_terms = active_parser_terms("timeline_terms")
     for sentence in sentences:
         lowered = sentence.lower()
-        if any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in patterns):
+        if any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in patterns) or contains_any_term(lowered, timeline_terms):
             timeline.append(sentence)
     return unique_preserve(timeline, limit=6)
 
@@ -2026,6 +2066,11 @@ def compile_note_artifact(metadata: dict[str, Any], body: str, note_path: Path) 
         "tags": metadata.get("tags", []),
         "user_keywords": metadata.get("user_keywords", []),
         "inferred_keywords": metadata.get("inferred_keywords", []),
+        "source_language": metadata.get("source_language"),
+        "language_confidence": metadata.get("language_confidence"),
+        "matched_languages": metadata.get("matched_languages", []),
+        "mixed_languages": metadata.get("mixed_languages", False),
+        "active_parser_languages": metadata.get("active_parser_languages", []),
         "thread_id": metadata.get("thread_id"),
         "continuation_of": metadata.get("continuation_of"),
         "related_note_ids": metadata.get("related_note_ids", []),
@@ -2409,6 +2454,11 @@ def build_dispatch_note(
         "confidence": metadata.get("confidence"),
         "user_keywords": metadata.get("user_keywords", []),
         "inferred_keywords": metadata.get("inferred_keywords", []),
+        "source_language": metadata.get("source_language"),
+        "language_confidence": metadata.get("language_confidence"),
+        "matched_languages": metadata.get("matched_languages", []),
+        "mixed_languages": metadata.get("mixed_languages", False),
+        "active_parser_languages": metadata.get("active_parser_languages", []),
         "thread_id": metadata.get("thread_id"),
         "continuation_of": metadata.get("continuation_of"),
         "related_note_ids": metadata.get("related_note_ids", []),

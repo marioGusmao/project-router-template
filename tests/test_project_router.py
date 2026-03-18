@@ -224,6 +224,40 @@ class ProjectRouterFlowTests(unittest.TestCase):
             self.assertIn("data/raw/voicenotes/20260311T160000Z--vn_123.json", metadata["raw_payload_path"])
             self.assertIn("Hello\nworld", body)
 
+    def test_normalize_records_detected_source_language_metadata(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            raw_path = root / "data" / "raw" / "voicenotes" / "20260311T160000Z--vn_es_123.json"
+            raw_path.write_text(
+                json.dumps(
+                    {
+                        "source": "voicenotes",
+                        "source_endpoint": "recordings",
+                        "recording": {
+                            "id": "vn_es_123",
+                            "title": "Idea de proyecto",
+                            "created_at": "2026-03-11T16:00:00Z",
+                            "recorded_at": "2026-03-11T16:00:00Z",
+                            "recording_type": 3,
+                            "duration": 0,
+                            "tags": ["proyecto"],
+                            "transcript": "Necesito llamar al contratista manana para el presupuesto de la cocina.",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                cli.normalize_command(type("Args", (), {"source": "voicenotes"})())
+            normalized = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_es_123.md"
+            metadata, _ = cli.read_note(normalized)
+            self.assertEqual(metadata["source_language"], "es")
+            self.assertGreater(metadata["language_confidence"], 0.0)
+            self.assertIn("es", metadata["matched_languages"])
+            self.assertIn("es", metadata["active_parser_languages"])
+            self.assertFalse(metadata["mixed_languages"])
+
     def test_triage_routes_unmatched_voicenote_to_pending_project_queue(self) -> None:
         with temporary_repo_dir() as tmp:
             root = Path(tmp)
@@ -254,6 +288,56 @@ class ProjectRouterFlowTests(unittest.TestCase):
             metadata, _ = cli.read_note(note_path)
             self.assertEqual(metadata["status"], "pending_project")
             self.assertTrue((root / "data" / "review" / "voicenotes" / "pending_project" / note_path.name).exists())
+
+    def test_triage_uses_spanish_language_profile_for_keywords(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            (root / "projects" / "registry.shared.json").write_text(
+                json.dumps(
+                    {
+                        "defaults": {"min_keyword_hits": 2},
+                        "projects": {
+                            "renovacion_es": {
+                                "display_name": "Renovacion ES",
+                                "language": "en",
+                                "note_type": "project-idea",
+                                "keywords": ["cocina", "presupuesto", "contratista"],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "projects" / "registry.local.json").write_text(json.dumps({"projects": {}}), encoding="utf-8")
+            note_path = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_es_route.md"
+            cli.write_note(
+                note_path,
+                {
+                    "source": "voicenotes",
+                    "source_note_id": "vn_es_route",
+                    "title": "Idea de reforma",
+                    "created_at": "2026-03-11T16:00:00Z",
+                    "tags": [],
+                    "status": "normalized",
+                    "project": None,
+                    "candidate_projects": [],
+                    "confidence": 0.0,
+                    "routing_reason": "",
+                    "requires_user_confirmation": True,
+                    "canonical_path": str(note_path),
+                    "dispatched_to": [],
+                },
+                "# Idea de reforma\n\nNecesito hablar con el contratista sobre el presupuesto de la cocina.\n",
+            )
+            with patch_cli_paths(root):
+                cli.triage_command(type("Args", (), {"all": False, "source": "voicenotes"})())
+            metadata, _ = cli.read_note(note_path)
+            self.assertEqual(metadata["status"], "classified")
+            self.assertEqual(metadata["project"], "renovacion_es")
+            self.assertEqual(metadata["source_language"], "es")
+            self.assertIn("cocina", metadata["inferred_keywords"])
+            self.assertIn("presupuesto", metadata["inferred_keywords"])
 
     def test_dispatch_derives_inbox_from_router_root_path(self) -> None:
         with temporary_repo_dir() as tmp:
@@ -306,6 +390,44 @@ class ProjectRouterFlowTests(unittest.TestCase):
                     )()
                 )
             self.assertTrue((inbox_path / "20260311T160000Z--vn_126.md").exists())
+
+    def test_compile_preserves_language_metadata(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            note_path = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_mix_001.md"
+            cli.write_note(
+                note_path,
+                {
+                    "source": "voicenotes",
+                    "source_note_id": "vn_mix_001",
+                    "title": "Mixed follow-up",
+                    "created_at": "2026-03-11T16:00:00Z",
+                    "tags": [],
+                    "status": "classified",
+                    "project": "home_renovation",
+                    "candidate_projects": ["home_renovation"],
+                    "confidence": 0.8,
+                    "routing_reason": "Matched keywords.",
+                    "review_status": "approved",
+                    "requires_user_confirmation": False,
+                    "source_language": "pt",
+                    "language_confidence": 0.52,
+                    "matched_languages": ["pt", "en"],
+                    "mixed_languages": True,
+                    "active_parser_languages": ["en", "pt", "es"],
+                    "canonical_path": str(note_path),
+                    "dispatched_to": [],
+                },
+                "# Mixed follow-up\n\nPreciso enviar o resumo tomorrow and book the contractor visit.\n",
+            )
+            with patch_cli_paths(root):
+                cli.compile_command(type("Args", (), {"note_ids": None, "source": "voicenotes"})())
+            compiled_path = root / "data" / "compiled" / "voicenotes" / "20260311T160000Z--vn_mix_001.md"
+            metadata, _ = cli.read_note(compiled_path)
+            self.assertEqual(metadata["source_language"], "pt")
+            self.assertEqual(metadata["matched_languages"], ["pt", "en"])
+            self.assertTrue(metadata["mixed_languages"])
 
     def test_scan_outboxes_ingests_valid_packet_read_only(self) -> None:
         with temporary_repo_dir() as tmp:

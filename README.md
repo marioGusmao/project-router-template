@@ -160,6 +160,16 @@ The starter ships neutral example projects such as `home_renovation` and `weekly
 
 Classification can run from the shared registry alone. Real dispatch requires the local overlay.
 
+## Parser Language Profiles
+
+Parsing and extraction language support is configured separately from downstream project language:
+
+- `src/project_router/parser_language_profiles.json`: committed parser profiles, active languages, stopwords, and heuristic trigger terms
+- `projects/registry.shared.json -> projects.<key>.language`: downstream/output language for that project
+- `router/router-contract.json -> default_language`: downstream packet default for a specific router root
+
+This separation matters: parser profiles decide how normalize/triage/compile interpret multilingual notes, while project/contract language still controls downstream packet defaults.
+
 ## Local Project-Router Contract
 
 Each participating repository should expose:
