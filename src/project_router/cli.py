@@ -841,7 +841,8 @@ def _read_ingest_state(inbox_key: str, note_id: str) -> dict[str, Any] | None:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        sys.stderr.write(f"Warning: corrupt ingest state {path}: {exc}\n")
         return None
 
 
