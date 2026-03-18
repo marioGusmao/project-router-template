@@ -23,25 +23,27 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
 
 ## Session Opening Flow
 
-1. Run `python3 scripts/project_router.py status`.
-2. If the machine is new, run `python3 scripts/bootstrap_local.py`.
-3. Confirm `.env.local` and `projects/registry.local.json` exist.
-4. If `.env.local` exists, run:
+1. If `private.meta.json` exists, run `python3 scripts/project_router.py template-update-status --check-remote`.
+2. If the command reports `update_available`, ask the user whether they want to review/update the template before continuing. Do not auto-run the sync workflow or merge anything on the user's behalf.
+3. Run `python3 scripts/project_router.py status`.
+4. If the machine is new, run `python3 scripts/bootstrap_local.py`.
+5. Confirm `.env.local` and `projects/registry.local.json` exist.
+6. If `.env.local` exists, run:
    - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`
-5. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
+7. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
    - `python3 scripts/project_router.py ingest --integration filesystem`
    - `python3 scripts/project_router.py normalize --source filesystem`
    - `python3 scripts/project_router.py extract` (list pending, then extract each)
    - `python3 scripts/project_router.py triage --source filesystem`
    - `python3 scripts/project_router.py compile --source filesystem`
-6. Run `python3 scripts/project_router.py review`.
-7. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`.
-8. Run `python3 scripts/project_router.py inbox-intake` to ingest any packets in `router/inbox/`.
-9. Run `python3 scripts/project_router.py inbox-status` to check for open inbox packets.
-10. Stop there and ask the user what to approve, reject, or refine.
+8. Run `python3 scripts/project_router.py review`.
+9. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`.
+10. Run `python3 scripts/project_router.py inbox-intake` to ingest any packets in `router/inbox/`.
+11. Run `python3 scripts/project_router.py inbox-status` to check for open inbox packets.
+12. Stop there and ask the user what to approve, reject, or refine.
 
 ## Downstream Setup
 

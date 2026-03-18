@@ -20,3 +20,13 @@ python3 scripts/project_router.py inbox-status --packet-id <id>
 python3 scripts/project_router.py inbox-ack --packet-id <id> --status <applied|blocked|rejected|in_progress>
 python3 scripts/project_router.py inbox-ack --packet-id <id> --status applied --ref <url> --notes "reason"
 ```
+
+## Template Update Check
+
+At the start of a new conversation in this private-derived repository, run:
+
+```bash
+python3 scripts/project_router.py template-update-status --check-remote
+```
+
+If the command reports `update_available`, tell the user which template version is installed, which release is latest, and ask whether they want to review/update before continuing. Do not auto-run the sync workflow or merge anything on the user's behalf.
