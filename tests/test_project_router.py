@@ -339,6 +339,38 @@ class ProjectRouterFlowTests(unittest.TestCase):
             self.assertIn("cocina", metadata["inferred_keywords"])
             self.assertIn("presupuesto", metadata["inferred_keywords"])
 
+    def test_classify_capture_kind_prefers_task_capture_for_schedule_action_items(self) -> None:
+        kind, signals = cli.classify_capture_kind(
+            {"title": "", "recording_type": 1},
+            "Need to schedule the contractor visit next week.",
+        )
+        self.assertEqual(kind, "task_capture")
+        self.assertEqual(signals, ["recording_type:1"])
+
+    def test_classify_capture_kind_does_not_treat_generic_project_nouns_as_project_ideas(self) -> None:
+        samples = [
+            "Preciso terminar o projeto da cozinha esta semana.",
+            "Projeto da cozinha com orçamento revisto.",
+            "Actualizacion del proyecto de la cocina.",
+            "Proyecto de la cocina con presupuesto revisado.",
+        ]
+        for body in samples:
+            with self.subTest(body=body):
+                kind, _ = cli.classify_capture_kind({"title": "", "recording_type": 1}, body)
+                self.assertNotEqual(kind, "project_idea")
+
+    def test_classify_capture_kind_keeps_explicit_project_idea_terms(self) -> None:
+        title_kind, _ = cli.classify_capture_kind(
+            {"title": "Idea de proyecto cocina", "recording_type": 1},
+            "",
+        )
+        body_kind, _ = cli.classify_capture_kind(
+            {"title": "", "recording_type": 1},
+            "I have a project idea for the kitchen remodel.",
+        )
+        self.assertEqual(title_kind, "project_idea")
+        self.assertEqual(body_kind, "project_idea")
+
     def test_dispatch_derives_inbox_from_router_root_path(self) -> None:
         with temporary_repo_dir() as tmp:
             root = Path(tmp)
