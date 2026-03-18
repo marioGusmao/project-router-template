@@ -520,7 +520,12 @@ def ensure_safe_inbox_path(path: Path, *, project_key: str, registry_path: Path)
 
 
 def read_registry_config(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Failed to parse {path}: {exc}")
+    except OSError as exc:
+        raise SystemExit(f"Failed to read {path}: {exc}")
 
 
 def merge_registry_configs(shared: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
