@@ -143,6 +143,7 @@ jobs:
             projects/registry.example.json
             .claude/settings.example.json
             .env.example
+            requirements-extractors.txt
             version.txt
             CHANGELOG.md
             template.meta.json
@@ -196,10 +197,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          managed_block_files=(
+            README.md
+            README.pt-PT.md
+          )
+          managed_block_csv="$(IFS=,; echo "${managed_block_files[*]}")"
           python3 scripts/apply_managed_block_sync.py \
             --upstream-dir "$RUNNER_TEMP/upstream-template" \
             --local-dir "." \
-            --files README.md,README.pt-PT.md \
+            --files "$managed_block_csv" \
             --markers repository-mode,template-onboarding
 
       # Pass 4: Extensible directories — shared_review dirs (no --delete, local extras preserved)

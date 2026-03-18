@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,7 +18,14 @@ CONTRACTS_PATH = ROOT / "repo-governance" / "customization-contracts.json"
 ALLOWED_SYNC_POLICIES = {"template_sync", "review_required"}
 
 
-SYNC_ARRAY_NAMES = {"paths", "overwrite_paths", "ai_files", "extensible_paths", "diff_paths"}
+SYNC_ARRAY_NAMES = {"paths", "overwrite_paths", "ai_files", "managed_block_files", "extensible_paths", "diff_paths"}
+SYNC_COVERAGE_MODELS = {
+    "overwrite",
+    "full_overwrite_preserve_contract",
+    "managed_blocks",
+    "extensible_directory",
+    "diff_only",
+}
 
 
 def load_contracts() -> dict:
@@ -57,6 +65,20 @@ def extract_sync_paths(text: str) -> list[str]:
     return list(dict.fromkeys(paths))
 
 
+def load_tracked_files() -> list[str]:
+    raw = subprocess.check_output(["git", "ls-files"], cwd=ROOT, text=True)
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def workflow_covers_path(sync_paths: list[str], repo_path: str) -> bool:
+    normalized = repo_path.rstrip("/")
+    for sync_path in sync_paths:
+        candidate = sync_path.rstrip("/")
+        if normalized == candidate or normalized.startswith(f"{candidate}/"):
+            return True
+    return False
+
+
 def main() -> int:
     if not WORKFLOW_PATH.exists():
         print(f"ERROR: Workflow file not found: {WORKFLOW_PATH}", file=sys.stderr)
@@ -70,10 +92,12 @@ def main() -> int:
     manifest = load_manifest()
     manifest_rules = manifest.get("rules") or []
     surfaces = load_contracts().get("surfaces", [])
+    tracked_files = load_tracked_files()
 
     errors: list[str] = []
     manifest_classified: dict[str, dict[str, str] | None] = {}
     contract_classified: dict[str, dict | None] = {}
+    uncovered_tracked_files: list[str] = []
 
     for path in sync_paths:
         manifest_rule = classify_path(path, manifest_rules)
@@ -113,6 +137,24 @@ def main() -> int:
                 f"registry={contract_rule.get('sync_policy')}"
             )
 
+    for repo_path in tracked_files:
+        manifest_rule = classify_path(repo_path, manifest_rules)
+        contract_rule = classify_contract_path(repo_path, surfaces)
+        if manifest_rule is None or contract_rule is None:
+            continue
+        if manifest_rule.get("sync_policy") not in ALLOWED_SYNC_POLICIES:
+            continue
+        if contract_rule.get("sync_policy") not in ALLOWED_SYNC_POLICIES:
+            continue
+        if contract_rule.get("customization_model") not in SYNC_COVERAGE_MODELS:
+            continue
+        if workflow_covers_path(sync_paths, repo_path):
+            continue
+        uncovered_tracked_files.append(repo_path)
+
+    for repo_path in uncovered_tracked_files:
+        errors.append(f"Tracked synced file is not covered by workflow sync paths: {repo_path}")
+
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
@@ -124,6 +166,8 @@ def main() -> int:
                 "status": "ok",
                 "workflow": str(WORKFLOW_PATH.relative_to(ROOT)),
                 "sync_paths": sync_paths,
+                "tracked_files_checked": tracked_files,
+                "uncovered_tracked_files": uncovered_tracked_files,
                 "manifest_classified": manifest_classified,
                 "contract_classified": contract_classified,
             },

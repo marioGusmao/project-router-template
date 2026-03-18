@@ -4,6 +4,7 @@ All notable changes to the shared Project Router starter will be documented in t
 
 ## Unreleased
 
+- Fixed template sync coverage drift by syncing `requirements-extractors.txt`, making README managed-block files explicit in the workflow, and failing governance when tracked synced files are not covered by workflow paths.
 - Renamed `VERSION` → `version.txt` so release-please `simple` type recognizes the file extension; updated all CI, governance, and documentation references.
 - Removed `VERSION` from `extra-files` in `.release-please-config.json` (now the primary version file for `simple` type).
 - Fixed `Knowledge/TLDR.md` to use neutral repo-mode phrasing and include the filesystem pipeline.

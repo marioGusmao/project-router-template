@@ -29,6 +29,7 @@ The workflow uses a 7-step approach (passes 0 through 5, including a 0.5 backup 
    - New commands or conventions in CLAUDE.md/AGENTS.md.
    - New or modified scripts under `scripts/`.
    - New ADRs under `Knowledge/ADR/`.
+   - When crossing from pre-`v0.5.x` derived repos, verify tracked root-file migrations landed in the PR (for example `VERSION` to `version.txt`, plus new files such as `requirements-extractors.txt`).
 
 2. **Check the diff-only section.** Review the `Diff-only review` section in the PR body for `.gitignore`, `CONTRIBUTING.md`, and `.github/pull_request_template.md`.
 
