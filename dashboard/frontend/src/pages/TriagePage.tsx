@@ -129,9 +129,9 @@ export function TriagePage() {
   }
 
   return (
-    <div className="flex gap-0" style={{ margin: '-32px', width: 'calc(100% + 64px)', overflowX: 'hidden' }}>
+    <div>
       {/* Swimlanes section */}
-      <div className={`flex-1 min-w-0 ${selectedNote ? 'w-3/5' : 'w-full'}`} style={{ padding: 32 }}>
+      <div style={{ marginRight: selectedNote ? 480 : 0, transition: 'margin-right 0.2s ease' }}>
         <div className="space-y-5">
           {swimlanes.map((lane, laneIdx) => (
             <div
@@ -252,7 +252,7 @@ export function TriagePage() {
 
       {/* Detail panel */}
       {selectedNote && (
-        <div className="sticky flex-shrink-0" style={{ width: 480, top: 56, height: 'calc(100vh - 56px)' }}>
+        <div className="fixed top-0 right-0 z-50 overflow-y-auto" style={{ width: 480, top: 56, height: 'calc(100vh - 56px)' }}>
           <NoteDetail
             noteId={selectedNote.id}
             source={selectedNote.source}

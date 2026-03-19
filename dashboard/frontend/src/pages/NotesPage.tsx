@@ -217,13 +217,13 @@ export function NotesPage() {
   };
 
   return (
-    <div className="flex gap-0" style={{ margin: '-32px', width: 'calc(100% + 64px)', overflowX: 'hidden' }}>
+    <div>
       {/* Table section */}
-      <div className={`flex-1 min-w-0 ${selectedId ? 'w-3/5' : 'w-full'}`}>
+      <div style={{ marginRight: selectedId ? 480 : 0, transition: 'margin-right 0.2s ease' }}>
         {/* Filter bar */}
         <div
           className="sticky z-30 backdrop-blur-sm"
-          style={{ top: 56, padding: '16px 32px', background: 'rgba(10,10,11,0.9)' }}
+          style={{ top: 56, padding: '12px 0', background: 'rgba(10,10,11,0.9)' }}
         >
           <div
             className="card flex items-center gap-3 flex-wrap"
@@ -291,7 +291,7 @@ export function NotesPage() {
         </div>
 
         {/* Table */}
-        <div style={{ padding: '0 32px 32px' }}>
+        <div>
           <div className="card overflow-hidden">
             {loading ? (
               <div style={{ padding: 24 }} className="space-y-2">
@@ -446,9 +446,9 @@ export function NotesPage() {
         </div>
       </div>
 
-      {/* Detail panel */}
+      {/* Detail panel — fixed to right edge */}
       {selectedId && (
-        <div className="sticky flex-shrink-0" style={{ width: 480, top: 56, height: 'calc(100vh - 56px)' }}>
+        <div className="fixed top-0 right-0 z-50 overflow-y-auto" style={{ width: 480, top: 56, height: 'calc(100vh - 56px)' }}>
           <NoteDetail noteId={selectedId} source={selectedSource} onClose={closeDetail} onProjectSuggested={handleProjectSuggested} onDecided={handleDecided} />
         </div>
       )}
