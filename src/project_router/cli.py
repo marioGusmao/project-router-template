@@ -3434,6 +3434,8 @@ def decide_command(args: argparse.Namespace) -> int:
         metadata["destination"] = final_project
         metadata["note_type"] = args.final_type or metadata.get("note_type") or projects[final_project].note_type
         metadata["review_status"] = "approved"
+        metadata["user_suggested_project"] = None
+        metadata["user_suggestion_timestamp"] = None
         metadata["requires_user_confirmation"] = False
         metadata["intent"] = classify_intent(metadata)
         remove_review_copies(note_path.name)

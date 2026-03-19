@@ -5287,6 +5287,42 @@ class SyncClientTests(unittest.TestCase):
                 self.assertEqual(entry["user_suggestion_timestamp"], "2026-03-18T14:30:00Z")
                 self.assertEqual(entry["reviewer_notes"], "Check routing")
 
+    def test_decide_approve_clears_suggestion(self):
+        """decide approve clears user_suggested_project and timestamp."""
+        import argparse
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_path = cli.NORMALIZED_DIR / "voicenotes" / "20260318T100000Z--vn_clear_suggest.md"
+                metadata = cli.ensure_note_metadata_defaults({
+                    "source": "voicenotes",
+                    "source_note_id": "vn_clear_suggest",
+                    "title": "Clear test",
+                    "status": "needs_review",
+                    "project": None,
+                    "user_suggested_project": "home_renovation",
+                    "user_suggestion_timestamp": "2026-03-18T14:30:00Z",
+                })
+                cli.write_note(note_path, metadata, "Body")
+                packet = cli.build_decision_packet(note_path, metadata, "Body",
+                                                   route="needs_review", details={}, reason="test")
+                cli.save_decision_packet_for_metadata(metadata, packet)
+                args = argparse.Namespace(
+                    decision="approve", final_project="home_renovation", final_type=None,
+                    note_id="vn_clear_suggest", source=None,
+                    user_keywords=None, related_note_ids=None,
+                    thread_id=None, continuation_of=None, reviewer_notes=None,
+                    notes=None,
+                )
+                cli.decide_command(args)
+                loaded, _ = cli.read_note(note_path)
+                self.assertIsNone(loaded.get("user_suggested_project"))
+                self.assertIsNone(loaded.get("user_suggestion_timestamp"))
+                self.assertEqual(loaded["project"], "home_renovation")
+                self.assertEqual(loaded["status"], "classified")
+
 
 if __name__ == "__main__":
     unittest.main()
