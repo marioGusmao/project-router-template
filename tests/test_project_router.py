@@ -16,6 +16,7 @@ from src.project_router import cli
 from src.project_router import sync_client
 from src.project_router.services import paths as svc_paths
 from src.project_router.services import notes as svc_notes
+from src.project_router.services import projects as svc_projects
 
 
 TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / ".tmp-tests"
@@ -109,6 +110,8 @@ def patch_cli_paths(root: Path) -> ExitStack:
         stack.enter_context(mock.patch.object(svc_paths, key, value))
         if hasattr(svc_notes, key):
             stack.enter_context(mock.patch.object(svc_notes, key, value))
+        if hasattr(svc_projects, key):
+            stack.enter_context(mock.patch.object(svc_projects, key, value))
     return stack
 
 
