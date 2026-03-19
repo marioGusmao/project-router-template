@@ -37,10 +37,10 @@ export function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-4">
+      <div className="space-y-5">
+        <div className="grid grid-cols-3 gap-5">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-28 bg-zinc-900 border border-zinc-800 rounded-lg animate-pulse" />
+            <div key={i} className="h-32 bg-zinc-900/80 border border-zinc-800/60 rounded-xl animate-pulse" />
           ))}
         </div>
       </div>
@@ -49,55 +49,70 @@ export function DashboardPage() {
 
   if (error) {
     return (
-      <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-8 text-center text-zinc-400">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-8 text-center text-zinc-400">
         Failed to load dashboard: {error}
       </div>
     );
   }
 
+  const sumObj = (obj: any): number => {
+    if (typeof obj === 'number') return obj;
+    if (obj && typeof obj === 'object') return Object.values(obj).reduce((a: number, v: any) => a + sumObj(v), 0);
+    return 0;
+  };
+
   const cards = [
-    { title: 'RAW', count: status?.raw ?? 0, color: 'text-zinc-300', subtitle: 'Unprocessed captures' },
-    { title: 'NORMALIZED', count: status?.normalized ?? 0, color: 'text-blue-400', subtitle: 'Parsed notes' },
-    { title: 'IN REVIEW', count: status?.review ?? 0, color: 'text-amber-400', subtitle: 'Awaiting decision' },
-    { title: 'COMPILED', count: status?.compiled ?? 0, color: 'text-emerald-400', subtitle: 'Ready for dispatch' },
-    { title: 'DISPATCHED', count: status?.dispatched ?? 0, color: 'text-blue-400', subtitle: 'Sent downstream' },
-    { title: 'PROCESSED', count: status?.processed ?? 0, color: 'text-slate-400', subtitle: 'Completed' },
+    { title: 'RAW', count: sumObj(status?.raw), color: 'text-zinc-200', subtitle: 'Unprocessed captures' },
+    { title: 'NORMALIZED', count: sumObj(status?.normalized), color: 'text-blue-400', subtitle: 'Parsed notes' },
+    { title: 'IN REVIEW', count: sumObj(status?.review), color: 'text-amber-400', subtitle: 'Awaiting decision' },
+    { title: 'COMPILED', count: sumObj(status?.compiled), color: 'text-emerald-400', subtitle: 'Ready for dispatch' },
+    { title: 'DISPATCHED', count: sumObj(status?.dispatched), color: 'text-blue-400', subtitle: 'Sent downstream' },
+    { title: 'PROCESSED', count: sumObj(status?.processed), color: 'text-slate-400', subtitle: 'Completed' },
   ];
 
-  const reviewBreakdown = status?.review_breakdown ?? {};
-  const hasBreakdown = Object.keys(reviewBreakdown).length > 0;
+  // Flatten review breakdown: { voicenotes: { ambiguous: 0, ... }, ... } -> { ambiguous: N, ... }
+  const reviewObj = status?.review ?? {};
+  const reviewBreakdown: Record<string, number> = {};
+  for (const source of Object.values(reviewObj) as Record<string, number>[]) {
+    if (source && typeof source === 'object') {
+      for (const [queue, count] of Object.entries(source)) {
+        reviewBreakdown[queue] = (reviewBreakdown[queue] ?? 0) + (typeof count === 'number' ? count : 0);
+      }
+    }
+  }
+  const hasBreakdown = Object.values(reviewBreakdown).some(v => v > 0);
 
   return (
     <div className="space-y-6">
       {/* Status Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-5">
         {cards.map((card) => (
           <div
             key={card.title}
-            className="bg-zinc-900 border border-zinc-800 rounded-lg p-4"
+            className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5 shadow-sm"
           >
-            <div className="text-xs uppercase tracking-wider text-zinc-400 mb-1">
+            <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mb-2">
               {card.title}
             </div>
-            <div className={`text-3xl font-bold ${card.color}`}>
+            <div className={`text-4xl font-bold ${card.color} tracking-tight`}>
               {card.count}
             </div>
-            <div className="text-xs text-zinc-500 mt-1">{card.subtitle}</div>
+            <div className="text-xs text-zinc-600 mt-1">{card.subtitle}</div>
           </div>
         ))}
       </div>
 
       {/* Review Breakdown */}
       {hasBreakdown && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="text-xs uppercase tracking-wider text-zinc-400 mb-3">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5 shadow-sm">
+          <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mb-4">
             Review Breakdown
           </div>
           <div className="flex flex-wrap gap-3">
             {Object.entries(reviewBreakdown).map(([key, val]) => (
-              <div key={key} className="flex items-center gap-2">
+              <div key={key} className="flex items-center gap-2.5 bg-zinc-800/40 rounded-lg px-3 py-2">
                 <StatusBadge status={key} />
-                <span className="text-sm font-mono text-zinc-300">{val}</span>
+                <span className="text-sm font-semibold font-mono text-zinc-200 tabular-nums">{val}</span>
               </div>
             ))}
           </div>
@@ -105,54 +120,54 @@ export function DashboardPage() {
       )}
 
       {/* Recent Notes */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-          <span className="text-xs uppercase tracking-wider text-zinc-400">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800/60">
+          <span className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500">
             Recent Notes
           </span>
-          <Link to="/notes" className="text-xs text-blue-400 hover:text-blue-300">
+          <Link to="/notes" className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
             View all
           </Link>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider">
-                <th className="px-4 py-2">Title</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Project</th>
-                <th className="px-4 py-2">Source</th>
-                <th className="px-4 py-2">Age</th>
+              <tr className="bg-zinc-900">
+                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Title</th>
+                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Status</th>
+                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Project</th>
+                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Source</th>
+                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Age</th>
               </tr>
             </thead>
             <tbody>
-              {recentNotes.map((note, i) => (
+              {recentNotes.map((note) => (
                 <tr
                   key={note.source_note_id}
-                  className={`border-t border-zinc-800/50 hover:bg-zinc-800/50 ${i % 2 === 0 ? 'bg-zinc-900' : 'bg-zinc-950/50'}`}
+                  className="border-t border-zinc-800/40 hover:bg-zinc-800/30 transition-colors"
                 >
-                  <td className="px-4 py-2.5 text-zinc-100 truncate max-w-xs">
-                    <Link to={`/notes?id=${note.source_note_id}&source=${note.source}`} className="hover:text-blue-400">
+                  <td className="px-5 py-3 text-zinc-100 min-w-[300px]">
+                    <Link to={`/notes?id=${note.source_note_id}&source=${note.source}`} className="hover:text-blue-400 transition-colors truncate block max-w-md">
                       {note.title || note.source_note_id}
                     </Link>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-5 py-3">
                     <StatusBadge status={note.status} />
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-300 text-xs">
+                  <td className="px-5 py-3 text-zinc-400 text-xs">
                     {note.project || '--'}
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-400 font-mono text-xs">
+                  <td className="px-5 py-3 text-zinc-500 font-mono text-xs">
                     {note.source}
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs">
+                  <td className="px-5 py-3 text-zinc-500 text-xs tabular-nums">
                     {formatAge(note.queue_age_seconds)}
                   </td>
                 </tr>
               ))}
               {recentNotes.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
+                  <td colSpan={5} className="px-5 py-12 text-center text-zinc-500">
                     No notes found
                   </td>
                 </tr>

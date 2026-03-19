@@ -14,7 +14,7 @@ const STATUS_COLORS: Record<string, string> = {
 export function StatusBadge({ status }: { status: string }) {
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[status] || 'bg-zinc-700 text-zinc-300'}`}
+      className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium leading-none ${STATUS_COLORS[status] || 'bg-zinc-700 text-zinc-300 border border-zinc-600'}`}
     >
       {status?.replace(/_/g, ' ')}
     </span>

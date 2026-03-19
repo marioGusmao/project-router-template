@@ -101,149 +101,160 @@ export function NotesPage() {
   ];
 
   return (
-    <div className="flex gap-0 -m-6">
+    <div className="flex gap-0 -m-8">
       {/* Table section */}
       <div className={`flex-1 min-w-0 ${selectedId ? 'w-[60%]' : 'w-full'}`}>
         {/* Filter bar */}
-        <div className="sticky top-14 z-30 bg-zinc-950 border-b border-zinc-800 px-6 py-3 flex items-center gap-3 flex-wrap">
-          <select
-            value={filterStatus}
-            onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
-            className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
-          >
-            <option value="">All statuses</option>
-            {statuses.map((s) => (
-              <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-            ))}
-          </select>
+        <div className="sticky top-14 z-30 bg-zinc-950/90 backdrop-blur-sm px-8 py-4">
+          <div className="bg-zinc-900/50 rounded-xl border border-zinc-800/40 p-3 flex items-center gap-3 flex-wrap">
+            <select
+              value={filterStatus}
+              onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
+              className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+            >
+              <option value="">All statuses</option>
+              {statuses.map((s) => (
+                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
 
-          <select
-            value={filterSource}
-            onChange={(e) => { setFilterSource(e.target.value); setPage(1); }}
-            className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
-          >
-            <option value="">All sources</option>
-            {sources.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+            <select
+              value={filterSource}
+              onChange={(e) => { setFilterSource(e.target.value); setPage(1); }}
+              className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+            >
+              <option value="">All sources</option>
+              {sources.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
 
-          <select
-            value={filterProject}
-            onChange={(e) => { setFilterProject(e.target.value); setPage(1); }}
-            className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
-          >
-            <option value="">All projects</option>
-            {projects.map((p) => (
-              <option key={p.key} value={p.key}>{p.display_name || p.key}</option>
-            ))}
-          </select>
+            <select
+              value={filterProject}
+              onChange={(e) => { setFilterProject(e.target.value); setPage(1); }}
+              className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+            >
+              <option value="">All projects</option>
+              {projects.map((p) => (
+                <option key={p.key} value={p.key}>{p.display_name || p.key}</option>
+              ))}
+            </select>
 
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); loadNotes(); } }}
-            placeholder="Search notes..."
-            className="flex-1 min-w-[200px] bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-          />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); loadNotes(); } }}
+              placeholder="Search notes..."
+              className="flex-1 min-w-[200px] bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+            />
 
-          <span className="text-xs text-zinc-500">
-            {total} note{total !== 1 ? 's' : ''}
-          </span>
+            <span className="text-[11px] text-zinc-500 font-medium tabular-nums">
+              {total} note{total !== 1 ? 's' : ''}
+            </span>
+          </div>
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="p-6 space-y-2">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-10 bg-zinc-900 rounded animate-pulse" />
-              ))}
-            </div>
-          ) : error ? (
-            <div className="p-8 text-center text-zinc-500">{error}</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider">
-                  <th className="px-6 py-2">Title</th>
-                  <th className="px-4 py-2">Status</th>
-                  <th className="px-4 py-2">Project</th>
-                  <th className="px-4 py-2">Confidence</th>
-                  <th className="px-4 py-2">Source</th>
-                  <th className="px-4 py-2">Age</th>
-                </tr>
-              </thead>
-              <tbody>
-                {notes.map((note, i) => (
-                  <tr
-                    key={`${note.source}-${note.source_note_id}`}
-                    onClick={() => selectNote(note)}
-                    className={`border-t border-zinc-800/50 cursor-pointer hover:bg-zinc-800/50 transition-colors ${
-                      i % 2 === 0 ? 'bg-zinc-900' : 'bg-zinc-950/50'
-                    } ${selectedId === note.source_note_id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}
-                  >
-                    <td className="px-6 py-2.5 text-zinc-100 truncate max-w-xs">
-                      {note.title || note.source_note_id}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <StatusBadge status={note.status} />
-                    </td>
-                    <td className="px-4 py-2.5 text-xs">
-                      {note.user_suggested_project && note.user_suggested_project !== note.project ? (
-                        <span className="text-violet-400">
-                          Suggested: {note.user_suggested_project}
-                        </span>
-                      ) : (
-                        <span className="text-zinc-300">{note.project || '--'}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <ConfidenceBar value={note.confidence ?? 0} />
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-zinc-400">
-                      {note.source}
-                    </td>
-                    <td className={`px-4 py-2.5 text-xs ${ageColor(note.queue_age_seconds)}`}>
-                      {formatAge(note.queue_age_seconds)}
-                    </td>
-                  </tr>
+        <div className="px-8 pb-8">
+          <div className="bg-zinc-900/50 rounded-xl border border-zinc-800/40 overflow-hidden">
+            {loading ? (
+              <div className="p-6 space-y-2">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="h-10 bg-zinc-800/40 rounded-lg animate-pulse" />
                 ))}
-                {notes.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">
-                      No notes found
-                    </td>
+              </div>
+            ) : error ? (
+              <div className="p-12 text-center text-zinc-500">{error}</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-zinc-900">
+                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Title</th>
+                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Status</th>
+                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Project</th>
+                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Confidence</th>
+                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Source</th>
+                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Age</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
+                </thead>
+                <tbody>
+                  {notes.map((note) => (
+                    <tr
+                      key={`${note.source}-${note.source_note_id}`}
+                      onClick={() => selectNote(note)}
+                      className={`border-t border-zinc-800/40 cursor-pointer hover:bg-zinc-800/30 transition-colors ${
+                        selectedId === note.source_note_id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''
+                      }`}
+                    >
+                      <td className="px-5 py-3 text-zinc-100 min-w-[300px]">
+                        <span className="truncate block max-w-md">
+                          {note.title || note.source_note_id}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        <StatusBadge status={note.status} />
+                      </td>
+                      <td className="px-5 py-3 text-xs">
+                        {note.user_suggested_project && note.user_suggested_project !== note.project ? (
+                          <span className="text-violet-400">
+                            Suggested: {note.user_suggested_project}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-400">{note.project || '--'}</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3">
+                        <ConfidenceBar value={note.confidence ?? 0} />
+                      </td>
+                      <td className="px-5 py-3 font-mono text-xs text-zinc-500">
+                        {note.source}
+                      </td>
+                      <td className={`px-5 py-3 text-xs tabular-nums ${ageColor(note.queue_age_seconds)}`}>
+                        {formatAge(note.queue_age_seconds)}
+                      </td>
+                    </tr>
+                  ))}
+                  {notes.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-16 text-center text-zinc-500">
+                        No notes found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 px-6 py-4 border-t border-zinc-800">
-            <button
-              onClick={() => setPage(Math.max(1, page - 1))}
-              disabled={page <= 1}
-              className="px-3 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"
-            >
-              Prev
-            </button>
-            <span className="text-sm text-zinc-400">
-              Page {page} of {totalPages}
-            </span>
-            <button
-              onClick={() => setPage(Math.min(totalPages, page + 1))}
-              disabled={page >= totalPages}
-              className="px-3 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"
-            >
-              Next
-            </button>
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-5 py-3 border-t border-zinc-800/40">
+                <span className="text-[11px] text-zinc-500 tabular-nums">
+                  Showing {(page - 1) * perPage + 1}--{Math.min(page * perPage, total)} of {total}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(Math.max(1, page - 1))}
+                    disabled={page <= 1}
+                    className="px-3 py-1.5 text-xs font-medium bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-zinc-300 hover:bg-zinc-700/60 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs text-zinc-500 tabular-nums px-2">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(Math.min(totalPages, page + 1))}
+                    disabled={page >= totalPages}
+                    className="px-3 py-1.5 text-xs font-medium bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-zinc-300 hover:bg-zinc-700/60 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Detail panel */}
