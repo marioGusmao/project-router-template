@@ -5346,5 +5346,88 @@ class SyncClientTests(unittest.TestCase):
                 self.assertEqual(loaded["status"], "classified")
 
 
+class TestReadwiseNormalize(unittest.TestCase):
+    READWISE_RAW = {
+        "source": "readwise",
+        "source_endpoint": "reader/list",
+        "source_item_type": "reader_document",
+        "synced_at": "2026-03-19T10:00:00Z",
+        "document": {
+            "id": "abc123",
+            "title": "Test Article",
+            "author": "Jane Doe",
+            "url": "https://reader.readwise.io/abc123",
+            "source_url": "https://example.com/article",
+            "category": "article",
+            "location": "archive",
+            "tags": {"python": "tag_1", "testing": "tag_2"},
+            "notes": "My notes on this",
+            "summary": "A test article summary.",
+            "word_count": 500,
+            "reading_progress": 0.8,
+            "site_name": "Example",
+            "published_date": "2026-03-01",
+            "created_at": "2026-03-15T08:00:00Z",
+            "updated_at": "2026-03-18T14:30:00Z",
+            "parent_id": None,
+        },
+    }
+
+    def test_normalize_readwise_creates_markdown(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_path = root / "data" / "raw" / "readwise" / "20260315T080000Z--rw_abc123.json"
+            raw_path.write_text(json.dumps(self.READWISE_RAW), encoding="utf-8")
+            with patch_cli_paths(root):
+                result = cli.main(["normalize", "--source", "readwise"])
+            self.assertEqual(result, 0)
+            md_files = list((root / "data" / "normalized" / "readwise").glob("*.md"))
+            self.assertEqual(len(md_files), 1)
+
+    def test_normalize_readwise_metadata_fields(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_path = root / "data" / "raw" / "readwise" / "20260315T080000Z--rw_abc123.json"
+            raw_path.write_text(json.dumps(self.READWISE_RAW), encoding="utf-8")
+            with patch_cli_paths(root):
+                cli.main(["normalize", "--source", "readwise"])
+            md_file = list((root / "data" / "normalized" / "readwise").glob("*.md"))[0]
+            metadata, body = cli.read_note(md_file)
+            self.assertEqual(metadata["source"], "readwise")
+            self.assertEqual(metadata["source_note_id"], "rw_abc123")
+            self.assertEqual(metadata["source_item_type"], "reader_document")
+            self.assertEqual(metadata["title"], "Test Article")
+            self.assertEqual(metadata["author"], "Jane Doe")
+            self.assertEqual(metadata["source_url"], "https://example.com/article")
+            self.assertIn("python", metadata["tags"])
+            self.assertIn("testing", metadata["tags"])
+            self.assertIsInstance(metadata["tags"], list)
+            self.assertEqual(metadata["reader_location"], "archive")
+            self.assertEqual(metadata["reader_category"], "article")
+            self.assertTrue(metadata["summary_available"])
+            self.assertEqual(metadata["summary_source"], "reader")
+
+    def test_normalize_readwise_body_content(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_path = root / "data" / "raw" / "readwise" / "20260315T080000Z--rw_abc123.json"
+            raw_path.write_text(json.dumps(self.READWISE_RAW), encoding="utf-8")
+            with patch_cli_paths(root):
+                cli.main(["normalize", "--source", "readwise"])
+            md_file = list((root / "data" / "normalized" / "readwise").glob("*.md"))[0]
+            _, body = cli.read_note(md_file)
+            self.assertIn("# Test Article", body)
+            self.assertIn("A test article summary.", body)
+            self.assertIn("My notes on this", body)
+            self.assertIn("https://example.com/article", body)
+            self.assertIn("Jane Doe", body)
+
+
 if __name__ == "__main__":
     unittest.main()

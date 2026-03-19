@@ -1265,6 +1265,97 @@ def normalized_note_from_raw(raw_path: Path, raw_payload: dict[str, Any], raw_fo
         }
         return normalized_path, enrich_note_metadata(metadata, body), body
 
+    if source == READWISE_SOURCE:
+        document = dict(raw_payload.get("document") or {})
+        raw_id = str(document.get("id") or "").strip()
+        note_id = require_valid_note_id(f"rw_{raw_id}" if raw_id else "")
+        title = document.get("title") or f"Readwise {raw_id}"
+        created_at = document.get("created_at")
+        note_dir = normalized_dir_for(READWISE_SOURCE)
+        normalized_path = existing_artifact_path(note_dir, note_id, ".md") or (
+            note_dir / f"{normalize_timestamp(created_at)}--{note_id}.md"
+        )
+
+        raw_tags = document.get("tags") or {}
+        tags = sorted(raw_tags.keys()) if isinstance(raw_tags, dict) else list(raw_tags)
+
+        has_summary = bool(document.get("summary"))
+        metadata = {
+            "source": READWISE_SOURCE,
+            "source_project": None,
+            "source_note_id": note_id,
+            "source_item_type": raw_payload.get("source_item_type", "reader_document"),
+            "source_endpoint": raw_payload.get("source_endpoint", "reader/list"),
+            "title": title,
+            "created_at": created_at,
+            "recorded_at": document.get("updated_at"),
+            "recording_type": None,
+            "duration": None,
+            "tags": tags,
+            "capture_kind": None,
+            "intent": None,
+            "destination": None,
+            "destination_reason": "",
+            "user_keywords": [],
+            "inferred_keywords": [],
+            "transcript_format": "markdown",
+            "summary_available": has_summary,
+            "summary_source": "reader" if has_summary else None,
+            "audio_available": False,
+            "audio_local_path": None,
+            "classification_basis": [],
+            "derived_outputs": [],
+            "thread_id": None,
+            "continuation_of": None,
+            "related_note_ids": [],
+            "status": "normalized",
+            "project": None,
+            "candidate_projects": [],
+            "confidence": 0.0,
+            "routing_reason": "",
+            "review_status": "pending",
+            "requires_user_confirmation": True,
+            "content_hash": None,
+            "canonical_path": relative_or_absolute(normalized_path),
+            "raw_payload_path": relative_or_absolute(raw_path),
+            "dispatched_to": [],
+            "author": document.get("author"),
+            "source_url": document.get("source_url"),
+            "reader_category": document.get("category"),
+            "reader_location": document.get("location"),
+            "word_count": document.get("word_count"),
+            "reading_progress": document.get("reading_progress"),
+            "site_name": document.get("site_name"),
+            "published_date": document.get("published_date"),
+        }
+
+        parts = [f"# {title}\n"]
+        source_url = document.get("source_url")
+        author = document.get("author")
+        category = document.get("category")
+        if source_url:
+            parts.append(f"**Source:** {source_url}")
+        if author:
+            parts.append(f"**Author:** {author}")
+        if category:
+            parts.append(f"**Category:** {category}")
+        if parts[-1] != f"# {title}\n":
+            parts.append("")
+
+        summary = document.get("summary")
+        if summary:
+            parts.append(summary.strip())
+            parts.append("")
+
+        notes = document.get("notes")
+        if notes and notes.strip():
+            parts.append("## Notes")
+            parts.append(notes.strip())
+            parts.append("")
+
+        body = "\n".join(parts) + "\n"
+        return normalized_path, enrich_note_metadata(metadata, body), body
+
     recording = dict(raw_payload.get("recording") or {})
     note_id = require_valid_note_id(recording.get("id") or recording.get("uuid"))
     title = recording.get("title") or f"VoiceNotes {recording.get('id') or recording.get('uuid')}"
