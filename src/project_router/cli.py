@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +57,7 @@ AMBIGUOUS_DIR = REVIEW_DIR / VOICE_SOURCE / "ambiguous"
 NEEDS_REVIEW_DIR = REVIEW_DIR / VOICE_SOURCE / "needs_review"
 PENDING_PROJECT_DIR = REVIEW_DIR / VOICE_SOURCE / "pending_project"
 PARSER_LANGUAGE_PROFILES_PATH = Path(__file__).resolve().with_name("parser_language_profiles.json")
+PARSER_ENABLED_LANGUAGES_DEFAULTS_KEY = "enabled_parser_languages"
 GENERIC_PARSER_STOPWORDS = frozenset(
     {
         "capture",
@@ -110,6 +112,43 @@ def _normalize_term_list(values: Any, *, field: str, profile: str) -> tuple[str,
     return tuple(normalized)
 
 
+def _normalize_profile_key_list(values: Any, *, source: str) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list) or not values:
+        raise SystemExit(f"{source} must be a non-empty list.")
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = str(value).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(key)
+    if not normalized:
+        raise SystemExit(f"{source} must include at least one language profile key.")
+    return tuple(normalized)
+
+
+def registry_enabled_parser_profiles_override() -> tuple[str, ...] | None:
+    defaults: dict[str, Any] = {}
+    for path in (REGISTRY_SHARED_PATH, REGISTRY_LOCAL_PATH):
+        if not path.exists():
+            continue
+        config = read_registry_config(path)
+        raw_defaults = config.get("defaults") or {}
+        if not isinstance(raw_defaults, dict):
+            raise SystemExit(f"Registry defaults in {path} must be an object.")
+        defaults.update(raw_defaults)
+    raw_override = defaults.get(PARSER_ENABLED_LANGUAGES_DEFAULTS_KEY)
+    if raw_override is None:
+        return None
+    return _normalize_profile_key_list(
+        raw_override,
+        source=f"Registry defaults '{PARSER_ENABLED_LANGUAGES_DEFAULTS_KEY}'",
+    )
+
+
 @lru_cache(maxsize=1)
 def load_parser_language_profiles() -> dict[str, Any]:
     try:
@@ -135,13 +174,17 @@ def load_parser_language_profiles() -> dict[str, Any]:
             for field in PROFILE_TERM_FIELDS
         }
 
-    enabled_profiles_raw = raw.get("enabled_profiles") or sorted(normalized_profiles)
-    if not isinstance(enabled_profiles_raw, list) or not enabled_profiles_raw:
-        raise SystemExit("Parser language profile config must define a non-empty 'enabled_profiles' list.")
+    enabled_profiles_raw = registry_enabled_parser_profiles_override() or raw.get("enabled_profiles") or sorted(normalized_profiles)
+    if isinstance(enabled_profiles_raw, tuple):
+        enabled_profiles_values = enabled_profiles_raw
+    else:
+        enabled_profiles_values = _normalize_profile_key_list(
+            enabled_profiles_raw,
+            source="Parser language profile config 'enabled_profiles'",
+        )
 
     enabled_profiles: list[str] = []
-    for value in enabled_profiles_raw:
-        key = str(value).strip().lower()
+    for key in enabled_profiles_values:
         if key not in normalized_profiles:
             raise SystemExit(f"Enabled parser language profile '{key}' is not defined in {PARSER_LANGUAGE_PROFILES_PATH.name}.")
         if key not in enabled_profiles:
@@ -579,6 +622,13 @@ def read_json_if_exists(path: Path) -> dict[str, Any] | None:
     return payload
 
 
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    try:
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"Failed to write {path}: {exc}") from exc
+
+
 def read_text_if_exists(path: Path) -> str | None:
     if not path.exists():
         return None
@@ -601,6 +651,93 @@ def extract_template_version(value: Any) -> str | None:
     return match.group(1) if match else None
 
 
+def git_output(*args: str) -> str | None:
+    try:
+        output = subprocess.check_output(["git", *args], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError):
+        return None
+    return output or None
+
+
+def build_template_release_tag(template_name: str | None, version: str) -> str:
+    normalized_name = str(template_name or "").strip()
+    if normalized_name:
+        return f"{normalized_name}-v{version}"
+    return f"v{version}"
+
+
+def resolve_template_repo(
+    template_base: dict[str, Any] | None,
+    private_meta: dict[str, Any] | None,
+    template_meta: dict[str, Any] | None,
+) -> str:
+    return str(
+        (template_base or {}).get("template_repo")
+        or (private_meta or {}).get("template_repo")
+        or (template_meta or {}).get("template_repo")
+        or ""
+    ).strip()
+
+
+def resolve_recorded_template_version(template_base: dict[str, Any] | None) -> str | None:
+    candidates = (
+        (template_base or {}).get("template_base_version"),
+        (template_base or {}).get("template_base_tag"),
+    )
+    for candidate in candidates:
+        version = extract_template_version(candidate)
+        if version:
+            return version
+    return None
+
+
+def resolve_local_template_version(template_meta: dict[str, Any] | None) -> str | None:
+    candidates = (
+        (template_meta or {}).get("version"),
+        read_text_if_exists(VERSION_PATH),
+    )
+    for candidate in candidates:
+        version = extract_template_version(candidate)
+        if version:
+            return version
+    return None
+
+
+def resolve_template_base_commit(
+    *,
+    version: str,
+    tag: str,
+    template_name: str | None,
+    existing_commit: str | None,
+) -> str | None:
+    tag_candidates = [tag, f"refs/tags/{tag}", f"v{version}", f"refs/tags/v{version}"]
+    for candidate in tag_candidates:
+        if not candidate:
+            continue
+        commit = git_output("rev-parse", f"{candidate}^{{commit}}")
+        if commit:
+            return commit
+    version_commit = git_output(
+        "log",
+        "--format=%H",
+        "-n",
+        "1",
+        "-G",
+        re.escape(version),
+        "--",
+        "version.txt",
+        "template.meta.json",
+        ".release-please-manifest.json",
+    )
+    if version_commit:
+        return version_commit
+    if template_name:
+        release_commit = git_output("log", "--format=%H", "-n", "1", "--grep", f"release {template_name} {version}")
+        if release_commit:
+            return release_commit
+    return existing_commit
+
+
 def detect_repo_role(private_meta: dict[str, Any] | None, template_meta: dict[str, Any] | None) -> str:
     repo_role = str((private_meta or {}).get("repo_role") or "").strip()
     if repo_role:
@@ -611,17 +748,7 @@ def detect_repo_role(private_meta: dict[str, Any] | None, template_meta: dict[st
 
 
 def resolve_current_template_version(template_base: dict[str, Any] | None, template_meta: dict[str, Any] | None) -> str | None:
-    candidates = (
-        (template_base or {}).get("template_base_version"),
-        (template_base or {}).get("template_base_tag"),
-        (template_meta or {}).get("version"),
-        read_text_if_exists(VERSION_PATH),
-    )
-    for candidate in candidates:
-        version = extract_template_version(candidate)
-        if version:
-            return version
-    return None
+    return resolve_local_template_version(template_meta) or resolve_recorded_template_version(template_base)
 
 
 def fetch_latest_template_release(upstream_repo: str) -> dict[str, Any]:
@@ -657,25 +784,24 @@ def template_update_status_command(args: argparse.Namespace) -> int:
     template_meta = read_json_if_exists(TEMPLATE_META_PATH)
 
     repo_role = detect_repo_role(private_meta, template_meta)
-    template_repo = str(
-        (template_base or {}).get("template_repo")
-        or (private_meta or {}).get("template_repo")
-        or (template_meta or {}).get("template_repo")
-        or ""
-    ).strip()
+    template_repo = resolve_template_repo(template_base, private_meta, template_meta)
+    recorded_version = resolve_recorded_template_version(template_base)
     current_version = resolve_current_template_version(template_base, template_meta)
+    local_repo_version = resolve_local_template_version(template_meta)
     current_tag = str((template_base or {}).get("template_base_tag") or "").strip() or None
-    local_repo_version = extract_template_version(read_text_if_exists(VERSION_PATH))
     last_sync_at = str((template_base or {}).get("last_template_sync_at") or "").strip() or None
+    metadata_needs_sync = bool(local_repo_version and current_version and recorded_version != current_version)
 
     payload: dict[str, Any] = {
         "status": "local_metadata_only",
         "repo_role": repo_role,
         "template_repo": template_repo or None,
         "current_version": current_version,
+        "recorded_version": recorded_version,
         "current_tag": current_tag,
         "local_repo_version": local_repo_version,
         "last_template_sync_at": last_sync_at,
+        "metadata_needs_sync": metadata_needs_sync,
         "check_remote": bool(getattr(args, "check_remote", False)),
         "update_required": None,
         "should_prompt_user": False,
@@ -693,7 +819,14 @@ def template_update_status_command(args: argparse.Namespace) -> int:
         return 0
 
     if not payload["check_remote"]:
-        payload["message"] = "Local template metadata loaded. Re-run with --check-remote to compare against GitHub releases."
+        if metadata_needs_sync:
+            payload["status"] = "metadata_stale"
+            payload["message"] = (
+                f"Local template files resolve to {current_version}, but template-base.json still records "
+                f"{recorded_version or 'unknown'}. Run `python3 scripts/project_router.py template-sync-metadata`."
+            )
+        else:
+            payload["message"] = "Local template metadata loaded. Re-run with --check-remote to compare against GitHub releases."
         print(json.dumps(payload, indent=2))
         return 0
 
@@ -721,7 +854,13 @@ def template_update_status_command(args: argparse.Namespace) -> int:
     update_required = current_version != latest_version
     payload["update_required"] = update_required
     payload["should_prompt_user"] = update_required and repo_role == "private-derived"
-    if update_required:
+    if metadata_needs_sync and not update_required:
+        payload["status"] = "metadata_stale"
+        payload["message"] = (
+            f"Local template files already match {latest_version}, but template-base.json still records "
+            f"{recorded_version or 'unknown'}. Run `python3 scripts/project_router.py template-sync-metadata`."
+        )
+    elif update_required:
         payload["status"] = "update_available"
         payload["message"] = (
             f"Template update available: current={current_version or 'unknown'} latest={latest_version}. "
@@ -732,6 +871,101 @@ def template_update_status_command(args: argparse.Namespace) -> int:
         payload["message"] = f"Template is up to date at {latest_version}."
 
     print(json.dumps(payload, indent=2))
+    return 0
+
+
+def template_sync_metadata_command(args: argparse.Namespace) -> int:
+    private_meta = read_json_if_exists(PRIVATE_META_PATH)
+    template_base = read_json_if_exists(TEMPLATE_BASE_PATH) or {}
+    template_meta = read_json_if_exists(TEMPLATE_META_PATH)
+
+    template_repo = str(getattr(args, "template_repo", "") or "").strip() or resolve_template_repo(
+        template_base, private_meta, template_meta
+    )
+    if not template_repo:
+        raise SystemExit("No template_repo is configured in template-base.json, private.meta.json, or template.meta.json.")
+
+    version_override = str(getattr(args, "template_version", "") or "").strip()
+    version = extract_template_version(version_override) or resolve_local_template_version(template_meta)
+    if not version:
+        raise SystemExit("Could not determine the local template version from template.meta.json or version.txt.")
+
+    template_name = str((template_meta or {}).get("template_name") or ROOT.name).strip() or None
+    tag_override = str(getattr(args, "template_tag", "") or "").strip()
+    tag = tag_override or build_template_release_tag(template_name, version)
+    commit_override = str(getattr(args, "template_commit", "") or "").strip()
+    existing_commit = str(template_base.get("template_base_commit") or "").strip() or None
+    commit = commit_override or resolve_template_base_commit(
+        version=version,
+        tag=tag,
+        template_name=template_name,
+        existing_commit=existing_commit,
+    )
+    if not commit:
+        raise SystemExit(
+            "Could not determine the template base commit. Pass --template-commit explicitly or fetch the release refs locally."
+        )
+
+    explicit_synced_at = str(getattr(args, "synced_at", "") or "").strip() or None
+    metadata_changed = any(
+        [
+            template_base.get("template_repo") != template_repo,
+            template_base.get("template_base_version") != version,
+            template_base.get("template_base_tag") != tag,
+            template_base.get("template_base_commit") != commit,
+        ]
+    )
+    existing_synced_at = str(template_base.get("last_template_sync_at") or "").strip() or None
+    synced_at = explicit_synced_at or (iso_now() if metadata_changed or not existing_synced_at else existing_synced_at)
+    desired_payload = dict(template_base)
+    desired_payload.update(
+        {
+            "template_repo": template_repo,
+            "template_base_version": version,
+            "template_base_tag": tag,
+            "template_base_commit": commit,
+            "last_template_sync_at": synced_at,
+        }
+    )
+    changed = desired_payload != template_base
+    status = "drift" if changed else "ok"
+
+    if getattr(args, "check", False):
+        print(
+            json.dumps(
+                {
+                    "status": status,
+                    "changed": changed,
+                    "template_base_path": str(TEMPLATE_BASE_PATH),
+                    "template_repo": template_repo,
+                    "template_base_version": version,
+                    "template_base_tag": tag,
+                    "template_base_commit": commit,
+                    "last_template_sync_at": synced_at,
+                },
+                indent=2,
+            )
+        )
+        return 1 if changed else 0
+
+    if changed:
+        write_json(TEMPLATE_BASE_PATH, desired_payload)
+
+    print(
+        json.dumps(
+            {
+                "status": "updated" if changed else "already_current",
+                "changed": changed,
+                "template_base_path": str(TEMPLATE_BASE_PATH),
+                "template_repo": template_repo,
+                "template_base_version": version,
+                "template_base_tag": tag,
+                "template_base_commit": commit,
+                "last_template_sync_at": synced_at,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -924,6 +1158,9 @@ def write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
         "dispatched_at",
         "dispatched_to",
         "note_type",
+        "user_suggested_project",
+        "user_suggestion_timestamp",
+        "reviewer_notes",
     ]
     rendered: list[str] = []
     seen = set()
@@ -1468,6 +1705,9 @@ def ensure_note_metadata_defaults(metadata: dict[str, Any]) -> dict[str, Any]:
     metadata.setdefault("candidate_projects", [])
     metadata.setdefault("dispatched_to", [])
     metadata.setdefault("content_hash", None)
+    metadata.setdefault("user_suggested_project", None)
+    metadata.setdefault("user_suggestion_timestamp", None)
+    metadata.setdefault("reviewer_notes", None)
     return metadata
 
 
@@ -3537,6 +3777,21 @@ def convert_brief_to_packet(metadata: dict[str, Any], body: str) -> tuple[dict[s
     return converted, body
 
 
+def is_compiled_brief_metadata(metadata: dict[str, Any]) -> bool:
+    if metadata.get("packet_id"):
+        return False
+    if metadata.get("source") != PROJECT_ROUTER_SOURCE:
+        return False
+    brief_markers = (
+        "source_note_id",
+        "classification",
+        "brief_summary",
+        "compiled_path",
+        "canonical_path",
+    )
+    return any(metadata.get(field) not in (None, "", []) for field in brief_markers)
+
+
 def build_project_router_raw_payload(
     *,
     project_key: str,
@@ -4741,7 +4996,10 @@ def inbox_intake_command(args: argparse.Namespace) -> int:
             skipped += 1
             continue
 
-        is_brief = (metadata.get("capture_kind") or metadata.get("inferred_keywords")) and not metadata.get("packet_id")
+        is_brief = (
+            (metadata.get("capture_kind") or metadata.get("inferred_keywords"))
+            and not metadata.get("packet_id")
+        ) or is_compiled_brief_metadata(metadata)
         if is_brief:
             converted_meta, body = convert_brief_to_packet(metadata, body)
             if not dry_run:
@@ -5235,6 +5493,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Query GitHub Releases for the configured template_repo before reporting status.",
     )
     template_update_status.set_defaults(func=template_update_status_command)
+
+    template_sync_metadata = subparsers.add_parser(
+        "template-sync-metadata",
+        help="Reconcile template-base.json with the installed template version.",
+    )
+    template_sync_metadata.add_argument("--check", action="store_true", help="Exit non-zero when template-base.json is stale.")
+    template_sync_metadata.add_argument("--template-repo", help="Override the upstream template repository slug.")
+    template_sync_metadata.add_argument("--template-version", help="Override the template version to record.")
+    template_sync_metadata.add_argument("--template-tag", help="Override the template tag to record.")
+    template_sync_metadata.add_argument("--template-commit", help="Override the template base commit to record.")
+    template_sync_metadata.add_argument("--synced-at", help="Override the sync timestamp (UTC ISO-8601).")
+    template_sync_metadata.set_defaults(func=template_sync_metadata_command)
 
     ingest = subparsers.add_parser("ingest", help="Ingest files from a configured filesystem inbox.")
     ingest.add_argument("--integration", required=True, help="Integration type (currently: filesystem).")
