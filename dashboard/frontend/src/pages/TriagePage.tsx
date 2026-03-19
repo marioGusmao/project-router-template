@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getTriageItems, type TriageItem } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
+import { SourceIcon } from '../components/SourceIcon';
 import { ConfidenceBar } from '../components/ConfidenceBar';
 import { NoteDetail } from '../components/notes/NoteDetail';
 
@@ -183,7 +184,8 @@ export function TriagePage() {
                       >
                         <div className="flex items-start justify-between gap-3" style={{ marginBottom: 12 }}>
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm text-zinc-100 font-medium truncate">
+                            <div className="text-sm text-zinc-100 font-medium truncate flex items-center gap-2">
+                              <SourceIcon source={item.source} />
                               {item.title || item.source_note_id}
                             </div>
                             {item.excerpt && (

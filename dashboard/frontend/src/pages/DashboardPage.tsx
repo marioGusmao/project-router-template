@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getStatus, getNotes, type StatusResponse, type NoteListItem } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
+import { SourceIcon } from '../components/SourceIcon';
 
 function formatAge(seconds: number | undefined): string {
   if (seconds === undefined || seconds === null) return '--';
@@ -192,10 +193,12 @@ export function DashboardPage() {
                   <td style={{ padding: '14px 20px', minWidth: 300 }} className="text-zinc-100">
                     <Link
                       to={`/notes?id=${note.source_note_id}&source=${note.source}`}
-                      className="hover:text-blue-400 transition-colors truncate block"
-                      style={{ maxWidth: 400 }}
+                      className="hover:text-blue-400 transition-colors flex items-center gap-2.5"
                     >
-                      {note.title || note.source_note_id}
+                      <SourceIcon source={note.source} />
+                      <span className="truncate" style={{ maxWidth: 380 }}>
+                        {note.title || note.source_note_id}
+                      </span>
                     </Link>
                   </td>
                   <td style={{ padding: '14px 20px' }}>
