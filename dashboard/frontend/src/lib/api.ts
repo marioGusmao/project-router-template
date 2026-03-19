@@ -88,8 +88,10 @@ export const getNotes = (params?: Record<string, string>) => {
   return api<NotesResponse>(`/api/notes${qs}`);
 };
 
-export const getNote = (id: string, source: string) =>
-  api<NoteDetail>(`/api/notes/${id}?source=${source}`);
+export const getNote = async (id: string, source: string): Promise<NoteDetail> => {
+  const res = await api<{ note: NoteDetail }>(`/api/notes/${id}?source=${source}`);
+  return res.note;
+};
 
 export const getProjects = () => api<{ projects: Project[] }>('/api/projects');
 
