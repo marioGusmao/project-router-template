@@ -17,6 +17,8 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 |--------|---------|---------------|
 | `scripts/project_router_client.py sync` | Fetch new captures from the VoiceNotes API into `data/raw/voicenotes/` | `.env.local` with VoiceNotes API token |
 
+For `sync`, normal reruns use the local checkpoint in `state/sync_state.json`. A first sync without a checkpoint must now be explicit: pass `--window-days <N>`, `--from ...`, or `--full-history`. Use `--window-days` for machine recovery or bounded backfills.
+
 ## Pipeline
 
 | Script | Stage | Purpose | Prerequisites |
@@ -36,7 +38,8 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/project_router.py ingest` | ingest | Scan configured filesystem inboxes, copy blobs, run extractors, write manifests, archive originals | `registry.local.json` with `sources.filesystem_inboxes` configured |
 | `scripts/project_router.py extract` | extract | List notes needing AI extraction, or update extraction for a specific note | Ingested + normalized filesystem notes |
 | `scripts/project_router.py context` | context | Generate a live project briefing in the terminal from current state | None |
-| `scripts/project_router.py template-update-status` | template-update-status | Report the installed template metadata and optionally compare it with the latest upstream GitHub release | `template-base.json` or equivalent template metadata; add `--check-remote` to query GitHub |
+| `scripts/project_router.py template-update-status` | template-update-status | Report the installed template version, surface stale sync metadata, and optionally compare it with the latest upstream GitHub release | `template-base.json` or equivalent template metadata; add `--check-remote` to query GitHub |
+| `scripts/project_router.py template-sync-metadata` | template-sync-metadata | Reconcile `template-base.json` with the installed template version and commit metadata | Private-derived repo or any clone that tracks template metadata; add `--check` to detect drift without writing |
 | `scripts/project_router.py inbox-intake` | inbox-intake | Ingest and archive inbox packets from `router/inbox/` | Local router contract exists |
 | `scripts/project_router.py inbox-status` | inbox-status | List open inbox packet states | Inbox packets ingested |
 | `scripts/project_router.py inbox-ack` | inbox-ack | Acknowledge a packet (record decision: applied, blocked, rejected) | Inbox packets ingested; requires `--packet-id` and `--status` |
