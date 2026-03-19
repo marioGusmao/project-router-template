@@ -1958,7 +1958,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d1", "decision": "approve", "final_project": "home_renovation",
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d1.md")
             self.assertEqual(metadata["status"], "classified")
@@ -1979,7 +1979,7 @@ class DecideCommandTests(unittest.TestCase):
                     cli.decide_command(type("Args", (), {
                         "note_id": "vn_d2", "decision": "approve", "final_project": None,
                         "final_type": None, "user_keywords": None, "related_note_ids": None,
-                        "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                        "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                     })())
                 self.assertIn("Approve requires", str(ctx.exception))
 
@@ -1994,7 +1994,7 @@ class DecideCommandTests(unittest.TestCase):
                     cli.decide_command(type("Args", (), {
                         "note_id": "vn_d3", "decision": "approve", "final_project": "nonexistent_project",
                         "final_type": None, "user_keywords": None, "related_note_ids": None,
-                        "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                        "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                     })())
                 self.assertIn("Unknown project", str(ctx.exception))
 
@@ -2008,7 +2008,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d4", "decision": "ambiguous", "final_project": None,
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d4.md")
             self.assertEqual(metadata["status"], "ambiguous")
@@ -2024,7 +2024,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d5", "decision": "pending-project", "final_project": None,
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d5.md")
             self.assertEqual(metadata["status"], "pending_project")
@@ -2040,7 +2040,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d6", "decision": "reject", "final_project": None,
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d6.md")
             self.assertEqual(metadata["status"], "needs_review")
@@ -2057,7 +2057,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d7", "decision": "approve", "final_project": "home_renovation",
                     "final_type": "meeting-notes", "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "Looks good", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "Looks good", "source": "all",
                 })())
             packets = list((root / "state" / "decisions").glob("*vn-d7*"))
             self.assertEqual(len(packets), 1)
@@ -2080,7 +2080,7 @@ class DecideCommandTests(unittest.TestCase):
                     "note_id": "vn_d8", "decision": "approve", "final_project": "home_renovation",
                     "final_type": None, "user_keywords": ["bathroom", "tile"],
                     "related_note_ids": ["vn_d7"], "thread_id": "thread-001",
-                    "continuation_of": "vn_d7", "notes": "", "source": "all",
+                    "continuation_of": "vn_d7", "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d8.md")
             self.assertIn("bathroom", metadata.get("user_keywords", []))
@@ -5066,7 +5066,7 @@ class TriagePreservationTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_rt1", "decision": "reject", "final_project": None,
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rt1.md")
             self.assertEqual(metadata["review_status"], "reject")
@@ -5319,7 +5319,6 @@ class SyncClientTests(unittest.TestCase):
                     note_id="vn_clear_suggest", source=None,
                     user_keywords=None, related_note_ids=None,
                     thread_id=None, continuation_of=None, reviewer_notes=None,
-                    notes=None,
                 )
                 cli.decide_command(args)
                 loaded, _ = cli.read_note(note_path)

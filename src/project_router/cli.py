@@ -38,6 +38,10 @@ from .services.notes import (  # noqa: E402
     remove_review_copies, iso_now, list_markdown_files, list_raw_files,
     review_dir_for, review_queue_directories,
 )
+from .services.projects import (  # noqa: E402
+    ProjectRule, load_registry, read_registry_config, read_json_if_exists,
+    has_placeholder_path, merge_registry_configs,
+)
 PARSER_LANGUAGE_PROFILES_PATH = Path(__file__).resolve().with_name("parser_language_profiles.json")
 PARSER_ENABLED_LANGUAGES_DEFAULTS_KEY = "enabled_parser_languages"
 GENERIC_PARSER_STOPWORDS = frozenset(
@@ -257,17 +261,6 @@ def detect_note_languages(metadata: dict[str, Any], body: str) -> dict[str, Any]
         "mixed_languages": mixed_languages,
         "active_parser_languages": list(active_parser_profile_keys()),
     }
-
-
-@dataclass
-class ProjectRule:
-    key: str
-    display_name: str
-    language: str
-    inbox_path: Path | None
-    router_root_path: Path | None
-    note_type: str
-    keywords: list[str]
 
 
 def ensure_layout() -> None:
@@ -3207,7 +3200,7 @@ def decide_command(args: argparse.Namespace) -> int:
             "continuation_of": metadata.get("continuation_of"),
             "related_note_ids": metadata.get("related_note_ids", []),
             "user_keywords": metadata.get("user_keywords", []),
-            "notes": args.notes or "",
+            "notes": args.reviewer_notes or "",
         }
     )
     packet["final_decision"] = packet["reviews"][-1]
@@ -5171,7 +5164,7 @@ def build_parser() -> argparse.ArgumentParser:
     decide.add_argument("--related-note-id", dest="related_note_ids", action="append", help="Link another note as related context.")
     decide.add_argument("--thread-id", help="Assign or override the note thread identifier.")
     decide.add_argument("--continuation-of", help="Mark this note as a continuation of another source_note_id.")
-    decide.add_argument("--notes", help="Optional reviewer note.")
+    decide.add_argument("--notes", dest="reviewer_notes", help="Optional reviewer note.")
     decide.set_defaults(func=decide_command)
 
     scan_outboxes = subparsers.add_parser("scan-outboxes", help="Read downstream project outboxes without mutating them.")
