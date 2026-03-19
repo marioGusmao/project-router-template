@@ -4075,7 +4075,7 @@ def build_parser() -> argparse.ArgumentParser:
     decide = subparsers.add_parser("decide", help="Record the user's review decision for one note.")
     add_source_argument(decide)
     decide.add_argument("--note-id", required=True, help="source_note_id to review.")
-    decide.add_argument("--decision", required=True, choices=("approve", "reject", "needs-review", "ambiguous", "pending-project"))
+    decide.add_argument("--decision", required=True, choices=("approve", "reject", "defer", "needs-review", "ambiguous", "pending-project"))
     decide.add_argument("--final-project", help="Override the final project when approving.")
     decide.add_argument("--final-type", help="Override the final note type when approving.")
     decide.add_argument("--user-keyword", dest="user_keywords", action="append", help="Add a curated keyword to the note metadata.")

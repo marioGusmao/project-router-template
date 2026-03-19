@@ -115,7 +115,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             source = body.get("source", "voicenotes")
             decision = body.get("decision", "")
             final_project = body.get("final_project")
-            valid_decisions = {"approve", "reject", "needs-review", "ambiguous", "pending-project"}
+            valid_decisions = {"approve", "reject", "defer", "needs-review", "ambiguous", "pending-project"}
             if decision not in valid_decisions:
                 self._error_response(
                     f"Invalid decision '{decision}'. Must be one of: {', '.join(sorted(valid_decisions))}",

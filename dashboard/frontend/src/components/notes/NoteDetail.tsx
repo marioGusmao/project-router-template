@@ -297,6 +297,16 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Prop
               Ambiguous ?
             </button>
             <button
+              onClick={() => handleDecide('defer')}
+              disabled={deciding}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all text-sky-400 border border-sky-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: 'rgba(14,165,233,0.2)' }}
+              onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(14,165,233,0.3)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(14,165,233,0.2)'; }}
+            >
+              Rever mais tarde
+            </button>
+            <button
               onClick={() => handleDecide('needs-review')}
               disabled={deciding}
               className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all text-amber-400 border border-amber-600/30 disabled:opacity-50 disabled:cursor-not-allowed"

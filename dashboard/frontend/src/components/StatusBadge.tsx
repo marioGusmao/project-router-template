@@ -8,6 +8,8 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; glow: string }> 
   normalized: { bg: 'bg-zinc-500/10', text: 'text-zinc-400', glow: '' },
   parse_errors: { bg: 'bg-red-500/10', text: 'text-red-400', glow: 'shadow-[0_0_12px_rgba(239,68,68,0.15)]' },
   needs_extraction: { bg: 'bg-amber-500/10', text: 'text-amber-300', glow: 'shadow-[0_0_12px_rgba(245,158,11,0.1)]' },
+  defer: { bg: 'bg-sky-500/10', text: 'text-sky-400', glow: 'shadow-[0_0_12px_rgba(14,165,233,0.15)]' },
+  reject: { bg: 'bg-rose-500/10', text: 'text-rose-400', glow: 'shadow-[0_0_12px_rgba(244,63,94,0.15)]' },
   suggestion: { bg: 'bg-violet-500/10', text: 'text-violet-400', glow: 'shadow-[0_0_12px_rgba(139,92,246,0.15)]' },
 };
 
