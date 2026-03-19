@@ -1,0 +1,290 @@
+"""Tests for the dashboard API server and SQLite index."""
+from __future__ import annotations
+
+import json
+import threading
+import unittest
+import urllib.request
+from pathlib import Path
+
+from src.project_router import cli
+from src.project_router.services import paths as svc_paths
+from tests.test_project_router import (
+    temporary_repo_dir,
+    prepare_repo,
+    write_registry,
+    patch_cli_paths,
+)
+
+
+class TestDashboardAPI(unittest.TestCase):
+    def test_status_endpoint(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/status"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertIn("sources", data)
+                finally:
+                    server.shutdown()
+
+    def test_notes_endpoint(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_dir = svc_paths.NORMALIZED_DIR / "voicenotes"
+                note_path = note_dir / "20260318T100000Z--vn_api.md"
+                metadata = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_api",
+                        "title": "API test note",
+                        "status": "classified",
+                        "project": "home_renovation",
+                    }
+                )
+                cli.write_note(note_path, metadata, "Test body")
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/notes"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertGreaterEqual(data["total"], 1)
+                        self.assertEqual(
+                            data["notes"][0]["source_note_id"], "vn_api"
+                        )
+                finally:
+                    server.shutdown()
+
+    def test_notes_filter_by_source(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_dir = svc_paths.NORMALIZED_DIR / "voicenotes"
+                note_path = note_dir / "20260318T100000Z--vn_filter.md"
+                metadata = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_filter",
+                        "title": "Filter test",
+                        "status": "classified",
+                        "project": "home_renovation",
+                    }
+                )
+                cli.write_note(note_path, metadata, "Body")
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/notes?source=voicenotes"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertGreaterEqual(data["total"], 1)
+
+                    url = f"http://localhost:{port}/api/notes?source=filesystem"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertEqual(data["total"], 0)
+                finally:
+                    server.shutdown()
+
+    def test_single_note_endpoint(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_dir = svc_paths.NORMALIZED_DIR / "voicenotes"
+                note_path = note_dir / "20260318T100000Z--vn_single.md"
+                metadata = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_single",
+                        "title": "Single note test",
+                        "status": "classified",
+                        "project": "home_renovation",
+                    }
+                )
+                cli.write_note(note_path, metadata, "Detailed body content")
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/notes/vn_single?source=voicenotes"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertEqual(
+                            data["note"]["source_note_id"], "vn_single"
+                        )
+                        self.assertIn("body", data["note"])
+                finally:
+                    server.shutdown()
+
+    def test_projects_endpoint(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/projects"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertIn("projects", data)
+                        keys = [p["key"] for p in data["projects"]]
+                        self.assertIn("home_renovation", keys)
+                finally:
+                    server.shutdown()
+
+    def test_triage_endpoint(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_dir = svc_paths.NORMALIZED_DIR / "voicenotes"
+                note_path = note_dir / "20260318T100000Z--vn_triage.md"
+                metadata = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_triage",
+                        "title": "Ambiguous note",
+                        "status": "ambiguous",
+                        "project": "home_renovation",
+                    }
+                )
+                cli.write_note(note_path, metadata, "Needs triage")
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/triage"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertIn("items", data)
+                        ids = [i["source_note_id"] for i in data["items"]]
+                        self.assertIn("vn_triage", ids)
+                finally:
+                    server.shutdown()
+
+    def test_refresh_endpoint(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/refresh"
+                    req = urllib.request.Request(
+                        url, data=b"{}", method="POST"
+                    )
+                    req.add_header("Content-Type", "application/json")
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertTrue(data["rebuilt"])
+                finally:
+                    server.shutdown()
+
+    def test_404_for_unknown_api_endpoint(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/nonexistent"
+                    req = urllib.request.Request(url)
+                    try:
+                        urllib.request.urlopen(req, timeout=5)
+                        self.fail("Expected HTTP error")
+                    except urllib.error.HTTPError as e:
+                        self.assertEqual(e.code, 404)
+                finally:
+                    server.shutdown()
+
+    def test_options_cors(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None, dev=True)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/status"
+                    req = urllib.request.Request(url, method="OPTIONS")
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        self.assertEqual(resp.status, 204)
+                        self.assertEqual(
+                            resp.headers.get("Access-Control-Allow-Origin"),
+                            "*",
+                        )
+                finally:
+                    server.shutdown()
+
+
+if __name__ == "__main__":
+    unittest.main()
