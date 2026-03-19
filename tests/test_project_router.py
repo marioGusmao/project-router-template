@@ -5258,5 +5258,35 @@ class SyncClientTests(unittest.TestCase):
         self.assertEqual(metadata["reviewer_notes"], "Routing seems wrong")
 
 
+    def test_review_entry_includes_suggestion_fields(self):
+        """build_review_entry includes user_suggested_project and reviewer_notes."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_path = cli.NORMALIZED_DIR / "voicenotes" / "20260318T100000Z--vn_review_suggest.md"
+                metadata = cli.ensure_note_metadata_defaults({
+                    "source": "voicenotes",
+                    "source_note_id": "vn_review_suggest",
+                    "title": "Review test",
+                    "status": "classified",
+                    "project": "home_renovation",
+                    "user_suggested_project": "garden",
+                    "user_suggestion_timestamp": "2026-03-18T14:30:00Z",
+                    "reviewer_notes": "Check routing",
+                })
+                cli.write_note(note_path, metadata, "Body")
+                packet = cli.build_decision_packet(note_path, metadata, "Body",
+                                                   route="home_renovation",
+                                                   details={"home_renovation": 3, "confidence": 0.8},
+                                                   reason="test")
+                cli.save_decision_packet_for_metadata(metadata, packet)
+                entry = cli.build_review_entry(packet, cli.decision_packet_path_for_metadata(metadata))
+                self.assertEqual(entry["user_suggested_project"], "garden")
+                self.assertEqual(entry["user_suggestion_timestamp"], "2026-03-18T14:30:00Z")
+                self.assertEqual(entry["reviewer_notes"], "Check routing")
+
+
 if __name__ == "__main__":
     unittest.main()

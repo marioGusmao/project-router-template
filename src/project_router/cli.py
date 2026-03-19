@@ -3345,6 +3345,9 @@ def build_review_entry(packet: dict[str, Any], packet_path: Path) -> dict[str, A
         "compiled_path": compiled_path,
         "raw_payload_path": _raw_payload_path_from_packet(packet),
         "decision_packet_path": str(packet_path),
+        "user_suggested_project": note_metadata.get("user_suggested_project"),
+        "user_suggestion_timestamp": note_metadata.get("user_suggestion_timestamp"),
+        "reviewer_notes": note_metadata.get("reviewer_notes"),
     }
 
 
