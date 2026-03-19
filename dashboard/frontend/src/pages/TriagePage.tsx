@@ -10,13 +10,13 @@ interface Swimlane {
   items: TriageItem[];
 }
 
-const SWIMLANE_DEFS: Array<{ key: string; label: string; color: string; statuses: string[] }> = [
-  { key: 'suggestion', label: 'Suggested Reassignment', color: 'border-violet-500/40', statuses: ['suggestion'] },
-  { key: 'parse_errors', label: 'Parse Errors', color: 'border-red-500/40', statuses: ['parse_errors'] },
-  { key: 'needs_extraction', label: 'Needs Extraction', color: 'border-amber-500/40', statuses: ['needs_extraction'] },
-  { key: 'pending_project', label: 'Pending Project', color: 'border-rose-500/40', statuses: ['pending_project'] },
-  { key: 'ambiguous', label: 'Ambiguous', color: 'border-orange-500/40', statuses: ['ambiguous'] },
-  { key: 'needs_review', label: 'Needs Review', color: 'border-amber-500/40', statuses: ['needs_review'] },
+const SWIMLANE_DEFS: Array<{ key: string; label: string; color: string; statusColor: string; statuses: string[] }> = [
+  { key: 'suggestion', label: 'Suggested Reassignment', color: '#8b5cf6', statusColor: 'text-violet-400', statuses: ['suggestion'] },
+  { key: 'parse_errors', label: 'Parse Errors', color: '#ef4444', statusColor: 'text-red-400', statuses: ['parse_errors'] },
+  { key: 'needs_extraction', label: 'Needs Extraction', color: '#f59e0b', statusColor: 'text-amber-400', statuses: ['needs_extraction'] },
+  { key: 'pending_project', label: 'Pending Project', color: '#f43f5e', statusColor: 'text-rose-400', statuses: ['pending_project'] },
+  { key: 'ambiguous', label: 'Ambiguous', color: '#f97316', statusColor: 'text-orange-400', statuses: ['ambiguous'] },
+  { key: 'needs_review', label: 'Needs Review', color: '#eab308', statusColor: 'text-amber-400', statuses: ['needs_review'] },
 ];
 
 export function TriagePage() {
@@ -52,7 +52,11 @@ export function TriagePage() {
     return (
       <div className="space-y-5">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-40 bg-zinc-900/80 border border-zinc-800/60 rounded-xl animate-pulse" />
+          <div
+            key={i}
+            className="card animate-pulse"
+            style={{ height: 160, animationDelay: `${i * 100}ms` }}
+          />
         ))}
       </div>
     );
@@ -60,14 +64,14 @@ export function TriagePage() {
 
   if (error) {
     return (
-      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-8 text-center text-zinc-400">
+      <div className="card" style={{ padding: 48, textAlign: 'center', color: '#a1a1aa' }}>
         Failed to load triage: {error}
       </div>
     );
   }
 
   // Categorize items into swimlanes
-  const swimlanes: Swimlane[] = SWIMLANE_DEFS.map((def) => {
+  const swimlanes: (Swimlane & { statusColor: string })[] = SWIMLANE_DEFS.map((def) => {
     let laneItems: TriageItem[];
     if (def.key === 'suggestion') {
       laneItems = items.filter(
@@ -81,8 +85,10 @@ export function TriagePage() {
 
   if (swimlanes.length === 0) {
     return (
-      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-16 text-center">
-        <div className="text-zinc-400 text-lg font-medium mb-2">No triage items</div>
+      <div className="card" style={{ padding: 64, textAlign: 'center' }}>
+        <div className="text-zinc-400 text-lg font-medium" style={{ marginBottom: 8 }}>
+          No triage items
+        </div>
         <div className="text-zinc-600 text-sm">All notes are properly classified</div>
       </div>
     );
@@ -90,16 +96,38 @@ export function TriagePage() {
 
   return (
     <div className="space-y-5">
-      {swimlanes.map((lane) => (
-        <div key={lane.key} className={`bg-zinc-900/50 rounded-xl border ${lane.color} overflow-hidden`}>
+      {swimlanes.map((lane, laneIdx) => (
+        <div
+          key={lane.key}
+          className="card animate-in overflow-hidden"
+          style={{
+            animationDelay: `${laneIdx * 100}ms`,
+            borderLeftWidth: 2,
+            borderLeftColor: lane.color,
+          }}
+        >
           {/* Header */}
           <button
             onClick={() => toggle(lane.key)}
-            className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-zinc-800/20 transition-colors"
+            className="w-full flex items-center justify-between text-left transition-colors"
+            style={{
+              padding: '16px 20px',
+              background: collapsed.has(lane.key) ? 'transparent' : 'rgba(255,255,255,0.01)',
+            }}
           >
             <div className="flex items-center gap-3">
-              <span className="text-sm font-semibold text-zinc-200">{lane.label}</span>
-              <span className="text-[11px] font-medium bg-zinc-800/80 text-zinc-400 px-2.5 py-1 rounded-full tabular-nums">
+              <span className={`text-sm font-semibold ${lane.statusColor}`}>
+                {lane.label}
+              </span>
+              <span
+                className="font-medium font-mono tabular-nums text-zinc-400"
+                style={{
+                  fontSize: 11,
+                  background: 'rgba(255,255,255,0.06)',
+                  borderRadius: 9999,
+                  padding: '2px 10px',
+                }}
+              >
                 {lane.items.length}
               </span>
             </div>
@@ -113,19 +141,29 @@ export function TriagePage() {
 
           {/* Cards */}
           {!collapsed.has(lane.key) && (
-            <div className="px-5 pb-5 space-y-2">
+            <div style={{ padding: '0 20px 20px' }} className="space-y-2">
               {lane.items.map((item) => (
                 <div
                   key={`${item.source}-${item.source_note_id}`}
-                  className="bg-zinc-800/40 border border-zinc-700/30 rounded-lg p-4 hover:bg-zinc-800/60 transition-colors"
+                  className="rounded-xl transition-all duration-200 hover:bg-white/5"
+                  style={{
+                    background: 'rgba(255,255,255,0.02)',
+                    border: '1px solid rgba(255,255,255,0.04)',
+                    padding: 16,
+                  }}
                 >
-                  <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start justify-between gap-3" style={{ marginBottom: 12 }}>
                     <div className="min-w-0 flex-1">
                       <div className="text-sm text-zinc-100 font-medium truncate">
                         {item.title || item.source_note_id}
                       </div>
                       {item.excerpt && (
-                        <div className="text-xs text-zinc-500 mt-1.5 line-clamp-2 leading-relaxed">{item.excerpt}</div>
+                        <div
+                          className="text-zinc-500 leading-relaxed line-clamp-2"
+                          style={{ fontSize: 12, marginTop: 6 }}
+                        >
+                          {item.excerpt}
+                        </div>
                       )}
                     </div>
                     <StatusBadge status={item.status} />
@@ -137,7 +175,14 @@ export function TriagePage() {
                         {item.candidate_projects.slice(0, 3).map((c) => (
                           <span
                             key={c.project}
-                            className="text-[11px] bg-zinc-700/40 text-zinc-400 px-2 py-0.5 rounded-md font-medium"
+                            className="font-medium text-zinc-400 font-mono"
+                            style={{
+                              fontSize: 11,
+                              background: 'rgba(255,255,255,0.04)',
+                              border: '1px solid rgba(255,255,255,0.04)',
+                              padding: '2px 8px',
+                              borderRadius: 6,
+                            }}
                           >
                             {c.project} ({Math.round(c.score * 100)}%)
                           </span>
@@ -145,11 +190,11 @@ export function TriagePage() {
                       </div>
                     )}
                     {item.user_suggested_project && (
-                      <span className="text-xs text-violet-400 font-medium">
+                      <span className="text-violet-400 font-medium" style={{ fontSize: 12 }}>
                         Suggested: {item.user_suggested_project}
                       </span>
                     )}
-                    <span className="text-[11px] font-mono text-zinc-600 ml-auto">
+                    <span className="font-mono text-zinc-600 ml-auto" style={{ fontSize: 11 }}>
                       {item.source}
                     </span>
                   </div>

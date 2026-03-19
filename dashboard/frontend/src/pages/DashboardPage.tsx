@@ -37,10 +37,14 @@ export function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-6">
         <div className="grid grid-cols-3 gap-5">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-32 bg-zinc-900/80 border border-zinc-800/60 rounded-xl animate-pulse" />
+            <div
+              key={i}
+              className="card animate-pulse"
+              style={{ height: 140, padding: 24, animationDelay: `${i * 80}ms` }}
+            />
           ))}
         </div>
       </div>
@@ -49,7 +53,7 @@ export function DashboardPage() {
 
   if (error) {
     return (
-      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-8 text-center text-zinc-400">
+      <div className="card" style={{ padding: 48, textAlign: 'center', color: '#a1a1aa' }}>
         Failed to load dashboard: {error}
       </div>
     );
@@ -62,12 +66,12 @@ export function DashboardPage() {
   };
 
   const cards = [
-    { title: 'RAW', count: sumObj(status?.raw), color: 'text-zinc-200', subtitle: 'Unprocessed captures' },
-    { title: 'NORMALIZED', count: sumObj(status?.normalized), color: 'text-blue-400', subtitle: 'Parsed notes' },
-    { title: 'IN REVIEW', count: sumObj(status?.review), color: 'text-amber-400', subtitle: 'Awaiting decision' },
-    { title: 'COMPILED', count: sumObj(status?.compiled), color: 'text-emerald-400', subtitle: 'Ready for dispatch' },
-    { title: 'DISPATCHED', count: sumObj(status?.dispatched), color: 'text-blue-400', subtitle: 'Sent downstream' },
-    { title: 'PROCESSED', count: sumObj(status?.processed), color: 'text-slate-400', subtitle: 'Completed' },
+    { title: 'RAW', count: sumObj(status?.raw), color: '#e4e4e7', subtitle: 'Unprocessed captures' },
+    { title: 'NORMALIZED', count: sumObj(status?.normalized), color: '#60a5fa', subtitle: 'Parsed notes' },
+    { title: 'IN REVIEW', count: sumObj(status?.review), color: '#fbbf24', subtitle: 'Awaiting decision' },
+    { title: 'COMPILED', count: sumObj(status?.compiled), color: '#34d399', subtitle: 'Ready for dispatch' },
+    { title: 'DISPATCHED', count: sumObj(status?.dispatched), color: '#60a5fa', subtitle: 'Sent downstream' },
+    { title: 'PROCESSED', count: sumObj(status?.processed), color: '#94a3b8', subtitle: 'Completed' },
   ];
 
   // Flatten review breakdown: { voicenotes: { ambiguous: 0, ... }, ... } -> { ambiguous: N, ... }
@@ -86,33 +90,58 @@ export function DashboardPage() {
     <div className="space-y-6">
       {/* Status Cards */}
       <div className="grid grid-cols-3 gap-5">
-        {cards.map((card) => (
+        {cards.map((card, i) => (
           <div
             key={card.title}
-            className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5 shadow-sm"
+            className="card animate-in"
+            style={{ padding: 24, animationDelay: `${i * 80}ms` }}
           >
-            <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mb-2">
+            <div
+              className="font-semibold uppercase tracking-widest text-zinc-500"
+              style={{ fontSize: 10, letterSpacing: '0.12em', marginBottom: 12 }}
+            >
               {card.title}
             </div>
-            <div className={`text-4xl font-bold ${card.color} tracking-tight`}>
+            <div
+              className="font-bold tracking-tighter"
+              style={{ fontSize: 48, lineHeight: 1, color: card.color }}
+            >
               {card.count}
             </div>
-            <div className="text-xs text-zinc-600 mt-1">{card.subtitle}</div>
+            <div className="text-zinc-600" style={{ fontSize: 13, marginTop: 8 }}>
+              {card.subtitle}
+            </div>
           </div>
         ))}
       </div>
 
       {/* Review Breakdown */}
       {hasBreakdown && (
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5 shadow-sm">
-          <div className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 mb-4">
+        <div
+          className="card animate-in"
+          style={{ padding: 24, animationDelay: `${cards.length * 80}ms` }}
+        >
+          <div
+            className="font-semibold uppercase tracking-widest text-zinc-500"
+            style={{ fontSize: 10, letterSpacing: '0.12em', marginBottom: 16 }}
+          >
             Review Breakdown
           </div>
           <div className="flex flex-wrap gap-3">
             {Object.entries(reviewBreakdown).map(([key, val]) => (
-              <div key={key} className="flex items-center gap-2.5 bg-zinc-800/40 rounded-lg px-3 py-2">
+              <div
+                key={key}
+                className="flex items-center gap-2.5 rounded-xl"
+                style={{
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  padding: '8px 14px',
+                }}
+              >
                 <StatusBadge status={key} />
-                <span className="text-sm font-semibold font-mono text-zinc-200 tabular-nums">{val}</span>
+                <span className="font-semibold font-mono text-zinc-200 tabular-nums text-sm">
+                  {val}
+                </span>
               </div>
             ))}
           </div>
@@ -120,54 +149,72 @@ export function DashboardPage() {
       )}
 
       {/* Recent Notes */}
-      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800/60">
-          <span className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500">
+      <div
+        className="card animate-in overflow-hidden"
+        style={{ animationDelay: `${(cards.length + 1) * 80}ms` }}
+      >
+        <div
+          className="flex items-center justify-between px-6 py-4"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <span
+            className="font-semibold uppercase tracking-widest text-zinc-500"
+            style={{ fontSize: 10, letterSpacing: '0.12em' }}
+          >
             Recent Notes
           </span>
-          <Link to="/notes" className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+          <Link
+            to="/notes"
+            className="text-blue-400 hover:text-blue-300 transition-colors"
+            style={{ fontSize: 12 }}
+          >
             View all
           </Link>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-zinc-900">
-                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Title</th>
-                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Status</th>
-                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Project</th>
-                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Source</th>
-                <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Age</th>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Title</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Status</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Project</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Source</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Age</th>
               </tr>
             </thead>
             <tbody>
               {recentNotes.map((note) => (
                 <tr
                   key={note.source_note_id}
-                  className="border-t border-zinc-800/40 hover:bg-zinc-800/30 transition-colors"
+                  className="table-row-hover"
+                  style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
                 >
-                  <td className="px-5 py-3 text-zinc-100 min-w-[300px]">
-                    <Link to={`/notes?id=${note.source_note_id}&source=${note.source}`} className="hover:text-blue-400 transition-colors truncate block max-w-md">
+                  <td style={{ padding: '14px 20px', minWidth: 300 }} className="text-zinc-100">
+                    <Link
+                      to={`/notes?id=${note.source_note_id}&source=${note.source}`}
+                      className="hover:text-blue-400 transition-colors truncate block"
+                      style={{ maxWidth: 400 }}
+                    >
                       {note.title || note.source_note_id}
                     </Link>
                   </td>
-                  <td className="px-5 py-3">
+                  <td style={{ padding: '14px 20px' }}>
                     <StatusBadge status={note.status} />
                   </td>
-                  <td className="px-5 py-3 text-zinc-400 text-xs">
+                  <td className="text-zinc-400" style={{ padding: '14px 20px', fontSize: 12 }}>
                     {note.project || '--'}
                   </td>
-                  <td className="px-5 py-3 text-zinc-500 font-mono text-xs">
+                  <td className="text-zinc-500 font-mono" style={{ padding: '14px 20px', fontSize: 12 }}>
                     {note.source}
                   </td>
-                  <td className="px-5 py-3 text-zinc-500 text-xs tabular-nums">
+                  <td className="text-zinc-500 tabular-nums" style={{ padding: '14px 20px', fontSize: 12 }}>
                     {formatAge(note.queue_age_seconds)}
                   </td>
                 </tr>
               ))}
               {recentNotes.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-12 text-center text-zinc-500">
+                  <td colSpan={5} className="text-center text-zinc-500" style={{ padding: '48px 20px' }}>
                     No notes found
                   </td>
                 </tr>

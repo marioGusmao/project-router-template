@@ -10,15 +10,19 @@ export function RefreshIndicator({ ageSeconds, onRefreshed }: Props) {
   const [refreshing, setRefreshing] = useState(false);
 
   let dotColor = 'bg-zinc-500';
+  let dotGlow = '';
   let label = '...';
 
   if (ageSeconds !== null) {
     if (ageSeconds < 300) {
       dotColor = 'bg-emerald-500';
+      dotGlow = '0 0 8px rgba(16,185,129,0.4)';
     } else if (ageSeconds < 3600) {
       dotColor = 'bg-amber-500';
+      dotGlow = '0 0 8px rgba(245,158,11,0.4)';
     } else {
       dotColor = 'bg-rose-500';
+      dotGlow = '0 0 8px rgba(244,63,94,0.4)';
     }
 
     if (ageSeconds < 60) {
@@ -46,10 +50,21 @@ export function RefreshIndicator({ ageSeconds, onRefreshed }: Props) {
     <button
       onClick={handleRefresh}
       disabled={refreshing}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors text-xs text-zinc-400 disabled:opacity-50"
+      className="flex items-center gap-2.5 rounded-lg text-zinc-500 hover:text-zinc-300 disabled:opacity-50 transition-all duration-200"
+      style={{
+        padding: '6px 14px',
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.06)',
+        fontSize: 12,
+      }}
     >
-      <span className={`w-2 h-2 rounded-full ${dotColor} ${refreshing ? 'animate-pulse' : ''}`} />
-      <span>Index: {refreshing ? 'rebuilding...' : label}</span>
+      <span
+        className={`rounded-full ${dotColor} ${refreshing ? 'animate-pulse' : ''}`}
+        style={{ width: 7, height: 7, boxShadow: dotGlow }}
+      />
+      <span className="font-medium">
+        {refreshing ? 'Rebuilding...' : label}
+      </span>
       <svg
         className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`}
         fill="none"

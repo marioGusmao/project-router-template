@@ -1,20 +1,27 @@
-const STATUS_COLORS: Record<string, string> = {
-  normalized: 'bg-zinc-600/30 text-zinc-300 border border-zinc-500/30',
-  classified: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
-  needs_review: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
-  ambiguous: 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
-  pending_project: 'bg-rose-500/20 text-rose-400 border border-rose-500/30',
-  dispatched: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
-  processed: 'bg-slate-500/20 text-slate-400 border border-slate-500/30',
-  parse_errors: 'bg-red-500/20 text-red-400 border border-red-500/30',
-  needs_extraction: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
-  suggestion: 'bg-violet-500/20 text-violet-400 border border-violet-500/30',
+const STATUS_STYLES: Record<string, { bg: string; text: string; glow: string }> = {
+  classified: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', glow: 'shadow-[0_0_12px_rgba(16,185,129,0.15)]' },
+  needs_review: { bg: 'bg-amber-500/10', text: 'text-amber-400', glow: 'shadow-[0_0_12px_rgba(245,158,11,0.15)]' },
+  ambiguous: { bg: 'bg-orange-500/10', text: 'text-orange-400', glow: 'shadow-[0_0_12px_rgba(249,115,22,0.15)]' },
+  pending_project: { bg: 'bg-rose-500/10', text: 'text-rose-400', glow: 'shadow-[0_0_12px_rgba(244,63,94,0.15)]' },
+  dispatched: { bg: 'bg-blue-500/10', text: 'text-blue-400', glow: 'shadow-[0_0_12px_rgba(59,130,246,0.15)]' },
+  processed: { bg: 'bg-slate-500/10', text: 'text-slate-400', glow: '' },
+  normalized: { bg: 'bg-zinc-500/10', text: 'text-zinc-400', glow: '' },
+  parse_errors: { bg: 'bg-red-500/10', text: 'text-red-400', glow: 'shadow-[0_0_12px_rgba(239,68,68,0.15)]' },
+  needs_extraction: { bg: 'bg-amber-500/10', text: 'text-amber-300', glow: 'shadow-[0_0_12px_rgba(245,158,11,0.1)]' },
+  suggestion: { bg: 'bg-violet-500/10', text: 'text-violet-400', glow: 'shadow-[0_0_12px_rgba(139,92,246,0.15)]' },
 };
 
 export function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_STYLES[status] ?? { bg: 'bg-zinc-800', text: 'text-zinc-400', glow: '' };
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium leading-none ${STATUS_COLORS[status] || 'bg-zinc-700 text-zinc-300 border border-zinc-600'}`}
+      className={`inline-flex items-center rounded-md font-medium tracking-wide uppercase ${s.bg} ${s.text} ${s.glow}`}
+      style={{
+        fontSize: 11,
+        padding: '4px 10px',
+        border: '1px solid currentColor',
+        borderColor: 'rgba(255,255,255,0.04)',
+      }}
     >
       {status?.replace(/_/g, ' ')}
     </span>

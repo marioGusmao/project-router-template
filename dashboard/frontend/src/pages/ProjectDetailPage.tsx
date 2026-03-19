@@ -60,16 +60,16 @@ export function ProjectDetailPage() {
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <div className="h-24 bg-zinc-900 border border-zinc-800 rounded-lg animate-pulse" />
-        <div className="h-64 bg-zinc-900 border border-zinc-800 rounded-lg animate-pulse" />
+      <div className="space-y-5">
+        <div className="card animate-pulse" style={{ height: 100 }} />
+        <div className="card animate-pulse" style={{ height: 280 }} />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-8 text-center text-zinc-400">
+      <div className="card" style={{ padding: 48, textAlign: 'center', color: '#a1a1aa' }}>
         Failed to load project: {error}
       </div>
     );
@@ -77,9 +77,9 @@ export function ProjectDetailPage() {
 
   if (!project) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-        <div className="text-zinc-500 mb-2">Project not found: {key}</div>
-        <Link to="/projects" className="text-sm text-blue-400 hover:text-blue-300">
+      <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+        <div className="text-zinc-500" style={{ marginBottom: 8 }}>Project not found: {key}</div>
+        <Link to="/projects" className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
           Back to projects
         </Link>
       </div>
@@ -93,30 +93,49 @@ export function ProjectDetailPage() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Project header */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <div className="flex items-start justify-between mb-2">
+      <div className="card animate-in" style={{ padding: 24 }}>
+        <div className="flex items-start justify-between" style={{ marginBottom: 8 }}>
           <div>
-            <Link to="/projects" className="text-xs text-zinc-500 hover:text-zinc-400 mb-1 inline-block">
+            <Link
+              to="/projects"
+              className="text-zinc-500 hover:text-zinc-400 transition-colors inline-block"
+              style={{ fontSize: 12, marginBottom: 4 }}
+            >
               &larr; Projects
             </Link>
-            <h2 className="text-xl font-semibold text-zinc-100">
+            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">
               {project.display_name || project.key}
             </h2>
           </div>
           {project.language && (
-            <span className="text-xs bg-zinc-800 border border-zinc-700 text-zinc-400 px-2 py-0.5 rounded">
+            <span
+              className="text-blue-400 font-medium"
+              style={{
+                fontSize: 11,
+                background: 'rgba(59,130,246,0.1)',
+                padding: '3px 10px',
+                borderRadius: 9999,
+              }}
+            >
               {project.language}
             </span>
           )}
         </div>
         {project.keywords && project.keywords.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
+          <div className="flex flex-wrap gap-1.5" style={{ marginTop: 8 }}>
             {project.keywords.map((kw) => (
               <span
                 key={kw}
-                className="inline-flex px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-xs text-zinc-300"
+                className="inline-flex font-mono text-zinc-400"
+                style={{
+                  fontSize: 11,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                }}
               >
                 {kw}
               </span>
@@ -126,16 +145,20 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 border-b border-zinc-800">
+      <div
+        className="flex gap-0"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+      >
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              tab === t.key
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-zinc-500 hover:text-zinc-300'
-            }`}
+            className="text-sm font-medium transition-colors"
+            style={{
+              padding: '10px 20px',
+              borderBottom: tab === t.key ? '2px solid #3b82f6' : '2px solid transparent',
+              color: tab === t.key ? '#60a5fa' : '#71717a',
+            }}
           >
             {t.label}
           </button>
@@ -143,50 +166,53 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Notes table */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="card overflow-hidden">
         {notesLoading ? (
-          <div className="p-6 space-y-2">
+          <div style={{ padding: 24 }} className="space-y-2">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-10 bg-zinc-800 rounded animate-pulse" />
+              <div
+                key={i}
+                className="animate-pulse rounded-lg"
+                style={{ height: 44, background: 'rgba(255,255,255,0.03)' }}
+              />
             ))}
           </div>
         ) : notes.length === 0 ? (
-          <div className="p-8 text-center text-zinc-500">
+          <div className="text-center text-zinc-500" style={{ padding: 48 }}>
             No {tab} notes for this project
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider">
-                <th className="px-4 py-2">Title</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Confidence</th>
-                <th className="px-4 py-2">Source</th>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Title</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Status</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Confidence</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Source</th>
               </tr>
             </thead>
             <tbody>
-              {notes.map((note, i) => (
+              {notes.map((note) => (
                 <tr
                   key={`${note.source}-${note.source_note_id}`}
-                  className={`border-t border-zinc-800/50 hover:bg-zinc-800/50 ${
-                    i % 2 === 0 ? 'bg-zinc-900' : 'bg-zinc-950/50'
-                  }`}
+                  className="table-row-hover"
+                  style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
                 >
-                  <td className="px-4 py-2.5 text-zinc-100 truncate max-w-sm">
+                  <td className="text-zinc-100 truncate" style={{ padding: '14px 20px', maxWidth: 400 }}>
                     <Link
                       to={`/notes?id=${note.source_note_id}&source=${note.source}`}
-                      className="hover:text-blue-400"
+                      className="hover:text-blue-400 transition-colors"
                     >
                       {note.title || note.source_note_id}
                     </Link>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td style={{ padding: '14px 20px' }}>
                     <StatusBadge status={note.status} />
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td style={{ padding: '14px 20px' }}>
                     <ConfidenceBar value={note.confidence ?? 0} />
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-zinc-400">
+                  <td className="font-mono text-zinc-500" style={{ padding: '14px 20px', fontSize: 12 }}>
                     {note.source}
                   </td>
                 </tr>

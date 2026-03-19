@@ -48,11 +48,22 @@ export function MainLayout({ children }: Props) {
   }, [loadMeta]);
 
   return (
-    <div className="flex min-h-screen bg-zinc-950">
+    <div className="min-h-screen" style={{ background: '#0a0a0b' }}>
       <Sidebar counts={counts} />
       <div className="flex-1" style={{ marginLeft: 240 }}>
-        <header className="sticky top-0 z-40 h-14 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800/80 flex items-center justify-between px-8">
-          <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">{title}</h1>
+        {/* Header with gradient bottom border */}
+        <header
+          className="sticky top-0 z-40 backdrop-blur-xl flex items-center justify-between px-8"
+          style={{
+            height: 56,
+            background: 'rgba(10,10,11,0.8)',
+            borderBottom: '1px solid transparent',
+            backgroundImage: 'linear-gradient(rgba(10,10,11,0.8), rgba(10,10,11,0.8)), linear-gradient(90deg, rgba(59,130,246,0.1), rgba(255,255,255,0.06), rgba(59,130,246,0.1))',
+            backgroundOrigin: 'border-box',
+            backgroundClip: 'padding-box, border-box',
+          }}
+        >
+          <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">{title}</h1>
           <div className="flex items-center gap-3">
             <RefreshIndicator ageSeconds={indexAge} onRefreshed={loadMeta} />
           </div>

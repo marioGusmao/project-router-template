@@ -63,22 +63,52 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
     }
   };
 
+  const selectStyle: React.CSSProperties = {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    padding: '6px 12px',
+    fontSize: 13,
+    color: '#e4e4e7',
+    outline: 'none',
+  };
+
   if (loading) {
     return (
-      <div className="h-full bg-zinc-900 border-l border-zinc-800 p-6 space-y-4">
-        <div className="h-6 bg-zinc-800 rounded animate-pulse w-3/4" />
-        <div className="h-4 bg-zinc-800 rounded animate-pulse w-1/2" />
-        <div className="h-32 bg-zinc-800 rounded animate-pulse" />
+      <div
+        className="h-full space-y-4"
+        style={{
+          background: 'linear-gradient(135deg, rgba(24,24,27,0.95) 0%, rgba(39,39,42,0.6) 100%)',
+          borderLeft: '1px solid rgba(255,255,255,0.06)',
+          padding: 24,
+        }}
+      >
+        <div className="animate-pulse rounded-lg" style={{ height: 24, width: '75%', background: 'rgba(255,255,255,0.05)' }} />
+        <div className="animate-pulse rounded-lg" style={{ height: 16, width: '50%', background: 'rgba(255,255,255,0.03)' }} />
+        <div className="animate-pulse rounded-lg" style={{ height: 128, background: 'rgba(255,255,255,0.03)' }} />
       </div>
     );
   }
 
   if (error || !note) {
     return (
-      <div className="h-full bg-zinc-900 border-l border-zinc-800 p-6">
-        <div className="flex justify-between items-center mb-4">
+      <div
+        className="h-full"
+        style={{
+          background: 'linear-gradient(135deg, rgba(24,24,27,0.95) 0%, rgba(39,39,42,0.6) 100%)',
+          borderLeft: '1px solid rgba(255,255,255,0.06)',
+          padding: 24,
+        }}
+      >
+        <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
           <span className="text-zinc-400">Error</span>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">&times;</button>
+          <button
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-300 transition-colors"
+            style={{ fontSize: 20, lineHeight: 1 }}
+          >
+            &times;
+          </button>
         </div>
         <div className="text-zinc-500">{error ?? 'Note not found'}</div>
       </div>
@@ -88,28 +118,43 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
   const candidates = note.candidate_projects ?? [];
 
   return (
-    <div className="h-full bg-zinc-900 border-l border-zinc-800 overflow-y-auto">
+    <div
+      className="h-full overflow-y-auto"
+      style={{
+        background: 'linear-gradient(135deg, rgba(24,24,27,0.95) 0%, rgba(39,39,42,0.6) 100%)',
+        borderLeft: '1px solid rgba(255,255,255,0.06)',
+      }}
+    >
       {/* Header */}
-      <div className="sticky top-0 bg-zinc-900/95 backdrop-blur-sm border-b border-zinc-800 p-4">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <h2 className="text-xl font-semibold text-zinc-100 leading-tight">
+      <div
+        className="sticky top-0 backdrop-blur-xl"
+        style={{
+          background: 'rgba(24,24,27,0.9)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: 20,
+          zIndex: 10,
+        }}
+      >
+        <div className="flex items-start justify-between gap-3" style={{ marginBottom: 10 }}>
+          <h2 className="text-lg font-semibold text-zinc-100 leading-tight tracking-tight">
             {note.title || note.source_note_id}
           </h2>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-300 text-xl leading-none flex-shrink-0 mt-1"
+            className="text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0"
+            style={{ fontSize: 20, lineHeight: 1, marginTop: 2 }}
           >
             &times;
           </button>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <StatusBadge status={note.status} />
-          <span className="font-mono text-xs text-zinc-500">{note.source_note_id}</span>
-          <span className="text-xs text-zinc-500">{formatDate(note.created_at)}</span>
+          <span className="font-mono text-zinc-500" style={{ fontSize: 11 }}>{note.source_note_id}</span>
+          <span className="text-zinc-600" style={{ fontSize: 12 }}>{formatDate(note.created_at)}</span>
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div style={{ padding: 20 }} className="space-y-5">
         {/* Project row */}
         <div className="flex items-center gap-3 flex-wrap">
           {note.project && (
@@ -129,7 +174,8 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
           <select
             value={suggestedProject}
             onChange={(e) => setSuggestedProject(e.target.value)}
-            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+            className="flex-1"
+            style={selectStyle}
           >
             <option value="">Suggest project...</option>
             {projects.map((p) => (
@@ -141,7 +187,13 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
           <button
             onClick={handleSuggest}
             disabled={!suggestedProject || saving}
-            className="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            style={{
+              padding: '6px 16px',
+              background: '#3b82f6',
+              borderRadius: 8,
+              border: 'none',
+            }}
           >
             {saving ? 'Saving...' : 'Save'}
           </button>
@@ -149,7 +201,14 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
 
         {/* Content */}
         {note.body && (
-          <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4">
+          <div
+            className="rounded-xl"
+            style={{
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.04)',
+              padding: 20,
+            }}
+          >
             <div className="prose prose-invert prose-sm max-w-none text-zinc-300 [&_h1]:text-zinc-100 [&_h2]:text-zinc-100 [&_h3]:text-zinc-200 [&_strong]:text-zinc-200 [&_a]:text-blue-400 [&_code]:text-amber-300 [&_code]:bg-zinc-700/50 [&_code]:px-1 [&_code]:rounded">
               <Markdown>{note.body}</Markdown>
             </div>
@@ -157,47 +216,53 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
         )}
 
         {/* Classification (collapsible) */}
-        <div className="border border-zinc-800 rounded-lg">
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+        >
           <button
             onClick={() => setShowClassification(!showClassification)}
-            className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-zinc-400 hover:text-zinc-300"
+            className="w-full flex items-center justify-between text-zinc-400 hover:text-zinc-300 transition-colors"
+            style={{ padding: '12px 16px' }}
           >
-            <span className="uppercase tracking-wider text-xs">Classification</span>
+            <span className="uppercase tracking-widest font-semibold" style={{ fontSize: 10, letterSpacing: '0.12em' }}>
+              Classification
+            </span>
             <svg
-              className={`w-4 h-4 transition-transform ${showClassification ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 transition-transform duration-200 ${showClassification ? 'rotate-180' : ''}`}
               fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
           {showClassification && (
-            <div className="px-4 pb-4 space-y-3">
+            <div style={{ padding: '0 16px 16px' }} className="space-y-3">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <span className="text-zinc-500 text-xs">Capture Kind</span>
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>Capture Kind</span>
                   <div className="text-zinc-300">{note.capture_kind || '--'}</div>
                 </div>
                 <div>
-                  <span className="text-zinc-500 text-xs">Intent</span>
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>Intent</span>
                   <div className="text-zinc-300">{note.intent || '--'}</div>
                 </div>
                 <div>
-                  <span className="text-zinc-500 text-xs">Destination</span>
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>Destination</span>
                   <div className="text-zinc-300">{note.destination || '--'}</div>
                 </div>
                 <div>
-                  <span className="text-zinc-500 text-xs">Confidence</span>
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>Confidence</span>
                   <ConfidenceBar value={note.confidence ?? 0} />
                 </div>
               </div>
               {candidates.length > 0 && (
                 <div>
-                  <span className="text-zinc-500 text-xs">Candidates</span>
-                  <div className="mt-1 space-y-1">
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>Candidates</span>
+                  <div className="space-y-1" style={{ marginTop: 4 }}>
                     {candidates.map((c) => (
                       <div key={c.project} className="flex items-center justify-between text-sm">
                         <span className="text-zinc-300">{c.project}</span>
-                        <span className="font-mono text-xs text-zinc-500">
+                        <span className="font-mono text-zinc-500" style={{ fontSize: 11 }}>
                           {Math.round(c.score * 100)}%
                         </span>
                       </div>
@@ -210,29 +275,42 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
         </div>
 
         {/* Metadata (collapsible) */}
-        <div className="border border-zinc-800 rounded-lg">
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+        >
           <button
             onClick={() => setShowMetadata(!showMetadata)}
-            className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-zinc-400 hover:text-zinc-300"
+            className="w-full flex items-center justify-between text-zinc-400 hover:text-zinc-300 transition-colors"
+            style={{ padding: '12px 16px' }}
           >
-            <span className="uppercase tracking-wider text-xs">Metadata</span>
+            <span className="uppercase tracking-widest font-semibold" style={{ fontSize: 10, letterSpacing: '0.12em' }}>
+              Metadata
+            </span>
             <svg
-              className={`w-4 h-4 transition-transform ${showMetadata ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 transition-transform duration-200 ${showMetadata ? 'rotate-180' : ''}`}
               fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
           {showMetadata && (
-            <div className="px-4 pb-4 space-y-3">
+            <div style={{ padding: '0 16px 16px' }} className="space-y-3">
               {note.tags && note.tags.length > 0 && (
                 <div>
-                  <span className="text-zinc-500 text-xs">Keywords</span>
-                  <div className="flex flex-wrap gap-1.5 mt-1">
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>Keywords</span>
+                  <div className="flex flex-wrap gap-1.5" style={{ marginTop: 4 }}>
                     {note.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-xs text-zinc-300"
+                        className="inline-flex text-zinc-300 font-mono"
+                        style={{
+                          fontSize: 11,
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.04)',
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                        }}
                       >
                         {tag}
                       </span>
@@ -242,20 +320,20 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
               )}
               {note.thread_id && (
                 <div className="text-sm">
-                  <span className="text-zinc-500 text-xs">Thread</span>
-                  <div className="font-mono text-xs text-zinc-400">{note.thread_id}</div>
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>Thread</span>
+                  <div className="font-mono text-zinc-400" style={{ fontSize: 12 }}>{note.thread_id}</div>
                 </div>
               )}
               {note.file_path && (
                 <div className="text-sm">
-                  <span className="text-zinc-500 text-xs">File Path</span>
-                  <div className="font-mono text-xs text-zinc-400 break-all">{note.file_path}</div>
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>File Path</span>
+                  <div className="font-mono text-zinc-400 break-all" style={{ fontSize: 12 }}>{note.file_path}</div>
                 </div>
               )}
               {note.source && (
                 <div className="text-sm">
-                  <span className="text-zinc-500 text-xs">Source</span>
-                  <div className="font-mono text-xs text-zinc-400">{note.source}</div>
+                  <span className="text-zinc-500" style={{ fontSize: 11 }}>Source</span>
+                  <div className="font-mono text-zinc-400" style={{ fontSize: 12 }}>{note.source}</div>
                 </div>
               )}
             </div>

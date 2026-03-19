@@ -67,69 +67,82 @@ export function ArchivePage() {
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
+  const selectStyle: React.CSSProperties = {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    padding: '6px 12px',
+    fontSize: 13,
+    color: '#e4e4e7',
+    outline: 'none',
+  };
+
   return (
-    <div className="space-y-0">
+    <div className="space-y-5">
       {/* Filters */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3">
         <select
           value={filterProject}
           onChange={(e) => { setFilterProject(e.target.value); setPage(1); }}
-          className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+          style={selectStyle}
         >
           <option value="">All projects</option>
           {projects.map((p) => (
             <option key={p.key} value={p.key}>{p.display_name || p.key}</option>
           ))}
         </select>
-        <span className="text-xs text-zinc-500">
+        <span className="text-zinc-500 font-medium tabular-nums" style={{ fontSize: 11 }}>
           {total} archived note{total !== 1 ? 's' : ''}
         </span>
       </div>
 
       {/* Table */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="card overflow-hidden">
         {loading ? (
-          <div className="p-6 space-y-2">
+          <div style={{ padding: 24 }} className="space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-10 bg-zinc-800 rounded animate-pulse" />
+              <div
+                key={i}
+                className="animate-pulse rounded-lg"
+                style={{ height: 44, background: 'rgba(255,255,255,0.03)' }}
+              />
             ))}
           </div>
         ) : error ? (
-          <div className="p-8 text-center text-zinc-500">{error}</div>
+          <div className="text-center text-zinc-500" style={{ padding: 48 }}>{error}</div>
         ) : notes.length === 0 ? (
-          <div className="p-12 text-center text-zinc-500">No archived notes</div>
+          <div className="text-center text-zinc-500" style={{ padding: 64 }}>No archived notes</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider">
-                <th className="px-4 py-2">Title</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Project</th>
-                <th className="px-4 py-2">Source</th>
-                <th className="px-4 py-2">Date</th>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Title</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Status</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Project</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Source</th>
+                <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Date</th>
               </tr>
             </thead>
             <tbody>
-              {notes.map((note, i) => (
+              {notes.map((note) => (
                 <tr
                   key={`${note.source}-${note.source_note_id}`}
-                  className={`border-t border-zinc-800/50 hover:bg-zinc-800/50 ${
-                    i % 2 === 0 ? 'bg-zinc-900' : 'bg-zinc-950/50'
-                  }`}
+                  className="table-row-hover"
+                  style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
                 >
-                  <td className="px-4 py-2.5 text-zinc-100 truncate max-w-sm">
+                  <td className="text-zinc-100 truncate" style={{ padding: '14px 20px', maxWidth: 400 }}>
                     {note.title || note.source_note_id}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td style={{ padding: '14px 20px' }}>
                     <StatusBadge status={note.status} />
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-300 text-xs">
+                  <td className="text-zinc-400" style={{ padding: '14px 20px', fontSize: 12 }}>
                     {note.project || '--'}
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-zinc-400">
+                  <td className="font-mono text-zinc-500" style={{ padding: '14px 20px', fontSize: 12 }}>
                     {note.source}
                   </td>
-                  <td className="px-4 py-2.5 text-zinc-500 text-xs">
+                  <td className="text-zinc-500 tabular-nums" style={{ padding: '14px 20px', fontSize: 12 }}>
                     {formatDate(note.created_at)}
                   </td>
                 </tr>
@@ -141,21 +154,35 @@ export function ArchivePage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-4">
+        <div className="flex items-center justify-center gap-3" style={{ paddingTop: 4 }}>
           <button
             onClick={() => setPage(Math.max(1, page - 1))}
             disabled={page <= 1}
-            className="px-3 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"
+            className="font-medium text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{
+              padding: '6px 14px',
+              fontSize: 12,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: 8,
+            }}
           >
             Prev
           </button>
-          <span className="text-sm text-zinc-400">
+          <span className="text-zinc-400 tabular-nums" style={{ fontSize: 13 }}>
             Page {page} of {totalPages}
           </span>
           <button
             onClick={() => setPage(Math.min(totalPages, page + 1))}
             disabled={page >= totalPages}
-            className="px-3 py-1 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"
+            className="font-medium text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{
+              padding: '6px 14px',
+              fontSize: 12,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: 8,
+            }}
           >
             Next
           </button>

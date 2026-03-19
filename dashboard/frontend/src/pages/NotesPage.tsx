@@ -100,17 +100,33 @@ export function NotesPage() {
     'pending_project', 'dispatched', 'processed',
   ];
 
+  const selectStyle: React.CSSProperties = {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    padding: '6px 12px',
+    fontSize: 13,
+    color: '#e4e4e7',
+    outline: 'none',
+  };
+
   return (
-    <div className="flex gap-0 -m-8">
+    <div className="flex gap-0" style={{ margin: -32 }}>
       {/* Table section */}
-      <div className={`flex-1 min-w-0 ${selectedId ? 'w-[60%]' : 'w-full'}`}>
+      <div className={`flex-1 min-w-0 ${selectedId ? 'w-3/5' : 'w-full'}`}>
         {/* Filter bar */}
-        <div className="sticky top-14 z-30 bg-zinc-950/90 backdrop-blur-sm px-8 py-4">
-          <div className="bg-zinc-900/50 rounded-xl border border-zinc-800/40 p-3 flex items-center gap-3 flex-wrap">
+        <div
+          className="sticky z-30 backdrop-blur-sm"
+          style={{ top: 56, padding: '16px 32px', background: 'rgba(10,10,11,0.9)' }}
+        >
+          <div
+            className="card flex items-center gap-3 flex-wrap"
+            style={{ padding: 14 }}
+          >
             <select
               value={filterStatus}
               onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
-              className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+              style={selectStyle}
             >
               <option value="">All statuses</option>
               {statuses.map((s) => (
@@ -121,7 +137,7 @@ export function NotesPage() {
             <select
               value={filterSource}
               onChange={(e) => { setFilterSource(e.target.value); setPage(1); }}
-              className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+              style={selectStyle}
             >
               <option value="">All sources</option>
               {sources.map((s) => (
@@ -132,7 +148,7 @@ export function NotesPage() {
             <select
               value={filterProject}
               onChange={(e) => { setFilterProject(e.target.value); setPage(1); }}
-              className="bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+              style={selectStyle}
             >
               <option value="">All projects</option>
               {projects.map((p) => (
@@ -140,42 +156,59 @@ export function NotesPage() {
               ))}
             </select>
 
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); loadNotes(); } }}
-              placeholder="Search notes..."
-              className="flex-1 min-w-[200px] bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-colors"
-            />
+            <div className="flex-1" style={{ minWidth: 200, position: 'relative' }}>
+              <svg
+                className="absolute text-zinc-600"
+                style={{ left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14 }}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); loadNotes(); } }}
+                placeholder="Search notes..."
+                style={{
+                  ...selectStyle,
+                  width: '100%',
+                  paddingLeft: 32,
+                }}
+              />
+            </div>
 
-            <span className="text-[11px] text-zinc-500 font-medium tabular-nums">
+            <span className="text-zinc-500 font-medium tabular-nums" style={{ fontSize: 11 }}>
               {total} note{total !== 1 ? 's' : ''}
             </span>
           </div>
         </div>
 
         {/* Table */}
-        <div className="px-8 pb-8">
-          <div className="bg-zinc-900/50 rounded-xl border border-zinc-800/40 overflow-hidden">
+        <div style={{ padding: '0 32px 32px' }}>
+          <div className="card overflow-hidden">
             {loading ? (
-              <div className="p-6 space-y-2">
+              <div style={{ padding: 24 }} className="space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="h-10 bg-zinc-800/40 rounded-lg animate-pulse" />
+                  <div
+                    key={i}
+                    className="animate-pulse rounded-lg"
+                    style={{ height: 44, background: 'rgba(255,255,255,0.03)' }}
+                  />
                 ))}
               </div>
             ) : error ? (
-              <div className="p-12 text-center text-zinc-500">{error}</div>
+              <div className="text-center text-zinc-500" style={{ padding: 48 }}>{error}</div>
             ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-zinc-900">
-                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Title</th>
-                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Status</th>
-                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Project</th>
-                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Confidence</th>
-                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Source</th>
-                    <th className="text-left text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500 px-5 py-3">Age</th>
+                  <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Title</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Status</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Project</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Confidence</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Source</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Age</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -183,19 +216,23 @@ export function NotesPage() {
                     <tr
                       key={`${note.source}-${note.source_note_id}`}
                       onClick={() => selectNote(note)}
-                      className={`border-t border-zinc-800/40 cursor-pointer hover:bg-zinc-800/30 transition-colors ${
-                        selectedId === note.source_note_id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''
+                      className={`table-row-hover cursor-pointer ${
+                        selectedId === note.source_note_id ? 'bg-blue-500/5' : ''
                       }`}
+                      style={{
+                        borderTop: '1px solid rgba(255,255,255,0.04)',
+                        boxShadow: selectedId === note.source_note_id ? 'inset 3px 0 0 0 #3b82f6' : undefined,
+                      }}
                     >
-                      <td className="px-5 py-3 text-zinc-100 min-w-[300px]">
-                        <span className="truncate block max-w-md">
+                      <td style={{ padding: '14px 20px', minWidth: 300 }} className="text-zinc-100">
+                        <span className="truncate block" style={{ maxWidth: 400 }}>
                           {note.title || note.source_note_id}
                         </span>
                       </td>
-                      <td className="px-5 py-3">
+                      <td style={{ padding: '14px 20px' }}>
                         <StatusBadge status={note.status} />
                       </td>
-                      <td className="px-5 py-3 text-xs">
+                      <td style={{ padding: '14px 20px', fontSize: 12 }}>
                         {note.user_suggested_project && note.user_suggested_project !== note.project ? (
                           <span className="text-violet-400">
                             Suggested: {note.user_suggested_project}
@@ -204,20 +241,20 @@ export function NotesPage() {
                           <span className="text-zinc-400">{note.project || '--'}</span>
                         )}
                       </td>
-                      <td className="px-5 py-3">
+                      <td style={{ padding: '14px 20px' }}>
                         <ConfidenceBar value={note.confidence ?? 0} />
                       </td>
-                      <td className="px-5 py-3 font-mono text-xs text-zinc-500">
+                      <td className="font-mono text-zinc-500" style={{ padding: '14px 20px', fontSize: 12 }}>
                         {note.source}
                       </td>
-                      <td className={`px-5 py-3 text-xs tabular-nums ${ageColor(note.queue_age_seconds)}`}>
+                      <td className={`tabular-nums ${ageColor(note.queue_age_seconds)}`} style={{ padding: '14px 20px', fontSize: 12 }}>
                         {formatAge(note.queue_age_seconds)}
                       </td>
                     </tr>
                   ))}
                   {notes.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-5 py-16 text-center text-zinc-500">
+                      <td colSpan={6} className="text-center text-zinc-500" style={{ padding: '64px 20px' }}>
                         No notes found
                       </td>
                     </tr>
@@ -228,25 +265,42 @@ export function NotesPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between px-5 py-3 border-t border-zinc-800/40">
-                <span className="text-[11px] text-zinc-500 tabular-nums">
+              <div
+                className="flex items-center justify-between"
+                style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.04)' }}
+              >
+                <span className="text-zinc-500 tabular-nums" style={{ fontSize: 11 }}>
                   Showing {(page - 1) * perPage + 1}--{Math.min(page * perPage, total)} of {total}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setPage(Math.max(1, page - 1))}
                     disabled={page <= 1}
-                    className="px-3 py-1.5 text-xs font-medium bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-zinc-300 hover:bg-zinc-700/60 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="font-medium text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: 12,
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: 8,
+                    }}
                   >
                     Previous
                   </button>
-                  <span className="text-xs text-zinc-500 tabular-nums px-2">
+                  <span className="text-zinc-500 tabular-nums" style={{ fontSize: 12, padding: '0 8px' }}>
                     {page} / {totalPages}
                   </span>
                   <button
                     onClick={() => setPage(Math.min(totalPages, page + 1))}
                     disabled={page >= totalPages}
-                    className="px-3 py-1.5 text-xs font-medium bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-zinc-300 hover:bg-zinc-700/60 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="font-medium text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: 12,
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: 8,
+                    }}
                   >
                     Next
                   </button>
@@ -259,7 +313,7 @@ export function NotesPage() {
 
       {/* Detail panel */}
       {selectedId && (
-        <div className="w-[40%] min-w-[380px] h-[calc(100vh-3.5rem)] sticky top-14">
+        <div className="min-w-96 sticky" style={{ width: '40%', top: 56, height: 'calc(100vh - 56px)' }}>
           <NoteDetail noteId={selectedId} source={selectedSource} onClose={closeDetail} />
         </div>
       )}
