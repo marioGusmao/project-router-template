@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Markdown from 'react-markdown';
-import { getNote, suggestProject, getProjects, type NoteDetail as NoteDetailType, type Project } from '../../lib/api';
+import { getNote, suggestProject, decideNote, getProjects, type NoteDetail as NoteDetailType, type Project } from '../../lib/api';
 import { StatusBadge } from '../StatusBadge';
 import { ConfidenceBar } from '../ConfidenceBar';
 import { triggerUndo } from '../layout/UndoSnackbar';
@@ -29,6 +29,8 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Prop
   const [suggestedProject, setSuggestedProject] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [deciding, setDeciding] = useState(false);
+  const [decideDone, setDecideDone] = useState<string | null>(null);
   const [showClassification, setShowClassification] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
 
@@ -83,6 +85,34 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Prop
       // silent
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDecide = async (decision: string) => {
+    if (!note) return;
+    const project = suggestedProject || note.project;
+    if (decision === 'approve') {
+      if (!project) return;
+      if (!window.confirm(`Approve for ${project}? This is a canonical decision.`)) return;
+    }
+    setDeciding(true);
+    setDecideDone(null);
+    try {
+      await decideNote(
+        noteId,
+        source,
+        decision,
+        decision === 'approve' ? project ?? undefined : undefined,
+      );
+      const refreshed = await getNote(noteId, source);
+      setNote(refreshed);
+      onProjectSuggested?.(noteId, source, refreshed.project ?? '');
+      setDecideDone(decision);
+      setTimeout(() => setDecideDone(null), 2000);
+    } catch {
+      // silent
+    } finally {
+      setDeciding(false);
     }
   };
 
@@ -223,6 +253,73 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Prop
           {saved && (
             <span className="text-emerald-400 font-medium animate-in" style={{ fontSize: 12 }}>
               Saved
+            </span>
+          )}
+        </div>
+
+        {/* Quick Actions */}
+        <div>
+          <span
+            className="uppercase tracking-widest font-semibold text-zinc-400 block"
+            style={{ fontSize: 10, letterSpacing: '0.12em', marginBottom: 8 }}
+          >
+            Quick Actions
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => handleDecide('approve')}
+              disabled={deciding || !(suggestedProject || note.project)}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: '#059669' }}
+              onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#10b981'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#059669'; }}
+            >
+              Approve &#x2713;
+            </button>
+            <button
+              onClick={() => handleDecide('reject')}
+              disabled={deciding}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all text-rose-400 border border-rose-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: 'rgba(225,29,72,0.2)' }}
+              onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(225,29,72,0.3)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(225,29,72,0.2)'; }}
+            >
+              Reject &#x2715;
+            </button>
+            <button
+              onClick={() => handleDecide('ambiguous')}
+              disabled={deciding}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all text-orange-400 border border-orange-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: 'rgba(234,88,12,0.2)' }}
+              onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(234,88,12,0.3)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(234,88,12,0.2)'; }}
+            >
+              Ambiguous ?
+            </button>
+            <button
+              onClick={() => handleDecide('needs-review')}
+              disabled={deciding}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all text-amber-400 border border-amber-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: 'rgba(217,119,6,0.2)' }}
+              onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(217,119,6,0.3)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(217,119,6,0.2)'; }}
+            >
+              Needs Review
+            </button>
+            <button
+              onClick={() => handleDecide('pending-project')}
+              disabled={deciding}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all text-zinc-400 border border-zinc-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: 'rgba(82,82,91,0.2)' }}
+              onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(82,82,91,0.3)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(82,82,91,0.2)'; }}
+            >
+              Pending Project
+            </button>
+          </div>
+          {decideDone && (
+            <span className="text-emerald-400 font-medium animate-in block" style={{ fontSize: 12, marginTop: 6 }}>
+              Done ({decideDone})
             </span>
           )}
         </div>

@@ -116,4 +116,10 @@ export const annotateNote = (
     body: JSON.stringify({ source, reviewer_notes: reviewerNotes, user_keywords: userKeywords }),
   });
 
+export const decideNote = (id: string, source: string, decision: string, finalProject?: string) =>
+  api<{ ok: boolean; decision: string; note_id: string }>(`/api/notes/${id}/decide`, {
+    method: 'POST',
+    body: JSON.stringify({ source, decision, final_project: finalProject }),
+  });
+
 export const refreshIndex = () => api<{ ok: boolean }>('/api/refresh', { method: 'POST' });

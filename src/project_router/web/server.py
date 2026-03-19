@@ -109,12 +109,161 @@ class DashboardHandler(BaseHTTPRequestHandler):
             write_note(file_path, metadata, note_body)
             self.index.rebuild()
             self._json_response({"ok": True, "note_id": note_id})
+        elif path.endswith("/decide") and "/api/notes/" in path:
+            parts = path.split("/")
+            note_id = parts[3]
+            source = body.get("source", "voicenotes")
+            decision = body.get("decision", "")
+            final_project = body.get("final_project")
+            valid_decisions = {"approve", "reject", "needs-review", "ambiguous", "pending-project"}
+            if decision not in valid_decisions:
+                self._error_response(
+                    f"Invalid decision '{decision}'. Must be one of: {', '.join(sorted(valid_decisions))}",
+                    "INVALID_DECISION",
+                    400,
+                )
+                return
+            note_record = self.index.get_note(note_id, source)
+            if not note_record:
+                self._error_response("Note not found", "NOT_FOUND", 404)
+                return
+            try:
+                result = self._handle_decide(note_record, note_id, source, decision, final_project)
+                self._json_response(result)
+            except SystemExit as exc:
+                self._error_response(str(exc), "DECIDE_ERROR", 400)
+            except Exception as exc:
+                self._error_response(str(exc), "INTERNAL_ERROR", 500)
         elif path.startswith("/api/"):
             self._error_response("Endpoint not found", "NOT_FOUND", 404)
         else:
             self._error_response(
                 "Method not allowed", "METHOD_NOT_ALLOWED", 405
             )
+
+    def _handle_decide(
+        self,
+        note_record: dict,
+        note_id: str,
+        source: str,
+        decision: str,
+        final_project: str | None,
+    ) -> dict:
+        from ..services.notes import (
+            ensure_note_metadata_defaults,
+            iso_now,
+            read_note,
+            remove_review_copies,
+            review_dir_for,
+            write_note,
+        )
+        from ..services.classification import classify_intent
+        from ..services.decisions import (
+            build_decision_packet,
+            load_decision_packet_for_metadata,
+            relative_or_absolute,
+            save_decision_packet_for_metadata,
+        )
+        from ..services.projects import load_registry
+        from ..services.paths import VOICE_SOURCE, normalize_source_name
+
+        file_path = Path(note_record["file_path"])
+        metadata, body = read_note(file_path)
+        metadata = ensure_note_metadata_defaults(metadata)
+        final_project = final_project or metadata.get("project")
+
+        if decision == "approve":
+            if not final_project:
+                raise SystemExit("Approve requires a project on the note or via final_project.")
+            _defaults, projects = load_registry()
+            if final_project not in projects:
+                raise SystemExit(f"Unknown project '{final_project}'.")
+            metadata["status"] = "classified"
+            metadata["project"] = final_project
+            metadata["destination"] = final_project
+            metadata["note_type"] = metadata.get("note_type") or projects[final_project].note_type
+            metadata["review_status"] = "approved"
+            metadata["user_suggested_project"] = None
+            metadata["user_suggestion_timestamp"] = None
+            metadata["requires_user_confirmation"] = False
+            metadata["intent"] = classify_intent(metadata)
+            remove_review_copies(file_path.name)
+        elif decision == "ambiguous":
+            metadata["status"] = "ambiguous"
+            metadata["project"] = None
+            metadata["destination"] = "ambiguous"
+            metadata.pop("note_type", None)
+            metadata["review_status"] = "ambiguous"
+            metadata["requires_user_confirmation"] = True
+            metadata["intent"] = classify_intent(metadata)
+            remove_review_copies(file_path.name)
+            src = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+            target_dir = review_dir_for(src, "ambiguous")
+            write_note(target_dir / file_path.name, metadata, body)
+        elif decision == "pending-project":
+            metadata["status"] = "pending_project"
+            metadata["project"] = None
+            metadata["destination"] = "pending_project"
+            metadata.pop("note_type", None)
+            metadata["review_status"] = "pending_project"
+            metadata["requires_user_confirmation"] = True
+            metadata["intent"] = classify_intent(metadata)
+            remove_review_copies(file_path.name)
+            src = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+            write_note(review_dir_for(src, "pending_project") / file_path.name, metadata, body)
+        else:
+            # reject / needs-review
+            metadata["status"] = "needs_review"
+            metadata["project"] = None
+            metadata["destination"] = "needs_review"
+            metadata.pop("note_type", None)
+            metadata["review_status"] = decision.replace("-", "_")
+            metadata["requires_user_confirmation"] = True
+            metadata["intent"] = classify_intent(metadata)
+            remove_review_copies(file_path.name)
+            src = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+            write_note(review_dir_for(src, "needs_review") / file_path.name, metadata, body)
+
+        # Write canonical note
+        write_note(file_path, metadata, body)
+
+        # Update decision packet
+        packet = load_decision_packet_for_metadata(metadata)
+        packet.setdefault("reviews", [])
+        packet.setdefault("source_note_id", note_id)
+        packet.setdefault("source", metadata.get("source", VOICE_SOURCE))
+        packet.setdefault("source_project", metadata.get("source_project"))
+        packet.setdefault("canonical_path", relative_or_absolute(file_path))
+        packet.setdefault("title", metadata.get("title"))
+        packet.setdefault("created_at", metadata.get("created_at"))
+        packet["reviews"].append(
+            {
+                "reviewed_at": iso_now(),
+                "decision": decision,
+                "final_project": final_project if decision == "approve" else None,
+                "final_type": metadata.get("note_type") if decision == "approve" else None,
+                "thread_id": metadata.get("thread_id"),
+                "continuation_of": metadata.get("continuation_of"),
+                "related_note_ids": metadata.get("related_note_ids", []),
+                "user_keywords": metadata.get("user_keywords", []),
+                "notes": "",
+            }
+        )
+        packet["final_decision"] = packet["reviews"][-1]
+        packet["proposal"] = build_decision_packet(
+            file_path,
+            metadata,
+            body,
+            route=str(metadata.get("project") or metadata.get("status")),
+            details={},
+            reason=str(metadata.get("routing_reason") or ""),
+        ).get("proposal", {})
+        save_decision_packet_for_metadata(metadata, packet)
+
+        # Rebuild index so UI reflects changes
+        self.index.rebuild()
+
+        return {"ok": True, "decision": decision, "note_id": note_id}
 
     def do_OPTIONS(self):
         self.send_response(204)
