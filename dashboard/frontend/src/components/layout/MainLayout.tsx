@@ -1,8 +1,10 @@
 import { type ReactNode, useState, useEffect, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { KeyboardHelp } from './KeyboardHelp';
 import { RefreshIndicator } from '../RefreshIndicator';
-import { getStatus, getTriageItems } from '../../lib/api';
+import { getStatus, getTriageItems, refreshIndex } from '../../lib/api';
+import { useKeyboard } from '../../hooks/useKeyboard';
 
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -12,13 +14,17 @@ const ROUTE_TITLES: Record<string, string> = {
   '/archive': 'Archive',
 };
 
+const NAV_ROUTES = ['/', '/notes', '/triage', '/projects', '/archive'];
+
 interface Props {
   children: ReactNode;
 }
 
 export function MainLayout({ children }: Props) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [indexAge, setIndexAge] = useState<number | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
   const [counts, setCounts] = useState<{ notes: number; triage: number; projects: number }>({
     notes: 0,
     triage: 0,
@@ -47,11 +53,26 @@ export function MainLayout({ children }: Props) {
     loadMeta();
   }, [loadMeta]);
 
+  const handleRefresh = useCallback(async () => {
+    await refreshIndex();
+    await loadMeta();
+  }, [loadMeta]);
+
+  useKeyboard({
+    '?': () => setShowHelp(prev => !prev),
+    'r': () => { handleRefresh(); },
+    'escape': () => setShowHelp(false),
+    '1': () => navigate(NAV_ROUTES[0]),
+    '2': () => navigate(NAV_ROUTES[1]),
+    '3': () => navigate(NAV_ROUTES[2]),
+    '4': () => navigate(NAV_ROUTES[3]),
+    '5': () => navigate(NAV_ROUTES[4]),
+  });
+
   return (
     <div className="min-h-screen" style={{ background: '#0a0a0b' }}>
       <Sidebar counts={counts} />
       <div className="flex-1" style={{ marginLeft: 240 }}>
-        {/* Header with gradient bottom border */}
         <header
           className="sticky top-0 z-40 backdrop-blur-xl flex items-center justify-between px-8"
           style={{
@@ -65,11 +86,19 @@ export function MainLayout({ children }: Props) {
         >
           <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">{title}</h1>
           <div className="flex items-center gap-3">
-            <RefreshIndicator ageSeconds={indexAge} onRefreshed={loadMeta} />
+            <button
+              onClick={() => setShowHelp(true)}
+              className="text-zinc-600 hover:text-zinc-400 transition-colors text-sm font-mono"
+              title="Keyboard shortcuts (?)"
+            >
+              ?
+            </button>
+            <RefreshIndicator ageSeconds={indexAge} onRefreshed={handleRefresh} />
           </div>
         </header>
         <main className="p-8">{children}</main>
       </div>
+      {showHelp && <KeyboardHelp onClose={() => setShowHelp(false)} />}
     </div>
   );
 }

@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getNotes, getProjects, getStatus, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfidenceBar } from '../components/ConfidenceBar';
 import { NoteDetail } from '../components/notes/NoteDetail';
+import { useKeyboard } from '../hooks/useKeyboard';
 
 function formatAge(seconds: number | undefined): string {
   if (seconds === undefined || seconds === null) return '--';
@@ -37,6 +38,8 @@ export function NotesPage() {
 
   const selectedId = searchParams.get('id');
   const selectedSource = searchParams.get('source') ?? '';
+
+  const [focusedIndex, setFocusedIndex] = useState(-1);
 
   const perPage = 25;
 
@@ -100,6 +103,39 @@ export function NotesPage() {
       ),
     );
   };
+
+  // Reset focused index when notes change
+  useEffect(() => {
+    setFocusedIndex(-1);
+  }, [notes]);
+
+  const keyboardHandlers = useMemo(() => ({
+    'j': () => {
+      setFocusedIndex((prev) => Math.min(prev + 1, notes.length - 1));
+    },
+    'k': () => {
+      setFocusedIndex((prev) => Math.max(prev - 1, 0));
+    },
+    'enter': () => {
+      if (focusedIndex >= 0 && focusedIndex < notes.length) {
+        selectNote(notes[focusedIndex]);
+      }
+    },
+    'escape': () => {
+      if (selectedId) {
+        closeDetail();
+      } else {
+        setFocusedIndex(-1);
+      }
+    },
+    'p': () => {
+      if (focusedIndex >= 0 && focusedIndex < notes.length && !selectedId) {
+        selectNote(notes[focusedIndex]);
+      }
+    },
+  }), [notes, focusedIndex, selectedId]);
+
+  useKeyboard(keyboardHandlers);
 
   const totalPages = Math.ceil(total / perPage);
 
@@ -220,16 +256,21 @@ export function NotesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {notes.map((note) => (
+                  {notes.map((note, idx) => (
                     <tr
                       key={`${note.source}-${note.source_note_id}`}
-                      onClick={() => selectNote(note)}
+                      onClick={() => { setFocusedIndex(idx); selectNote(note); }}
                       className={`table-row-hover cursor-pointer ${
                         selectedId === note.source_note_id ? 'bg-blue-500/5' : ''
-                      }`}
+                      } ${focusedIndex === idx && selectedId !== note.source_note_id ? 'bg-zinc-800/40' : ''}`}
                       style={{
                         borderTop: '1px solid rgba(255,255,255,0.04)',
-                        boxShadow: selectedId === note.source_note_id ? 'inset 3px 0 0 0 #3b82f6' : undefined,
+                        boxShadow:
+                          selectedId === note.source_note_id
+                            ? 'inset 3px 0 0 0 #3b82f6'
+                            : focusedIndex === idx
+                              ? 'inset 3px 0 0 0 rgba(161,161,170,0.4)'
+                              : undefined,
                       }}
                     >
                       <td style={{ padding: '14px 20px', minWidth: 300 }} className="text-zinc-100">
