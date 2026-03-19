@@ -5347,44 +5347,39 @@ class SyncClientTests(unittest.TestCase):
 
 
 class TestReadwiseSyncClient(unittest.TestCase):
-    def test_require_readwise_token_raises_when_missing(self):
-        from src.project_router.readwise_client import require_access_token
+    def _with_clean_env(self, fn):
+        """Run fn with both READWISE env vars removed and load_local_env mocked out."""
+        import src.project_router.readwise_client as rwc
         saved = {}
         for key in ("READWISE_ACCESS_TOKEN", "READWISE_TOKEN"):
             if key in os.environ:
                 saved[key] = os.environ.pop(key)
-        try:
+        with mock.patch.object(rwc, "load_local_env"):
+            try:
+                return fn()
+            finally:
+                os.environ.update(saved)
+
+    def test_require_readwise_token_raises_when_missing(self):
+        from src.project_router.readwise_client import require_access_token
+        def fn():
             with self.assertRaises(SystemExit):
                 require_access_token()
-        finally:
-            os.environ.update(saved)
+        self._with_clean_env(fn)
 
     def test_require_readwise_token_primary(self):
         from src.project_router.readwise_client import require_access_token
-        saved = os.environ.get("READWISE_ACCESS_TOKEN")
-        os.environ["READWISE_ACCESS_TOKEN"] = "test_token"
-        try:
+        def fn():
+            os.environ["READWISE_ACCESS_TOKEN"] = "test_token"
             self.assertEqual(require_access_token(), "test_token")
-        finally:
-            if saved is None:
-                os.environ.pop("READWISE_ACCESS_TOKEN", None)
-            else:
-                os.environ["READWISE_ACCESS_TOKEN"] = saved
+        self._with_clean_env(fn)
 
     def test_require_readwise_token_alias(self):
         from src.project_router.readwise_client import require_access_token
-        saved_primary = os.environ.pop("READWISE_ACCESS_TOKEN", None)
-        saved_alias = os.environ.get("READWISE_TOKEN")
-        os.environ["READWISE_TOKEN"] = "alias_token"
-        try:
+        def fn():
+            os.environ["READWISE_TOKEN"] = "alias_token"
             self.assertEqual(require_access_token(), "alias_token")
-        finally:
-            if saved_primary is not None:
-                os.environ["READWISE_ACCESS_TOKEN"] = saved_primary
-            if saved_alias is None:
-                os.environ.pop("READWISE_TOKEN", None)
-            else:
-                os.environ["READWISE_TOKEN"] = saved_alias
+        self._with_clean_env(fn)
 
     def test_readwise_note_filename(self):
         from src.project_router.readwise_client import readwise_note_filename

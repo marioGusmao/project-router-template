@@ -68,6 +68,17 @@ def iso_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def sanitize_iso_for_api(value: str | None) -> str | None:
+    """Strip microseconds and normalize timezone for Readwise API compatibility."""
+    if not value:
+        return value
+    # Remove microseconds (.123456) and normalize +00:00 → Z
+    import re as _re
+    cleaned = _re.sub(r"\.\d+", "", value)
+    cleaned = cleaned.replace("+00:00", "Z")
+    return cleaned
+
+
 def should_skip_document(doc: dict[str, Any]) -> bool:
     """Skip child highlights (non-null parent_id) in v1."""
     return doc.get("parent_id") is not None
@@ -214,7 +225,7 @@ def command_sync(args: argparse.Namespace) -> int:
     while pages_fetched < args.max_pages:
         params = []
         if updated_after:
-            params.append(f"updatedAfter={updated_after}")
+            params.append(f"updatedAfter={sanitize_iso_for_api(updated_after)}")
         if args.category:
             params.append(f"category={args.category}")
         if args.location:
