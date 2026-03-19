@@ -1478,6 +1478,25 @@ def normalize_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ensure_dashboard_running(view: str = "", port: int = 8420) -> None:
+    """Start dashboard server if not running and open browser."""
+    import socket
+    import subprocess as _sp
+    import webbrowser
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(("localhost", port)) != 0:
+            _sp.Popen(
+                [sys.executable, str(ROOT / "scripts" / "dashboard.py"), "--no-browser", "--port", str(port)],
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                start_new_session=True,
+            )
+            import time
+            time.sleep(2)
+    url = f"http://localhost:{port}"
+    if view:
+        url += f"/{view}"
+    webbrowser.open(url)
+
 
 def triage_command(args: argparse.Namespace) -> int:
     ensure_layout()
@@ -1561,6 +1580,8 @@ def triage_command(args: argparse.Namespace) -> int:
         triaged += 1
 
     print(json.dumps({"triaged": triaged, "mode": "all" if args.all else "default", "sources": sorted(sources)}, indent=2, ensure_ascii=False))
+    if getattr(args, "dashboard", False):
+        _ensure_dashboard_running(view="triage")
     return 0
 
 
@@ -1982,6 +2003,8 @@ def review_command(args: argparse.Namespace) -> int:
         if normalize_source_name(str(packet.get("source") or VOICE_SOURCE)) not in sources:
             raise SystemExit(f"Decision packet {args.note_id} exists outside the current --source filter.")
         print(json.dumps(build_review_entry(packet, packet_path), indent=2, ensure_ascii=False))
+        if getattr(args, "dashboard", False):
+            _ensure_dashboard_running(view="notes")
         return 0
 
     output = []
@@ -1994,6 +2017,8 @@ def review_command(args: argparse.Namespace) -> int:
             continue
         output.append(entry)
     print(json.dumps(output, indent=2, ensure_ascii=False))
+    if getattr(args, "dashboard", False):
+        _ensure_dashboard_running(view="notes")
     return 0
 
 
@@ -3907,6 +3932,7 @@ def build_parser() -> argparse.ArgumentParser:
     triage = subparsers.add_parser("triage", help="Classify normalized notes conservatively.")
     add_source_argument(triage)
     triage.add_argument("--all", action="store_true", help="Label the output JSON mode as 'all' instead of 'default'. Does not change triage behaviour.")
+    triage.add_argument("--dashboard", action="store_true", help="Open dashboard after triage")
     triage.set_defaults(func=triage_command)
 
     compile_parser = subparsers.add_parser("compile", help="Generate project-ready compiled note packages from canonical notes.")
@@ -3929,6 +3955,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_source_argument(review)
     review.add_argument("--all", action="store_true", help="Include already reviewed packets.")
     review.add_argument("--note-id", help="Show the full decision packet for one source_note_id.")
+    review.add_argument("--dashboard", action="store_true", help="Open dashboard after review")
     review.set_defaults(func=review_command)
 
     discover = subparsers.add_parser("discover", help="Analyze pending-project notes and suggest emerging buckets.")
