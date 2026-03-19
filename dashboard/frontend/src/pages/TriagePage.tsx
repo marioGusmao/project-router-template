@@ -71,6 +71,11 @@ export function TriagePage() {
     );
   };
 
+  const handleDecided = (noteId: string, _source: string, _decision: string) => {
+    setItems((prev) => prev.filter((it) => it.source_note_id !== noteId));
+    setSelectedNote(null);
+  };
+
   if (loading) {
     return (
       <div className="space-y-5">
@@ -247,6 +252,7 @@ export function TriagePage() {
             source={selectedNote.source}
             onClose={closeDetail}
             onProjectSuggested={handleProjectSuggested}
+            onDecided={handleDecided}
           />
         </div>
       )}

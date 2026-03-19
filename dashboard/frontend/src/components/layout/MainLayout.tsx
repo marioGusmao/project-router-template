@@ -5,7 +5,7 @@ import { KeyboardHelp } from './KeyboardHelp';
 import { CommandPalette } from './CommandPalette';
 import { UndoSnackbar } from './UndoSnackbar';
 import { RefreshIndicator } from '../RefreshIndicator';
-import { getStatus, getTriageItems, refreshIndex } from '../../lib/api';
+import { getStatus, getTriageItems, getNotes, refreshIndex } from '../../lib/api';
 import { useKeyboard } from '../../hooks/useKeyboard';
 
 const ROUTE_TITLES: Record<string, string> = {
@@ -14,9 +14,11 @@ const ROUTE_TITLES: Record<string, string> = {
   '/triage': 'Triage',
   '/projects': 'Projects',
   '/archive': 'Archive',
+  '/rejected': 'Rejected',
+  '/deferred': 'Deferred',
 };
 
-const NAV_ROUTES = ['/', '/notes', '/triage', '/projects', '/archive'];
+const NAV_ROUTES = ['/', '/notes', '/triage', '/projects', '/archive', '/rejected', '/deferred'];
 
 interface Props {
   children: ReactNode;
@@ -28,10 +30,12 @@ export function MainLayout({ children }: Props) {
   const [indexAge, setIndexAge] = useState<number | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
-  const [counts, setCounts] = useState<{ notes: number; triage: number; projects: number }>({
+  const [counts, setCounts] = useState<{ notes: number; triage: number; projects: number; rejected: number; deferred: number }>({
     notes: 0,
     triage: 0,
     projects: 0,
+    rejected: 0,
+    deferred: 0,
   });
 
   const title =
@@ -40,12 +44,21 @@ export function MainLayout({ children }: Props) {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [status, triage] = await Promise.all([getStatus(), getTriageItems()]);
+      const [status, triage, allReview] = await Promise.all([
+        getStatus(),
+        getTriageItems(),
+        getNotes({ status: 'needs_review', per_page: '200' }),
+      ]);
       setIndexAge(status.index_age_seconds ?? null);
+      const reviewNotes = allReview.notes ?? [];
+      const rejected = reviewNotes.filter(n => n.review_status === 'reject').length;
+      const deferred = reviewNotes.filter(n => n.review_status === 'defer').length;
       setCounts({
         notes: status.normalized + status.review + status.compiled,
         triage: triage.items?.length ?? 0,
         projects: 0,
+        rejected,
+        deferred,
       });
     } catch {
       // silent
@@ -71,6 +84,8 @@ export function MainLayout({ children }: Props) {
     '3': () => navigate(NAV_ROUTES[2]),
     '4': () => navigate(NAV_ROUTES[3]),
     '5': () => navigate(NAV_ROUTES[4]),
+    '6': () => navigate(NAV_ROUTES[5]),
+    '7': () => navigate(NAV_ROUTES[6]),
   });
 
   return (

@@ -6,6 +6,8 @@ import { TriagePage } from './pages/TriagePage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ArchivePage } from './pages/ArchivePage';
+import { RejectedPage } from './pages/RejectedPage';
+import { DeferredPage } from './pages/DeferredPage';
 
 function App() {
   return (
@@ -17,6 +19,8 @@ function App() {
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:key" element={<ProjectDetailPage />} />
         <Route path="/archive" element={<ArchivePage />} />
+        <Route path="/rejected" element={<RejectedPage />} />
+        <Route path="/deferred" element={<DeferredPage />} />
       </Routes>
     </MainLayout>
   );

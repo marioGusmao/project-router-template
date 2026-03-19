@@ -109,6 +109,12 @@ export function NotesPage() {
     );
   };
 
+  const handleDecided = (noteId: string, _source: string, _decision: string) => {
+    setNotes((prev) => prev.filter((n) => n.source_note_id !== noteId));
+    setTotal((prev) => Math.max(0, prev - 1));
+    closeDetail();
+  };
+
   // Reset focused index and selection when notes change
   useEffect(() => {
     setFocusedIndex(-1);
@@ -436,7 +442,7 @@ export function NotesPage() {
       {/* Detail panel */}
       {selectedId && (
         <div className="min-w-96 sticky" style={{ width: '40%', top: 56, height: 'calc(100vh - 56px)' }}>
-          <NoteDetail noteId={selectedId} source={selectedSource} onClose={closeDetail} onProjectSuggested={handleProjectSuggested} />
+          <NoteDetail noteId={selectedId} source={selectedSource} onClose={closeDetail} onProjectSuggested={handleProjectSuggested} onDecided={handleDecided} />
         </div>
       )}
 

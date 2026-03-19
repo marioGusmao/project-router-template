@@ -10,6 +10,7 @@ interface Props {
   source: string;
   onClose: () => void;
   onProjectSuggested?: (noteId: string, source: string, project: string) => void;
+  onDecided?: (noteId: string, source: string, decision: string) => void;
 }
 
 function formatDate(iso: string | undefined): string {
@@ -21,7 +22,7 @@ function formatDate(iso: string | undefined): string {
   }
 }
 
-export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Props) {
+export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDecided }: Props) {
   const [note, setNote] = useState<NoteDetailType | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,6 +110,7 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Prop
       onProjectSuggested?.(noteId, source, refreshed.project ?? '');
       setDecideDone(decision);
       setTimeout(() => setDecideDone(null), 2000);
+      onDecided?.(noteId, source, decision);
     } catch {
       // silent
     } finally {
