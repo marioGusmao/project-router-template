@@ -12,6 +12,7 @@ const shortcuts: { key: string; description: string }[] = [
   { key: 'Escape', description: 'Close panel / modal' },
   { key: 'p', description: 'Suggest project for selected note' },
   { key: 'r', description: 'Refresh index' },
+  { key: '\u2318K', description: 'Command palette' },
   { key: '1', description: 'Go to Dashboard' },
   { key: '2', description: 'Go to Notes' },
   { key: '3', description: 'Go to Triage' },

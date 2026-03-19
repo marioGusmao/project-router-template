@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getNotes, getProjects, getStatus, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
+import { getNotes, getProjects, getStatus, suggestProject, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfidenceBar } from '../components/ConfidenceBar';
 import { NoteDetail } from '../components/notes/NoteDetail';
@@ -40,6 +40,10 @@ export function NotesPage() {
   const selectedSource = searchParams.get('source') ?? '';
 
   const [focusedIndex, setFocusedIndex] = useState(-1);
+
+  // Batch selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const lastSelectedIndex = useRef<number | null>(null);
 
   const perPage = 25;
 
@@ -104,10 +108,55 @@ export function NotesPage() {
     );
   };
 
-  // Reset focused index when notes change
+  // Reset focused index and selection when notes change
   useEffect(() => {
     setFocusedIndex(-1);
+    setSelectedIds(new Set());
+    lastSelectedIndex.current = null;
   }, [notes]);
+
+  // Batch selection handlers
+  const toggleSelect = useCallback((idx: number, shiftKey: boolean) => {
+    const id = notes[idx]?.source_note_id;
+    if (!id) return;
+
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastSelectedIndex.current !== null) {
+        const lo = Math.min(lastSelectedIndex.current, idx);
+        const hi = Math.max(lastSelectedIndex.current, idx);
+        for (let i = lo; i <= hi; i++) {
+          next.add(notes[i].source_note_id);
+        }
+      } else if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    lastSelectedIndex.current = idx;
+  }, [notes]);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === notes.length) return new Set();
+      return new Set(notes.map((n) => n.source_note_id));
+    });
+  }, [notes]);
+
+  const handleBulkSuggest = useCallback(async (project: string) => {
+    if (!project) return;
+    for (const id of selectedIds) {
+      const note = notes.find((n) => n.source_note_id === id);
+      if (note) {
+        await suggestProject(id, note.source, project);
+      }
+    }
+    setSelectedIds(new Set());
+    lastSelectedIndex.current = null;
+    loadNotes();
+  }, [selectedIds, notes, loadNotes]);
 
   const keyboardHandlers = useMemo(() => ({
     'j': () => {
@@ -247,6 +296,16 @@ export function NotesPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <th style={{ padding: '12px 0 12px 20px', width: 36 }}>
+                      <input
+                        type="checkbox"
+                        checked={notes.length > 0 && selectedIds.size === notes.length}
+                        ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < notes.length; }}
+                        onChange={toggleSelectAll}
+                        className="accent-blue-500 cursor-pointer"
+                        style={{ width: 15, height: 15 }}
+                      />
+                    </th>
                     <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Title</th>
                     <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Status</th>
                     <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Project</th>
@@ -273,6 +332,16 @@ export function NotesPage() {
                               : undefined,
                       }}
                     >
+                      <td style={{ padding: '14px 0 14px 20px', width: 36 }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(note.source_note_id)}
+                          onChange={() => {/* handled by onClick */}}
+                          onClick={(e) => { toggleSelect(idx, e.shiftKey); }}
+                          className="accent-blue-500 cursor-pointer"
+                          style={{ width: 15, height: 15 }}
+                        />
+                      </td>
                       <td style={{ padding: '14px 20px', minWidth: 300 }} className="text-zinc-100">
                         <span className="truncate block" style={{ maxWidth: 400 }}>
                           {note.title || note.source_note_id}
@@ -303,7 +372,7 @@ export function NotesPage() {
                   ))}
                   {notes.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center text-zinc-500" style={{ padding: '64px 20px' }}>
+                      <td colSpan={7} className="text-center text-zinc-500" style={{ padding: '64px 20px' }}>
                         No notes found
                       </td>
                     </tr>
@@ -364,6 +433,29 @@ export function NotesPage() {
       {selectedId && (
         <div className="min-w-96 sticky" style={{ width: '40%', top: 56, height: 'calc(100vh - 56px)' }}>
           <NoteDetail noteId={selectedId} source={selectedSource} onClose={closeDetail} onProjectSuggested={handleProjectSuggested} />
+        </div>
+      )}
+
+      {/* Floating batch action bar */}
+      {selectedIds.size > 0 && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 rounded-xl border border-white/[0.08] backdrop-blur-xl shadow-2xl"
+          style={{ background: 'linear-gradient(135deg, rgba(24,24,27,0.95), rgba(39,39,42,0.9))', marginLeft: 120 }}
+        >
+          <span className="text-sm text-zinc-300 font-medium">{selectedIds.size} selected</span>
+          <select
+            className="bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-zinc-200 px-3 py-1.5"
+            onChange={async (e) => {
+              await handleBulkSuggest(e.target.value);
+            }}
+            value=""
+          >
+            <option value="">Suggest project...</option>
+            {projects.map(p => <option key={p.key} value={p.key}>{p.display_name || p.key}</option>)}
+          </select>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+            Clear
+          </button>
         </div>
       )}
     </div>

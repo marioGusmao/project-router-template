@@ -2,6 +2,7 @@ import { type ReactNode, useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { KeyboardHelp } from './KeyboardHelp';
+import { CommandPalette } from './CommandPalette';
 import { UndoSnackbar } from './UndoSnackbar';
 import { RefreshIndicator } from '../RefreshIndicator';
 import { getStatus, getTriageItems, refreshIndex } from '../../lib/api';
@@ -26,6 +27,7 @@ export function MainLayout({ children }: Props) {
   const navigate = useNavigate();
   const [indexAge, setIndexAge] = useState<number | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [counts, setCounts] = useState<{ notes: number; triage: number; projects: number }>({
     notes: 0,
     triage: 0,
@@ -62,7 +64,8 @@ export function MainLayout({ children }: Props) {
   useKeyboard({
     '?': () => setShowHelp(prev => !prev),
     'r': () => { handleRefresh(); },
-    'escape': () => setShowHelp(false),
+    'escape': () => { setShowHelp(false); setShowCommandPalette(false); },
+    'cmd+k': () => setShowCommandPalette(prev => !prev),
     '1': () => navigate(NAV_ROUTES[0]),
     '2': () => navigate(NAV_ROUTES[1]),
     '3': () => navigate(NAV_ROUTES[2]),
@@ -100,6 +103,7 @@ export function MainLayout({ children }: Props) {
         <main className="p-8">{children}</main>
       </div>
       {showHelp && <KeyboardHelp onClose={() => setShowHelp(false)} />}
+      {showCommandPalette && <CommandPalette onClose={() => setShowCommandPalette(false)} />}
       <UndoSnackbar />
     </div>
   );
