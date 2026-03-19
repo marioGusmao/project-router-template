@@ -65,6 +65,24 @@ For `sync`, normal reruns use the local checkpoint in `state/sync_state.json`. A
 | `scripts/apply_managed_block_sync.py` | Sync managed blocks from upstream into local README files, preserving content outside markers | Called by `template-upstream-sync.yml` Pass 3 |
 | `scripts/migrate_add_contract_block.py` | Insert customization-contract markers into CLAUDE.md/AGENTS.md for old derived repos that lack them | Run once before first sync; also called by Pass 0 of the sync workflow |
 
+## Dashboard
+
+### dashboard.py
+
+**Purpose:** Launch the local web dashboard for visual note triage and pipeline monitoring.
+
+**When to use:** When you want a visual interface to browse notes, suggest project routing, review pipeline status, and inspect note details — instead of using CLI commands.
+
+**Usage:**
+- `python3 scripts/dashboard.py` — Start server and open browser at http://localhost:8420
+- `python3 scripts/dashboard.py --no-browser` — Start server without opening browser
+- `python3 scripts/dashboard.py --port 9000` — Use a custom port
+- `python3 scripts/dashboard.py --dev` — Enable CORS for frontend development
+
+**How it works:** Starts a local HTTP server (stdlib, no dependencies) that serves a React frontend and JSON API. Reads data from the existing `data/`, `state/`, and `projects/` directories via a SQLite cache. The dashboard can suggest project routing but never executes the pipeline or dispatches notes.
+
+**Related:** The `--dashboard` flag on `triage` and `review` commands auto-starts the dashboard after those commands complete.
+
 ## Testing
 
 | Script | Purpose | Prerequisites |

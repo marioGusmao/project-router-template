@@ -40,10 +40,16 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
    - `python3 scripts/project_router.py triage --source filesystem`
    - `python3 scripts/project_router.py compile --source filesystem`
 8. Run `python3 scripts/project_router.py review`.
-9. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`.
-10. Run `python3 scripts/project_router.py inbox-intake` to ingest any packets in `router/inbox/`.
-11. Run `python3 scripts/project_router.py inbox-status` to check for open inbox packets.
-12. Stop there and ask the user what to approve, reject, or refine.
+9. Check the review output for notes with `user_suggested_project` set. If any are found:
+   - List each note: "Dashboard suggests rerouting {note_id} from '{project}' → '{suggested_project}'"
+   - Ask the user: "Accept, reject, or skip each suggestion?"
+   - For accepted suggestions: run `python3 scripts/project_router.py decide --note-id {id} --decision approve --final-project {suggested_project}`
+   - For rejected suggestions: clear the suggestion fields from the note metadata
+10. If `pending_project` is non-zero, run `python3 scripts/project_router.py discover`.
+11. Check if the dashboard is running on port 8420. If not, start it in background with `python3 scripts/dashboard.py --no-browser &`. Then open the browser to http://localhost:8420.
+12. Run `python3 scripts/project_router.py inbox-intake` to ingest any packets in `router/inbox/`.
+13. Run `python3 scripts/project_router.py inbox-status` to check for open inbox packets.
+14. Stop there and ask the user what to approve, reject, or refine.
 
 ## Downstream Setup
 
