@@ -4,6 +4,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from src.project_router import cli
+
 from tests.test_project_router import (
     temporary_repo_dir,
     prepare_repo,
@@ -74,6 +76,67 @@ class TestClassificationService(unittest.TestCase):
         projects = {}
         route, details, reason = route_note("Some body", metadata, defaults, projects)
         self.assertEqual(route, "pending_project")
+
+
+class TestSuggestionsService(unittest.TestCase):
+    def test_write_suggestion(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            with patch_cli_paths(root):
+                note_path = cli.NORMALIZED_DIR / "voicenotes" / "20260318T100000Z--vn_sug.md"
+                metadata = cli.ensure_note_metadata_defaults({
+                    "source": "voicenotes", "source_note_id": "vn_sug", "title": "Test",
+                    "status": "classified", "project": "home_renovation",
+                })
+                cli.write_note(note_path, metadata, "Body")
+                from src.project_router.services.suggestions import write_suggestion
+                result = write_suggestion(note_path, "garden")
+                self.assertEqual(result["user_suggested_project"], "garden")
+                self.assertIsNotNone(result["user_suggestion_timestamp"])
+                # Verify persisted
+                loaded, _ = cli.read_note(note_path)
+                self.assertEqual(loaded["user_suggested_project"], "garden")
+
+    def test_clear_suggestion(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            with patch_cli_paths(root):
+                note_path = cli.NORMALIZED_DIR / "voicenotes" / "20260318T100000Z--vn_clr.md"
+                metadata = cli.ensure_note_metadata_defaults({
+                    "source": "voicenotes", "source_note_id": "vn_clr", "title": "Test",
+                    "user_suggested_project": "garden",
+                    "user_suggestion_timestamp": "2026-03-18T14:30:00Z",
+                })
+                cli.write_note(note_path, metadata, "Body")
+                from src.project_router.services.suggestions import clear_suggestion
+                result = clear_suggestion(note_path)
+                self.assertIsNone(result["user_suggested_project"])
+                self.assertIsNone(result["user_suggestion_timestamp"])
+
+    def test_write_suggestion_logs_to_decision_packet(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_path = cli.NORMALIZED_DIR / "voicenotes" / "20260318T100000Z--vn_pkt.md"
+                metadata = cli.ensure_note_metadata_defaults({
+                    "source": "voicenotes", "source_note_id": "vn_pkt", "title": "Test",
+                    "status": "classified", "project": "home_renovation",
+                })
+                cli.write_note(note_path, metadata, "Body")
+                from src.project_router.services.suggestions import write_suggestion
+                write_suggestion(note_path, "garden")
+                # Check decision packet has a suggestion review entry
+                packet = cli.load_decision_packet_for_metadata(metadata)
+                reviews = packet.get("reviews", [])
+                self.assertTrue(len(reviews) >= 1)
+                last = reviews[-1]
+                self.assertEqual(last["decision"], "suggestion")
+                self.assertEqual(last["suggested_project"], "garden")
+                self.assertEqual(last["provenance"], "dashboard")
 
 
 if __name__ == "__main__":
