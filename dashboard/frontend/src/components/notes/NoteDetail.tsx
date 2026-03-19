@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Markdown from 'react-markdown';
-import { getNote, suggestProject, decideNote, getProjects, type NoteDetail as NoteDetailType, type Project } from '../../lib/api';
+import { getNote, suggestProject, decideNote, annotateNote, getProjects, type NoteDetail as NoteDetailType, type Project } from '../../lib/api';
 import { StatusBadge } from '../StatusBadge';
 import { ConfidenceBar } from '../ConfidenceBar';
 import { triggerUndo } from '../layout/undoEvents';
@@ -34,6 +34,10 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
   const [decideDone, setDecideDone] = useState<string | null>(null);
   const [showClassification, setShowClassification] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
+  const [reviewerNotes, setReviewerNotes] = useState('');
+  const [keywordInput, setKeywordInput] = useState('');
+  const [showAnnotate, setShowAnnotate] = useState(false);
+  const [savingAnnotation, setSavingAnnotation] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -47,6 +51,7 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
         setNote(n);
         setProjects(p.projects ?? []);
         setSuggestedProject(n.user_suggested_project ?? '');
+        setReviewerNotes(n.reviewer_notes || '');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load');
       } finally {
@@ -111,10 +116,32 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
       setDecideDone(decision);
       setTimeout(() => setDecideDone(null), 2000);
       onDecided?.(noteId, source, decision);
+      triggerUndo(
+        `${decision === 'approve' ? 'Approved' : decision === 'reject' ? 'Rejected' : decision === 'defer' ? 'Deferred' : 'Marked ambiguous'}: ${note?.title || noteId}`,
+        async () => {
+          await decideNote(noteId, source, 'needs-review');
+          window.location.reload();
+        },
+      );
     } catch {
       // silent
     } finally {
       setDeciding(false);
+    }
+  };
+
+  const handleSaveAnnotation = async () => {
+    setSavingAnnotation(true);
+    try {
+      const newKeywords = keywordInput.split(',').map(k => k.trim()).filter(Boolean);
+      await annotateNote(noteId, source, reviewerNotes, newKeywords);
+      setKeywordInput('');
+      const updated = await getNote(noteId, source);
+      setNote(updated);
+    } catch {
+      // silent
+    } finally {
+      setSavingAnnotation(false);
     }
   };
 
@@ -276,7 +303,7 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
               onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#10b981'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = '#059669'; }}
             >
-              Approve &#x2713;
+              Approve &#x2713;<kbd className="ml-1 text-xs opacity-50 font-mono">A</kbd>
             </button>
             <button
               onClick={() => handleDecide('reject')}
@@ -286,7 +313,7 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
               onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(225,29,72,0.3)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(225,29,72,0.2)'; }}
             >
-              Reject &#x2715;
+              Reject &#x2715;<kbd className="ml-1 text-xs opacity-50 font-mono">X</kbd>
             </button>
             <button
               onClick={() => handleDecide('ambiguous')}
@@ -296,7 +323,7 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
               onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(234,88,12,0.3)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(234,88,12,0.2)'; }}
             >
-              Ambiguous ?
+              Ambiguous ?<kbd className="ml-1 text-xs opacity-50 font-mono">M</kbd>
             </button>
             <button
               onClick={() => handleDecide('defer')}
@@ -306,7 +333,7 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
               onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(14,165,233,0.3)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(14,165,233,0.2)'; }}
             >
-              Rever mais tarde
+              Rever mais tarde<kbd className="ml-1 text-xs opacity-50 font-mono">D</kbd>
             </button>
             <button
               onClick={() => handleDecide('needs-review')}
@@ -542,6 +569,101 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
                   <div className="font-mono text-zinc-400" style={{ fontSize: 12 }}>{note.source}</div>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Annotations (collapsible) */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <button
+            onClick={() => setShowAnnotate(!showAnnotate)}
+            className="w-full flex items-center justify-between text-zinc-400 hover:text-zinc-300 transition-colors"
+            style={{ padding: '12px 16px' }}
+          >
+            <span className="uppercase tracking-widest font-semibold" style={{ fontSize: 10, letterSpacing: '0.12em' }}>
+              Annotations
+            </span>
+            <svg
+              className={`w-4 h-4 transition-transform duration-200 ${showAnnotate ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {showAnnotate && (
+            <div style={{ padding: '0 16px 16px' }} className="space-y-3">
+              <div>
+                <label className="text-zinc-500 block" style={{ fontSize: 11, marginBottom: 4 }}>Reviewer Notes</label>
+                <textarea
+                  value={reviewerNotes}
+                  onChange={e => setReviewerNotes(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg text-sm text-zinc-200 outline-none"
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    padding: '8px 12px',
+                  }}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+                  placeholder="Add notes about this capture..."
+                />
+              </div>
+              <div>
+                <label className="text-zinc-500 block" style={{ fontSize: 11, marginBottom: 4 }}>Add Keywords</label>
+                <input
+                  type="text"
+                  value={keywordInput}
+                  onChange={e => setKeywordInput(e.target.value)}
+                  className="w-full rounded-lg text-sm text-zinc-200 outline-none"
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    padding: '8px 12px',
+                  }}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+                  placeholder="keyword1, keyword2, ..."
+                />
+              </div>
+              {note.user_keywords && note.user_keywords.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {note.user_keywords.map((kw: string) => (
+                    <span
+                      key={kw}
+                      className="inline-flex font-mono"
+                      style={{
+                        fontSize: 11,
+                        padding: '3px 8px',
+                        borderRadius: 9999,
+                        background: 'rgba(59,130,246,0.15)',
+                        color: '#93c5fd',
+                        border: '1px solid rgba(59,130,246,0.2)',
+                      }}
+                    >
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={handleSaveAnnotation}
+                disabled={savingAnnotation}
+                className="text-white text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                style={{
+                  padding: '6px 16px',
+                  background: '#3b82f6',
+                  borderRadius: 8,
+                  border: 'none',
+                }}
+                onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#60a5fa'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = '#3b82f6'; }}
+              >
+                {savingAnnotation ? 'Saving...' : 'Save Annotations'}
+              </button>
             </div>
           )}
         </div>

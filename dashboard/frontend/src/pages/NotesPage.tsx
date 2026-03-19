@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getNotes, getProjects, getStatus, suggestProject, noteKey, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
+import { getNotes, getProjects, getStatus, suggestProject, decideNote, batchDecide, noteKey, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfidenceBar } from '../components/ConfidenceBar';
 import { NoteDetail } from '../components/notes/NoteDetail';
 import { useKeyboard } from '../hooks/useKeyboard';
 import { SourceIcon } from '../components/SourceIcon';
+import { triggerUndo } from '../components/layout/undoEvents';
 
 function formatAge(seconds: number | undefined): string {
   if (seconds === undefined || seconds === null) return '--';
@@ -36,6 +37,7 @@ export function NotesPage() {
   const [filterSource, setFilterSource] = useState(searchParams.get('source') ?? '');
   const [filterProject, setFilterProject] = useState(searchParams.get('project') ?? '');
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
+  const [sortBy, setSortBy] = useState('created_at_desc');
 
   const selectedId = searchParams.get('id');
   const selectedSource = searchParams.get('source') ?? '';
@@ -55,6 +57,7 @@ export function NotesPage() {
       const params: Record<string, string> = {
         page: String(page),
         per_page: String(perPage),
+        sort: sortBy,
       };
       if (filterStatus) params.status = filterStatus;
       if (filterSource) params.source = filterSource;
@@ -69,7 +72,7 @@ export function NotesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, filterStatus, filterSource, filterProject, search]);
+  }, [page, filterStatus, filterSource, filterProject, search, sortBy]);
 
   useEffect(() => {
     loadNotes();
@@ -111,16 +114,28 @@ export function NotesPage() {
 
   const [fadingKey, setFadingKey] = useState<string | null>(null);
 
-  const handleDecided = (noteId: string, source: string) => {
+  const handleDecided = useCallback((noteId: string, source: string) => {
     const key = noteKey(source, noteId);
+    const currentIdx = notes.findIndex(n => noteKey(n.source, n.source_note_id) === key);
     setFadingKey(key);
-    closeDetail();
+
     setTimeout(() => {
-      setNotes((prev) => prev.filter((n) => noteKey(n.source, n.source_note_id) !== key));
-      setTotal((prev) => Math.max(0, prev - 1));
+      setNotes(prev => {
+        const updated = prev.filter(n => noteKey(n.source, n.source_note_id) !== key);
+        // Auto-advance: select the note that slides into the current position
+        const nextIdx = Math.min(currentIdx, updated.length - 1);
+        if (nextIdx >= 0 && updated[nextIdx]) {
+          const next = updated[nextIdx];
+          setTimeout(() => selectNote(next), 50);
+        } else {
+          closeDetail();
+        }
+        return updated;
+      });
+      setTotal(prev => Math.max(0, prev - 1));
       setFadingKey(null);
     }, 1200);
-  };
+  }, [notes, selectNote, closeDetail]);
 
   // Reset focused index and selection when notes change
   useEffect(() => {
@@ -171,6 +186,40 @@ export function NotesPage() {
     loadNotes();
   }, [selectedIds, notes, loadNotes]);
 
+  const handleBatchDecide = useCallback(async (decision: string) => {
+    const selected = notes.filter(n => selectedIds.has(noteKey(n.source, n.source_note_id)));
+
+    // Approve requires all selected to have a project
+    if (decision === 'approve') {
+      const missing = selected.filter(n => !n.user_suggested_project && !n.project);
+      if (missing.length > 0) {
+        alert(`${missing.length} note(s) have no project assigned. Suggest a project first.`);
+        return;
+      }
+    }
+
+    const items = selected.map(n => ({
+      note_id: n.source_note_id,
+      source: n.source,
+      decision,
+      final_project: decision === 'approve' ? (n.user_suggested_project || n.project) : undefined,
+    }));
+
+    try {
+      const res = await batchDecide(items);
+      const failures = res.results.filter(r => !r.ok);
+      if (failures.length > 0) {
+        alert(`${failures.length} note(s) failed: ${failures.map(f => f.error).join(', ')}`);
+      }
+    } catch {
+      // silent
+    }
+
+    setSelectedIds(new Set());
+    lastSelectedIndex.current = null;
+    loadNotes();
+  }, [selectedIds, notes, loadNotes]);
+
   const keyboardHandlers = useMemo(() => ({
     'j': () => {
       setFocusedIndex((prev) => Math.min(prev + 1, notes.length - 1));
@@ -195,7 +244,65 @@ export function NotesPage() {
         selectNote(notes[focusedIndex]);
       }
     },
-  }), [notes, focusedIndex, selectedId, selectNote, closeDetail]);
+    'a': () => {
+      if (!selectedId || !selectedSource) return;
+      const note = notes.find(n => n.source_note_id === selectedId && n.source === selectedSource);
+      const project = note?.user_suggested_project || note?.project;
+      if (!project) return;
+      const capturedId = selectedId;
+      const capturedSource = selectedSource;
+      const capturedTitle = note?.title || capturedId;
+      decideNote(capturedId, capturedSource, 'approve', project).then(() => {
+        handleDecided(capturedId, capturedSource);
+        triggerUndo(`Approved: ${capturedTitle}`, async () => {
+          await decideNote(capturedId, capturedSource, 'needs-review');
+          loadNotes();
+        });
+      });
+    },
+    'x': () => {
+      if (!selectedId || !selectedSource) return;
+      const capturedId = selectedId;
+      const capturedSource = selectedSource;
+      const note = notes.find(n => n.source_note_id === capturedId && n.source === capturedSource);
+      const capturedTitle = note?.title || capturedId;
+      decideNote(capturedId, capturedSource, 'reject').then(() => {
+        handleDecided(capturedId, capturedSource);
+        triggerUndo(`Rejected: ${capturedTitle}`, async () => {
+          await decideNote(capturedId, capturedSource, 'needs-review');
+          loadNotes();
+        });
+      });
+    },
+    'd': () => {
+      if (!selectedId || !selectedSource) return;
+      const capturedId = selectedId;
+      const capturedSource = selectedSource;
+      const note = notes.find(n => n.source_note_id === capturedId && n.source === capturedSource);
+      const capturedTitle = note?.title || capturedId;
+      decideNote(capturedId, capturedSource, 'defer').then(() => {
+        handleDecided(capturedId, capturedSource);
+        triggerUndo(`Deferred: ${capturedTitle}`, async () => {
+          await decideNote(capturedId, capturedSource, 'needs-review');
+          loadNotes();
+        });
+      });
+    },
+    'm': () => {
+      if (!selectedId || !selectedSource) return;
+      const capturedId = selectedId;
+      const capturedSource = selectedSource;
+      const note = notes.find(n => n.source_note_id === capturedId && n.source === capturedSource);
+      const capturedTitle = note?.title || capturedId;
+      decideNote(capturedId, capturedSource, 'ambiguous').then(() => {
+        handleDecided(capturedId, capturedSource);
+        triggerUndo(`Marked ambiguous: ${capturedTitle}`, async () => {
+          await decideNote(capturedId, capturedSource, 'needs-review');
+          loadNotes();
+        });
+      });
+    },
+  }), [notes, focusedIndex, selectedId, selectedSource, selectNote, closeDetail, handleDecided, loadNotes]);
 
   useKeyboard(keyboardHandlers);
 
@@ -260,6 +367,17 @@ export function NotesPage() {
               {projects.map((p) => (
                 <option key={p.key} value={p.key}>{p.display_name || p.key}</option>
               ))}
+            </select>
+
+            <select
+              value={sortBy}
+              onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
+              style={selectStyle}
+            >
+              <option value="created_at_desc">Newest first</option>
+              <option value="created_at_asc">Oldest first</option>
+              <option value="confidence_desc">Confidence (high)</option>
+              <option value="confidence_asc">Confidence (low)</option>
             </select>
 
             <div className="flex-1" style={{ minWidth: 200, position: 'relative' }}>
@@ -343,7 +461,7 @@ export function NotesPage() {
                             ? 'inset 3px 0 0 0 #3b82f6'
                             : focusedIndex === idx
                               ? 'inset 3px 0 0 0 rgba(161,161,170,0.4)'
-                              : undefined,
+                              : `inset 3px 0 0 0 ${note.confidence >= 0.85 ? 'rgba(52,211,153,0.4)' : note.confidence >= 0.60 ? 'rgba(251,191,36,0.4)' : 'rgba(248,113,113,0.4)'}`,
                       }}
                     >
                       <td style={{ padding: '14px 0 14px 20px', width: 36 }} onClick={(e) => e.stopPropagation()}>
@@ -470,6 +588,24 @@ export function NotesPage() {
             <option value="">Suggest project...</option>
             {projects.map(p => <option key={p.key} value={p.key}>{p.display_name || p.key}</option>)}
           </select>
+          <button
+            onClick={() => handleBatchDecide('approve')}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+          >
+            Approve All
+          </button>
+          <button
+            onClick={() => handleBatchDecide('reject')}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+          >
+            Reject All
+          </button>
+          <button
+            onClick={() => handleBatchDecide('defer')}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
+          >
+            Defer All
+          </button>
           <button onClick={() => setSelectedIds(new Set())} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
             Clear
           </button>

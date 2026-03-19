@@ -30,6 +30,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     project=params.get("project"),
                     search=params.get("search"),
                     review_status=params.get("review_status"),
+                    sort=params.get("sort"),
                     page=int(params.get("page", 1)),
                     per_page=int(params.get("per_page", 50)),
                 )
@@ -110,6 +111,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             write_note(file_path, metadata, note_body)
             self.index.rebuild()
             self._json_response({"ok": True, "note_id": note_id})
+        elif path == "/api/notes/batch-decide":
+            items = body.get("items", [])
+            results = []
+            for item in items:
+                note_id = item.get("note_id", "")
+                source = item.get("source", "voicenotes")
+                decision = item.get("decision", "")
+                final_project = item.get("final_project")
+                valid_decisions = {"approve", "reject", "defer", "needs-review", "ambiguous", "pending-project"}
+                if decision not in valid_decisions:
+                    results.append({"note_id": note_id, "ok": False, "error": f"Invalid decision '{decision}'"})
+                    continue
+                note_record = self.index.get_note(note_id, source)
+                if not note_record:
+                    results.append({"note_id": note_id, "ok": False, "error": "Note not found"})
+                    continue
+                try:
+                    self._handle_decide(note_record, note_id, source, decision, final_project, skip_rebuild=True)
+                    results.append({"note_id": note_id, "ok": True})
+                except (SystemExit, Exception) as exc:
+                    results.append({"note_id": note_id, "ok": False, "error": str(exc)})
+            self.index.rebuild()
+            self._json_response({"results": results})
         elif path.endswith("/decide") and "/api/notes/" in path:
             parts = path.split("/")
             note_id = parts[3]
@@ -149,6 +173,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         source: str,
         decision: str,
         final_project: str | None,
+        skip_rebuild: bool = False,
     ) -> dict:
         from ..services.notes import (
             ensure_note_metadata_defaults,
@@ -262,7 +287,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         save_decision_packet_for_metadata(metadata, packet)
 
         # Rebuild index so UI reflects changes
-        self.index.rebuild()
+        if not skip_rebuild:
+            self.index.rebuild()
 
         return {"ok": True, "decision": decision, "note_id": note_id}
 

@@ -70,6 +70,10 @@ class DashboardIndex:
                 value TEXT
             );
         """)
+        try:
+            self.conn.execute("ALTER TABLE notes ADD COLUMN user_keywords TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         self.conn.commit()
 
     def rebuild(self) -> dict:
@@ -166,7 +170,7 @@ class DashboardIndex:
 
         self.conn.execute(
             """INSERT OR REPLACE INTO notes VALUES
-               (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 metadata.get("source_note_id"),
                 metadata.get("source", source),
@@ -192,6 +196,7 @@ class DashboardIndex:
                 metadata.get("extraction_status"),
                 str(file_path),
                 age,
+                json.dumps(metadata.get("user_keywords", [])),
             ),
         )
         return True
@@ -260,9 +265,17 @@ class DashboardIndex:
         project: str | None = None,
         search: str | None = None,
         review_status: str | None = None,
+        sort: str | None = None,
         page: int = 1,
         per_page: int = 50,
     ) -> dict[str, Any]:
+        SORT_MAP = {
+            'created_at_desc': 'created_at DESC',
+            'created_at_asc': 'created_at ASC',
+            'confidence_desc': 'confidence DESC',
+            'confidence_asc': 'confidence ASC',
+        }
+
         query = "SELECT * FROM notes WHERE 1=1"
         params: list[Any] = []
         if source:
@@ -285,7 +298,8 @@ class DashboardIndex:
         count_query = query.replace("SELECT *", "SELECT COUNT(*)")
         total = self.conn.execute(count_query, params).fetchone()[0]
 
-        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        sort_clause = SORT_MAP.get(sort, 'created_at DESC')
+        query += f" ORDER BY {sort_clause} LIMIT ? OFFSET ?"
         params.extend([per_page, (page - 1) * per_page])
         rows = self.conn.execute(query, params).fetchall()
 
@@ -386,7 +400,7 @@ class DashboardIndex:
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         d = dict(row)
-        for field in ("tags", "candidate_projects", "related_note_ids"):
+        for field in ("tags", "candidate_projects", "related_note_ids", "user_keywords"):
             if field in d and isinstance(d[field], str):
                 try:
                     d[field] = json.loads(d[field])

@@ -36,6 +36,7 @@ export interface NoteListItem {
   candidate_projects: Array<{ project: string; score: number }>;
   review_status?: string;
   reviewer_notes?: string;
+  user_keywords?: string[];
   queue_age_seconds?: number;
   thread_id?: string;
   file_path?: string;
@@ -118,6 +119,25 @@ export const decideNote = (id: string, source: string, decision: string, finalPr
   api<{ ok: boolean; decision: string; note_id: string }>(`/api/notes/${id}/decide`, {
     method: 'POST',
     body: JSON.stringify({ source, decision, final_project: finalProject }),
+  });
+
+export interface BatchDecideItem {
+  note_id: string;
+  source: string;
+  decision: string;
+  final_project?: string;
+}
+
+export interface BatchDecideResult {
+  note_id: string;
+  ok: boolean;
+  error?: string;
+}
+
+export const batchDecide = (items: BatchDecideItem[]) =>
+  api<{ results: BatchDecideResult[] }>('/api/notes/batch-decide', {
+    method: 'POST',
+    body: JSON.stringify({ items }),
   });
 
 export const refreshIndex = () => api<{ ok: boolean }>('/api/refresh', { method: 'POST' });

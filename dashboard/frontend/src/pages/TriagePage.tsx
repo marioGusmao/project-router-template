@@ -27,6 +27,8 @@ export function TriagePage() {
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selectedNote, setSelectedNote] = useState<{ id: string; source: string } | null>(null);
+  const [sessionTriaged, setSessionTriaged] = useState(0);
+  const [laneSort, setLaneSort] = useState<'confidence' | 'date'>('confidence');
 
   useEffect(() => {
     async function load() {
@@ -75,10 +77,22 @@ export function TriagePage() {
 
   const handleDecided = (noteId: string, source: string) => {
     const key = noteKey(source, noteId);
+    const currentIdx = items.findIndex(it => noteKey(it.source, it.source_note_id) === key);
     setFadingKey(key);
-    setSelectedNote(null);
+    setSessionTriaged(prev => prev + 1);
+
     setTimeout(() => {
-      setItems((prev) => prev.filter((it) => noteKey(it.source, it.source_note_id) !== key));
+      setItems(prev => {
+        const updated = prev.filter(it => noteKey(it.source, it.source_note_id) !== key);
+        const nextIdx = Math.min(currentIdx, updated.length - 1);
+        if (nextIdx >= 0 && updated[nextIdx]) {
+          const next = updated[nextIdx];
+          setTimeout(() => setSelectedNote({ id: next.source_note_id, source: next.source }), 50);
+        } else {
+          setSelectedNote(null);
+        }
+        return updated;
+      });
       setFadingKey(null);
     }, 1200);
   };
@@ -131,6 +145,43 @@ export function TriagePage() {
 
   return (
     <div>
+      {/* Inbox Zero progress indicator */}
+      <div
+        className="flex items-center justify-between rounded-xl"
+        style={{
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          padding: '12px 20px',
+          marginBottom: 20,
+        }}
+      >
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-zinc-400">
+            <span className="text-zinc-100 font-semibold tabular-nums">{items.length}</span> remaining
+          </span>
+          {sessionTriaged > 0 && (
+            <span className="text-sm text-zinc-500">
+              <span className="text-emerald-400 font-semibold tabular-nums">{sessionTriaged}</span> triaged this session
+            </span>
+          )}
+        </div>
+        {items.length === 0 && sessionTriaged > 0 && (
+          <span className="text-sm text-emerald-400 font-medium">Inbox zero!</span>
+        )}
+        <button
+          onClick={() => setLaneSort((prev) => (prev === 'confidence' ? 'date' : 'confidence'))}
+          className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          style={{
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 8,
+            padding: '4px 12px',
+          }}
+        >
+          Sort: {laneSort === 'confidence' ? 'Confidence' : 'Date'}
+        </button>
+      </div>
+
       {/* Swimlanes section */}
       <div style={{ marginRight: selectedNote ? 480 : 0, transition: 'margin-right 0.2s ease' }}>
         <div className="space-y-5">
@@ -180,7 +231,10 @@ export function TriagePage() {
               {/* Cards */}
               {!collapsed.has(lane.key) && (
                 <div style={{ padding: '0 20px 20px' }} className="space-y-2">
-                  {lane.items.map((item) => {
+                  {[...lane.items].sort((a, b) => {
+                    if (laneSort === 'confidence') return (b.confidence ?? 0) - (a.confidence ?? 0);
+                    return (b.created_at ?? '').localeCompare(a.created_at ?? '');
+                  }).map((item) => {
                     const isSelected = selectedNote?.id === item.source_note_id && selectedNote?.source === item.source;
                     return (
                       <div
@@ -190,6 +244,7 @@ export function TriagePage() {
                         style={{
                           background: isSelected ? 'rgba(59,130,246,0.05)' : 'rgba(255,255,255,0.02)',
                           border: '1px solid rgba(255,255,255,0.04)',
+                          borderLeft: `3px solid ${item.confidence >= 0.85 ? '#34d399' : item.confidence >= 0.60 ? '#fbbf24' : '#f87171'}`,
                           padding: 16,
                           boxShadow: isSelected ? 'inset 3px 0 0 0 #3b82f6' : undefined,
                         }}
