@@ -103,6 +103,20 @@ select option:checked {
   color: #fff;
 }
 
+/* Note fade-out after decision — blinks then fades */
+@keyframes noteFadeOut {
+  0% { opacity: 1; background: transparent; }
+  15% { opacity: 1; background: rgba(244, 63, 94, 0.15); }
+  30% { opacity: 1; background: transparent; }
+  50% { opacity: 1; background: rgba(244, 63, 94, 0.1); }
+  70% { opacity: 0.6; background: transparent; }
+  100% { opacity: 0; transform: translateX(20px); height: 0; padding: 0; overflow: hidden; }
+}
+.note-fade-out {
+  animation: noteFadeOut 1.2s ease-out forwards;
+  pointer-events: none;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

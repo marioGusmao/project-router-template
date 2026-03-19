@@ -71,9 +71,15 @@ export function TriagePage() {
     );
   };
 
+  const [fadingId, setFadingId] = useState<string | null>(null);
+
   const handleDecided = (noteId: string, _source: string, _decision: string) => {
-    setItems((prev) => prev.filter((it) => it.source_note_id !== noteId));
+    setFadingId(noteId);
     setSelectedNote(null);
+    setTimeout(() => {
+      setItems((prev) => prev.filter((it) => it.source_note_id !== noteId));
+      setFadingId(null);
+    }, 1200);
   };
 
   if (loading) {
@@ -179,7 +185,7 @@ export function TriagePage() {
                       <div
                         key={`${item.source}-${item.source_note_id}`}
                         onClick={() => selectItem(item)}
-                        className={`rounded-xl transition-all duration-200 cursor-pointer ${isSelected ? 'bg-blue-500/5' : 'hover:bg-white/5'}`}
+                        className={`rounded-xl transition-all duration-200 cursor-pointer ${fadingId === item.source_note_id ? 'note-fade-out' : ''} ${isSelected ? 'bg-blue-500/5' : 'hover:bg-white/5'}`}
                         style={{
                           background: isSelected ? 'rgba(59,130,246,0.05)' : 'rgba(255,255,255,0.02)',
                           border: '1px solid rgba(255,255,255,0.04)',

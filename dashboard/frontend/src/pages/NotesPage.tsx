@@ -109,10 +109,16 @@ export function NotesPage() {
     );
   };
 
+  const [fadingId, setFadingId] = useState<string | null>(null);
+
   const handleDecided = (noteId: string, _source: string, _decision: string) => {
-    setNotes((prev) => prev.filter((n) => n.source_note_id !== noteId));
-    setTotal((prev) => Math.max(0, prev - 1));
+    setFadingId(noteId);
     closeDetail();
+    setTimeout(() => {
+      setNotes((prev) => prev.filter((n) => n.source_note_id !== noteId));
+      setTotal((prev) => Math.max(0, prev - 1));
+      setFadingId(null);
+    }, 1200);
   };
 
   // Reset focused index and selection when notes change
@@ -327,7 +333,8 @@ export function NotesPage() {
                       key={`${note.source}-${note.source_note_id}`}
                       onClick={() => { setFocusedIndex(idx); selectNote(note); }}
                       className={`table-row-hover cursor-pointer ${
-                        selectedId === note.source_note_id ? 'bg-blue-500/5' : ''
+                        fadingId === note.source_note_id ? 'note-fade-out' : ''
+                      } ${selectedId === note.source_note_id ? 'bg-blue-500/5' : ''
                       } ${focusedIndex === idx && selectedId !== note.source_note_id ? 'bg-zinc-800/40' : ''}`}
                       style={{
                         borderTop: '1px solid rgba(255,255,255,0.04)',
