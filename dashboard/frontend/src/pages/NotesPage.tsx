@@ -13,6 +13,11 @@ function SourceIcon({ source }: { source: string }) {
       <img src="/icons/voicenotes.png" alt="VoiceNotes" className={cls} style={{ borderRadius: 3 }} />
     );
   }
+  if (source === 'readwise') {
+    return (
+      <img src="/icons/readwise.svg" alt="Readwise" className={cls} style={{ borderRadius: 3 }} />
+    );
+  }
   if (source === 'filesystem') {
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth={1.5}>
