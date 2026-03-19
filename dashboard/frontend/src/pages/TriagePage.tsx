@@ -252,7 +252,7 @@ export function TriagePage() {
 
       {/* Detail panel */}
       {selectedNote && (
-        <div className="min-w-96 sticky" style={{ width: '40%', top: 56, height: 'calc(100vh - 56px)' }}>
+        <div className="sticky flex-shrink-0" style={{ width: 480, top: 56, height: 'calc(100vh - 56px)' }}>
           <NoteDetail
             noteId={selectedNote.id}
             source={selectedNote.source}
