@@ -3405,6 +3405,9 @@ def apply_note_annotations(metadata: dict[str, Any], args: argparse.Namespace, n
             merged_ids = {str(value).strip() for value in metadata.get("related_note_ids", []) if str(value).strip()}
             merged_ids.add(continuation_of)
             metadata["related_note_ids"] = sorted(merged_ids)
+    reviewer_notes = getattr(args, "reviewer_notes", None)
+    if reviewer_notes is not None:
+        metadata["reviewer_notes"] = reviewer_notes
 
 
 def decide_command(args: argparse.Namespace) -> int:

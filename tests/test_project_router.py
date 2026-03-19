@@ -5245,6 +5245,18 @@ class SyncClientTests(unittest.TestCase):
                 self.assertEqual(loaded["user_suggestion_timestamp"], "2026-03-18T14:30:00Z")
                 self.assertEqual(loaded["reviewer_notes"], "Check: the routing seems wrong")
 
+    def test_apply_annotations_reviewer_notes(self):
+        """apply_note_annotations sets reviewer_notes from args."""
+        import argparse
+        metadata = cli.ensure_note_metadata_defaults({"source_note_id": "test1"})
+        args = argparse.Namespace(
+            user_keywords=None, related_note_ids=None,
+            thread_id=None, continuation_of=None,
+            reviewer_notes="Routing seems wrong",
+        )
+        cli.apply_note_annotations(metadata, args, "test1")
+        self.assertEqual(metadata["reviewer_notes"], "Routing seems wrong")
+
 
 if __name__ == "__main__":
     unittest.main()
