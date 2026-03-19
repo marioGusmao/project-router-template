@@ -31,7 +31,7 @@ data/normalized/voicenotes/20260314T120000Z--vn_abc123.md
 
 Converts raw JSON into markdown with YAML frontmatter. The frontmatter contains `source_note_id`, timestamps, and any user-supplied metadata. The body contains the transcribed text.
 
-Normalize also records parser-language metadata such as `source_language`, `language_confidence`, `matched_languages`, and `mixed_languages`, using the active profiles from `src/project_router/parser_language_profiles.json`.
+Normalize also records parser-language metadata such as `source_language`, `language_confidence`, `matched_languages`, and `mixed_languages`, using the active profiles from `src/project_router/parser_language_profiles.json` filtered by any `defaults.enabled_parser_languages` override in `projects/registry.shared.json` or `projects/registry.local.json`.
 
 ## Stage 3: Triage
 

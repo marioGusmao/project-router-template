@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -212,8 +213,6 @@ def note_filename(recording: dict[str, Any]) -> str:
 
 
 def iso_now() -> str:
-    from datetime import datetime, timezone
-
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
@@ -258,6 +257,17 @@ def resolved_date_range(date_from: str | None, date_to: str | None) -> tuple[str
     if not date_from:
         raise SystemExit("--from is required when --to is provided.")
     return date_from, (date_to or iso_now())
+
+
+def iso_days_ago(days: int) -> str:
+    if days <= 0:
+        raise SystemExit("--window-days must be greater than 0.")
+    now = datetime.fromisoformat(iso_now().replace("Z", "+00:00"))
+    return (now - timedelta(days=days)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def has_checkpoint(state: dict[str, Any]) -> bool:
+    return bool(state.get("last_synced_at"))
 
 
 def existing_export_path(output_dir: Path, note_id: str) -> Path | None:
@@ -337,9 +347,23 @@ def command_sync(args: argparse.Namespace) -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.full_history and (args.date_from or args.date_to or args.window_days is not None):
+        raise SystemExit("--full-history cannot be combined with --from, --to, or --window-days.")
+    if args.window_days is not None and (args.date_from or args.date_to):
+        raise SystemExit("--window-days cannot be combined with --from or --to.")
+
     date_from = args.date_from
-    if not args.no_checkpoint and not date_from and not args.date_to:
+    if args.window_days is not None:
+        date_from = iso_days_ago(args.window_days)
+    elif args.full_history:
+        date_from = None
+    elif not args.no_checkpoint and not date_from and not args.date_to:
         date_from = state.get("last_synced_at")
+    if not date_from and not args.date_to and not args.full_history and (args.no_checkpoint or not has_checkpoint(state)):
+        raise SystemExit(
+            "First sync requires an explicit history scope. Use --window-days <days>, "
+            "--from/--to, or --full-history."
+        )
 
     page = 1
     written = 0
@@ -425,6 +449,16 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("--tag", dest="tags", action="append", help="Tag filter; repeatable.")
     sync_parser.add_argument("--from", dest="date_from", help="UTC ISO start date.")
     sync_parser.add_argument("--to", dest="date_to", help="UTC ISO end date.")
+    sync_parser.add_argument(
+        "--window-days",
+        type=int,
+        help="Fetch notes from the last N days. Use for first syncs or recovery backfills.",
+    )
+    sync_parser.add_argument(
+        "--full-history",
+        action="store_true",
+        help="Explicitly fetch full history instead of requiring a bounded first sync window.",
+    )
     sync_parser.add_argument("--max-pages", type=int, default=10, help="Maximum pages to fetch.")
     sync_parser.add_argument("--overwrite", action="store_true", help="Rewrite existing files.")
     sync_parser.add_argument(
