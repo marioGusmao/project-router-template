@@ -243,6 +243,75 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Prop
           </div>
         )}
 
+        {/* Files */}
+        {(() => {
+          const filePath = note.file_path;
+          if (!filePath) return null;
+
+          const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+          const filename = filePath.split('/').pop() ?? '';
+          const fileUrl = `/api/notes/${note.source_note_id}/file/${encodeURIComponent(filename)}?source=${note.source}`;
+
+          const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext);
+          const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'webm'].includes(ext);
+          const isPdf = ext === 'pdf';
+
+          if (!isImage && !isAudio && !isPdf) return null;
+
+          return (
+            <div
+              className="rounded-xl"
+              style={{
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid rgba(255,255,255,0.04)',
+                padding: 20,
+              }}
+            >
+              <span
+                className="uppercase tracking-widest font-semibold text-zinc-400 block"
+                style={{ fontSize: 10, letterSpacing: '0.12em', marginBottom: 12 }}
+              >
+                Files
+              </span>
+              {isImage && (
+                <img
+                  src={fileUrl}
+                  alt={filename}
+                  className="rounded-lg"
+                  style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }}
+                />
+              )}
+              {isAudio && (
+                <audio controls style={{ width: '100%' }}>
+                  <source src={fileUrl} />
+                  Your browser does not support the audio element.
+                </audio>
+              )}
+              {isPdf && (
+                <div>
+                  <embed
+                    src={fileUrl}
+                    type="application/pdf"
+                    style={{ width: '100%', height: 400, borderRadius: 8 }}
+                  />
+                  <a
+                    href={fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 transition-colors"
+                    style={{ fontSize: 12, marginTop: 8, display: 'inline-block' }}
+                  >
+                    Open PDF in new tab
+                  </a>
+                </div>
+              )}
+              <div className="font-mono text-zinc-500" style={{ fontSize: 11, marginTop: 8 }}>
+                {filename}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Classification (collapsible) */}
         <div
           className="rounded-xl overflow-hidden"

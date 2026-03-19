@@ -105,7 +105,7 @@ export function ProjectDetailPage() {
             >
               &larr; Projects
             </Link>
-            <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">
+            <h2 className="text-2xl font-bold text-zinc-100 tracking-tight">
               {project.display_name || project.key}
             </h2>
           </div>
