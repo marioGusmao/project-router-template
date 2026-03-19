@@ -66,5 +66,15 @@ class TestProjectsService(unittest.TestCase):
         self.assertEqual(merged["projects"]["p1"]["inbox_path"], "/tmp/inbox")
 
 
+class TestClassificationService(unittest.TestCase):
+    def test_route_note_pending_project(self):
+        from src.project_router.services.classification import route_note
+        metadata = {"title": "Random note", "tags": [], "user_keywords": [], "inferred_keywords": []}
+        defaults = {"min_keyword_hits": 2}
+        projects = {}
+        route, details, reason = route_note("Some body", metadata, defaults, projects)
+        self.assertEqual(route, "pending_project")
+
+
 if __name__ == "__main__":
     unittest.main()

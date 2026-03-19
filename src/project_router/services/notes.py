@@ -183,8 +183,8 @@ def write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
 
 def ensure_note_metadata_defaults(metadata: dict[str, Any]) -> dict[str, Any]:
     # Lazy import to avoid circular dependency: active_parser_profile_keys
-    # depends on the language-profile loading infrastructure that stays in cli.
-    from ..cli import active_parser_profile_keys
+    # depends on the language-profile loading infrastructure in classification.
+    from .classification import active_parser_profile_keys
 
     metadata.setdefault("source", VOICE_SOURCE)
     metadata.setdefault("source_project", None)
