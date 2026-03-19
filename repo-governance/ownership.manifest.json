@@ -7,14 +7,39 @@
   },
   "rules": [
     {
+      "pattern": "src/project_router/services/**",
+      "ownership": "shared_review",
+      "sync_policy": "review_required"
+    },
+    {
+      "pattern": "src/project_router/web/**",
+      "ownership": "shared_review",
+      "sync_policy": "review_required"
+    },
+    {
       "pattern": "src/**",
       "ownership": "template_owned",
       "sync_policy": "template_sync"
     },
     {
+      "pattern": "scripts/dashboard.py",
+      "ownership": "shared_review",
+      "sync_policy": "review_required"
+    },
+    {
       "pattern": "scripts/**",
       "ownership": "template_owned",
       "sync_policy": "template_sync"
+    },
+    {
+      "pattern": "tests/test_services.py",
+      "ownership": "shared_review",
+      "sync_policy": "review_required"
+    },
+    {
+      "pattern": "tests/test_dashboard_api.py",
+      "ownership": "shared_review",
+      "sync_policy": "review_required"
     },
     {
       "pattern": "tests/**",
@@ -190,6 +215,11 @@
       "pattern": ".claude/settings.example.json",
       "ownership": "template_owned",
       "sync_policy": "template_sync"
+    },
+    {
+      "pattern": "dashboard/**",
+      "ownership": "private_owned",
+      "sync_policy": "blocked"
     },
     {
       "pattern": "projects/registry.shared.json",
