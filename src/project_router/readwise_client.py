@@ -79,9 +79,13 @@ def sanitize_iso_for_api(value: str | None) -> str | None:
     return cleaned
 
 
-def should_skip_document(doc: dict[str, Any]) -> bool:
-    """Skip child highlights (non-null parent_id) in v1."""
-    return doc.get("parent_id") is not None
+def should_skip_document(doc: dict[str, Any], *, exclude_categories: set[str] | None = None) -> bool:
+    """Skip child highlights (non-null parent_id) and excluded categories."""
+    if doc.get("parent_id") is not None:
+        return True
+    if exclude_categories and str(doc.get("category") or "").lower() in exclude_categories:
+        return True
+    return False
 
 
 def readwise_note_filename(doc: dict[str, Any]) -> str:
@@ -219,6 +223,8 @@ def command_sync(args: argparse.Namespace) -> int:
     updated = 0
     skipped = 0
     skipped_highlights = 0
+    skipped_excluded = 0
+    exclude_categories = set(c.strip().lower() for c in (args.exclude_category or []))
     newest_updated_at = state.get("last_synced_at")
     newest_ids: list[str] = list(state.get("last_synced_ids") or []) if newest_updated_at else []
 
@@ -240,8 +246,11 @@ def command_sync(args: argparse.Namespace) -> int:
         pages_fetched += 1
 
         for doc in results:
-            if should_skip_document(doc):
+            if doc.get("parent_id") is not None:
                 skipped_highlights += 1
+                continue
+            if exclude_categories and str(doc.get("category") or "").lower() in exclude_categories:
+                skipped_excluded += 1
                 continue
 
             raw_id = str(doc.get("id") or "").strip()
@@ -280,6 +289,7 @@ def command_sync(args: argparse.Namespace) -> int:
         "updated": updated,
         "skipped": skipped,
         "skipped_highlights": skipped_highlights,
+        "skipped_excluded": skipped_excluded,
         "pages_fetched": pages_fetched,
         "max_pages": args.max_pages,
         "effective_updated_after": updated_after,
@@ -299,7 +309,9 @@ def build_parser() -> argparse.ArgumentParser:
     sync_p.add_argument("--updated-after", help="ISO 8601 date: only docs updated after this.")
     sync_p.add_argument("--window-days", type=int, help="Fetch docs updated in the last N days.")
     sync_p.add_argument("--full-history", action="store_true", help="Fetch all documents.")
-    sync_p.add_argument("--category", help="Filter: article, email, pdf, epub, tweet, video.")
+    sync_p.add_argument("--category", help="Include only this category: article, email, pdf, epub, tweet, video.")
+    sync_p.add_argument("--exclude-category", dest="exclude_category", action="append",
+                         help="Exclude a category from sync; repeatable (e.g. --exclude-category rss).")
     sync_p.add_argument("--location", help="Filter: new, later, archive, feed.")
     sync_p.add_argument("--tag", dest="tags", action="append", help="Tag filter; repeatable (up to 5).")
     sync_p.add_argument("--max-pages", type=int, default=10, help="Max API pages to fetch.")

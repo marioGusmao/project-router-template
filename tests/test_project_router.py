@@ -5404,6 +5404,14 @@ class TestReadwiseSyncClient(unittest.TestCase):
         self.assertFalse(should_skip_document({"id": "abc", "parent_id": None}))
         self.assertTrue(should_skip_document({"id": "def", "parent_id": "abc"}))
 
+    def test_should_skip_excluded_category(self):
+        from src.project_router.readwise_client import should_skip_document
+        rss_doc = {"id": "abc", "parent_id": None, "category": "rss"}
+        article_doc = {"id": "def", "parent_id": None, "category": "article"}
+        self.assertTrue(should_skip_document(rss_doc, exclude_categories={"rss"}))
+        self.assertFalse(should_skip_document(article_doc, exclude_categories={"rss"}))
+        self.assertFalse(should_skip_document(rss_doc, exclude_categories=None))
+
     def test_merge_sync_state_advances_watermark(self):
         from src.project_router.readwise_client import merge_sync_state
         existing = {"last_synced_at": "2026-03-15T00:00:00Z", "last_synced_ids": ["rw_1"]}
