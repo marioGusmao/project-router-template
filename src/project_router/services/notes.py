@@ -285,10 +285,16 @@ def review_queue_directories(sources: set[str]) -> list[Path]:
 
 
 def remove_review_copies(note_name: str) -> None:
+    # Clean from all source-aware review directories
     for review_dir in review_queue_directories(KNOWN_SOURCES):
         review_copy = review_dir / note_name
         if review_copy.exists():
             review_copy.unlink()
+    # Also clean legacy flat review directories (pre-source-aware layout)
+    for legacy_queue in REVIEW_QUEUE_STATUSES:
+        legacy_path = REVIEW_DIR / legacy_queue / note_name
+        if legacy_path.exists():
+            legacy_path.unlink()
 
 
 # ---------------------------------------------------------------------------
