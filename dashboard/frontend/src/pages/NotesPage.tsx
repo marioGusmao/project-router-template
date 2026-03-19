@@ -93,6 +93,14 @@ export function NotesPage() {
     setSearchParams(params);
   };
 
+  const handleProjectSuggested = (noteId: string, _source: string, project: string) => {
+    setNotes((prev) =>
+      prev.map((n) =>
+        n.source_note_id === noteId ? { ...n, user_suggested_project: project } : n,
+      ),
+    );
+  };
+
   const totalPages = Math.ceil(total / perPage);
 
   const statuses = [
@@ -314,7 +322,7 @@ export function NotesPage() {
       {/* Detail panel */}
       {selectedId && (
         <div className="min-w-96 sticky" style={{ width: '40%', top: 56, height: 'calc(100vh - 56px)' }}>
-          <NoteDetail noteId={selectedId} source={selectedSource} onClose={closeDetail} />
+          <NoteDetail noteId={selectedId} source={selectedSource} onClose={closeDetail} onProjectSuggested={handleProjectSuggested} />
         </div>
       )}
     </div>

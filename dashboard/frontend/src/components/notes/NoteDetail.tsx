@@ -8,6 +8,7 @@ interface Props {
   noteId: string;
   source: string;
   onClose: () => void;
+  onProjectSuggested?: (noteId: string, source: string, project: string) => void;
 }
 
 function formatDate(iso: string | undefined): string {
@@ -19,13 +20,14 @@ function formatDate(iso: string | undefined): string {
   }
 }
 
-export function NoteDetail({ noteId, source, onClose }: Props) {
+export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Props) {
   const [note, setNote] = useState<NoteDetailType | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [suggestedProject, setSuggestedProject] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [showClassification, setShowClassification] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
 
@@ -53,9 +55,13 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
   const handleSuggest = async () => {
     if (!suggestedProject || !note) return;
     setSaving(true);
+    setSaved(false);
     try {
       await suggestProject(noteId, source, suggestedProject);
       setNote({ ...note, user_suggested_project: suggestedProject });
+      onProjectSuggested?.(noteId, source, suggestedProject);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch {
       // silent
     } finally {
@@ -197,6 +203,11 @@ export function NoteDetail({ noteId, source, onClose }: Props) {
           >
             {saving ? 'Saving...' : 'Save'}
           </button>
+          {saved && (
+            <span className="text-emerald-400 font-medium animate-in" style={{ fontSize: 12 }}>
+              Saved
+            </span>
+          )}
         </div>
 
         {/* Content */}

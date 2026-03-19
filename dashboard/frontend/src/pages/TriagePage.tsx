@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getTriageItems, type TriageItem } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfidenceBar } from '../components/ConfidenceBar';
+import { NoteDetail } from '../components/notes/NoteDetail';
 
 interface Swimlane {
   key: string;
@@ -24,6 +25,7 @@ export function TriagePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [selectedNote, setSelectedNote] = useState<{ id: string; source: string } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -46,6 +48,26 @@ export function TriagePage() {
       else next.add(key);
       return next;
     });
+  };
+
+  const selectItem = (item: TriageItem) => {
+    if (selectedNote?.id === item.source_note_id && selectedNote?.source === item.source) {
+      setSelectedNote(null);
+    } else {
+      setSelectedNote({ id: item.source_note_id, source: item.source });
+    }
+  };
+
+  const closeDetail = () => {
+    setSelectedNote(null);
+  };
+
+  const handleProjectSuggested = (noteId: string, _source: string, project: string) => {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.source_note_id === noteId ? { ...it, user_suggested_project: project } : it,
+      ),
+    );
   };
 
   if (loading) {
@@ -95,115 +117,137 @@ export function TriagePage() {
   }
 
   return (
-    <div className="space-y-5">
-      {swimlanes.map((lane, laneIdx) => (
-        <div
-          key={lane.key}
-          className="card animate-in overflow-hidden"
-          style={{
-            animationDelay: `${laneIdx * 100}ms`,
-            borderLeftWidth: 2,
-            borderLeftColor: lane.color,
-          }}
-        >
-          {/* Header */}
-          <button
-            onClick={() => toggle(lane.key)}
-            className="w-full flex items-center justify-between text-left transition-colors"
-            style={{
-              padding: '16px 20px',
-              background: collapsed.has(lane.key) ? 'transparent' : 'rgba(255,255,255,0.01)',
-            }}
-          >
-            <div className="flex items-center gap-3">
-              <span className={`text-sm font-semibold ${lane.statusColor}`}>
-                {lane.label}
-              </span>
-              <span
-                className="font-medium font-mono tabular-nums text-zinc-400"
+    <div className="flex gap-0" style={{ margin: -32 }}>
+      {/* Swimlanes section */}
+      <div className={`flex-1 min-w-0 ${selectedNote ? 'w-3/5' : 'w-full'}`} style={{ padding: 32 }}>
+        <div className="space-y-5">
+          {swimlanes.map((lane, laneIdx) => (
+            <div
+              key={lane.key}
+              className="card animate-in overflow-hidden"
+              style={{
+                animationDelay: `${laneIdx * 100}ms`,
+                borderLeftWidth: 2,
+                borderLeftColor: lane.color,
+              }}
+            >
+              {/* Header */}
+              <button
+                onClick={() => toggle(lane.key)}
+                className="w-full flex items-center justify-between text-left transition-colors"
                 style={{
-                  fontSize: 11,
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: 9999,
-                  padding: '2px 10px',
+                  padding: '16px 20px',
+                  background: collapsed.has(lane.key) ? 'transparent' : 'rgba(255,255,255,0.01)',
                 }}
               >
-                {lane.items.length}
-              </span>
-            </div>
-            <svg
-              className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${collapsed.has(lane.key) ? '' : 'rotate-180'}`}
-              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-
-          {/* Cards */}
-          {!collapsed.has(lane.key) && (
-            <div style={{ padding: '0 20px 20px' }} className="space-y-2">
-              {lane.items.map((item) => (
-                <div
-                  key={`${item.source}-${item.source_note_id}`}
-                  className="rounded-xl transition-all duration-200 hover:bg-white/5"
-                  style={{
-                    background: 'rgba(255,255,255,0.02)',
-                    border: '1px solid rgba(255,255,255,0.04)',
-                    padding: 16,
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-3" style={{ marginBottom: 12 }}>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-zinc-100 font-medium truncate">
-                        {item.title || item.source_note_id}
-                      </div>
-                      {item.excerpt && (
-                        <div
-                          className="text-zinc-500 leading-relaxed line-clamp-2"
-                          style={{ fontSize: 12, marginTop: 6 }}
-                        >
-                          {item.excerpt}
-                        </div>
-                      )}
-                    </div>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <ConfidenceBar value={item.confidence ?? 0} />
-                    {item.candidate_projects?.length > 0 && (
-                      <div className="flex gap-1.5 flex-wrap">
-                        {item.candidate_projects.slice(0, 3).map((c) => (
-                          <span
-                            key={c.project}
-                            className="font-medium text-zinc-400 font-mono"
-                            style={{
-                              fontSize: 11,
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.04)',
-                              padding: '2px 8px',
-                              borderRadius: 6,
-                            }}
-                          >
-                            {c.project} ({Math.round(c.score * 100)}%)
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {item.user_suggested_project && (
-                      <span className="text-violet-400 font-medium" style={{ fontSize: 12 }}>
-                        Suggested: {item.user_suggested_project}
-                      </span>
-                    )}
-                    <span className="font-mono text-zinc-600 ml-auto" style={{ fontSize: 11 }}>
-                      {item.source}
-                    </span>
-                  </div>
+                <div className="flex items-center gap-3">
+                  <span className={`text-sm font-semibold ${lane.statusColor}`}>
+                    {lane.label}
+                  </span>
+                  <span
+                    className="font-medium font-mono tabular-nums text-zinc-400"
+                    style={{
+                      fontSize: 11,
+                      background: 'rgba(255,255,255,0.06)',
+                      borderRadius: 9999,
+                      padding: '2px 10px',
+                    }}
+                  >
+                    {lane.items.length}
+                  </span>
                 </div>
-              ))}
+                <svg
+                  className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${collapsed.has(lane.key) ? '' : 'rotate-180'}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Cards */}
+              {!collapsed.has(lane.key) && (
+                <div style={{ padding: '0 20px 20px' }} className="space-y-2">
+                  {lane.items.map((item) => {
+                    const isSelected = selectedNote?.id === item.source_note_id && selectedNote?.source === item.source;
+                    return (
+                      <div
+                        key={`${item.source}-${item.source_note_id}`}
+                        onClick={() => selectItem(item)}
+                        className={`rounded-xl transition-all duration-200 cursor-pointer ${isSelected ? 'bg-blue-500/5' : 'hover:bg-white/5'}`}
+                        style={{
+                          background: isSelected ? 'rgba(59,130,246,0.05)' : 'rgba(255,255,255,0.02)',
+                          border: '1px solid rgba(255,255,255,0.04)',
+                          padding: 16,
+                          boxShadow: isSelected ? 'inset 3px 0 0 0 #3b82f6' : undefined,
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-3" style={{ marginBottom: 12 }}>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm text-zinc-100 font-medium truncate">
+                              {item.title || item.source_note_id}
+                            </div>
+                            {item.excerpt && (
+                              <div
+                                className="text-zinc-500 leading-relaxed line-clamp-2"
+                                style={{ fontSize: 12, marginTop: 6 }}
+                              >
+                                {item.excerpt}
+                              </div>
+                            )}
+                          </div>
+                          <StatusBadge status={item.status} />
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <ConfidenceBar value={item.confidence ?? 0} />
+                          {item.candidate_projects?.length > 0 && (
+                            <div className="flex gap-1.5 flex-wrap">
+                              {item.candidate_projects.slice(0, 3).map((c) => (
+                                <span
+                                  key={c.project}
+                                  className="font-medium text-zinc-400 font-mono"
+                                  style={{
+                                    fontSize: 11,
+                                    background: 'rgba(255,255,255,0.04)',
+                                    border: '1px solid rgba(255,255,255,0.04)',
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  {c.project} ({Math.round(c.score * 100)}%)
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {item.user_suggested_project && (
+                            <span className="text-violet-400 font-medium" style={{ fontSize: 12 }}>
+                              Suggested: {item.user_suggested_project}
+                            </span>
+                          )}
+                          <span className="font-mono text-zinc-600 ml-auto" style={{ fontSize: 11 }}>
+                            {item.source}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
+          ))}
         </div>
-      ))}
+      </div>
+
+      {/* Detail panel */}
+      {selectedNote && (
+        <div className="min-w-96 sticky" style={{ width: '40%', top: 56, height: 'calc(100vh - 56px)' }}>
+          <NoteDetail
+            noteId={selectedNote.id}
+            source={selectedNote.source}
+            onClose={closeDetail}
+            onProjectSuggested={handleProjectSuggested}
+          />
+        </div>
+      )}
     </div>
   );
 }
