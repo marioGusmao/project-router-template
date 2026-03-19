@@ -18,6 +18,7 @@ from src.project_router.services import paths as svc_paths
 from src.project_router.services import notes as svc_notes
 from src.project_router.services import projects as svc_projects
 from src.project_router.services import classification as svc_classification
+from src.project_router.services import decisions as svc_decisions
 
 
 TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / ".tmp-tests"
@@ -115,6 +116,8 @@ def patch_cli_paths(root: Path) -> ExitStack:
             stack.enter_context(mock.patch.object(svc_projects, key, value))
         if hasattr(svc_classification, key):
             stack.enter_context(mock.patch.object(svc_classification, key, value))
+        if hasattr(svc_decisions, key):
+            stack.enter_context(mock.patch.object(svc_decisions, key, value))
     return stack
 
 
