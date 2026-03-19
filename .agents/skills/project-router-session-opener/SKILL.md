@@ -1,6 +1,6 @@
 ---
 name: project-router-session-opener
-description: Start a Project Router session for VoiceNotes captures by checking local config, fetching new notes from VoiceNotes when local auth is available, updating the local triage queues, and surfacing the exact items that need review.
+description: Start a Project Router session for VoiceNotes and Readwise captures by checking local config, fetching new notes when local auth is available, updating the local triage queues, and surfacing the exact items that need review.
 ---
 
 # Project Router Session Opener
@@ -28,11 +28,18 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
 3. Run `python3 scripts/project_router.py status`.
 4. If the machine is new, run `python3 scripts/bootstrap_local.py`.
 5. Confirm `.env.local` and `projects/registry.local.json` exist.
-6. If `.env.local` exists, run:
+6. If `.env.local` exists and `VOICENOTES_API_KEY` is configured (not the placeholder), run:
    - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
-   - `python3 scripts/project_router.py normalize`
-   - `python3 scripts/project_router.py triage`
-   - `python3 scripts/project_router.py compile`
+   - `python3 scripts/project_router.py normalize --source voicenotes`
+   - `python3 scripts/project_router.py triage --source voicenotes`
+   - `python3 scripts/project_router.py compile --source voicenotes`
+   If `VOICENOTES_API_KEY` is missing or still set to the placeholder, explain: "VoiceNotes sync skipped: VOICENOTES_API_KEY not configured in .env.local".
+6b. If `READWISE_ACCESS_TOKEN` is configured in `.env.local` (not the placeholder value), run:
+   - `python3 scripts/readwise_client.py sync --output-dir ./data/raw/readwise`
+   - `python3 scripts/project_router.py normalize --source readwise`
+   - `python3 scripts/project_router.py triage --source readwise`
+   - `python3 scripts/project_router.py compile --source readwise`
+   If `READWISE_ACCESS_TOKEN` is missing or still set to the placeholder, explain: "Readwise sync skipped: READWISE_ACCESS_TOKEN not configured in .env.local".
 7. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
    - `python3 scripts/project_router.py ingest --integration filesystem`
    - `python3 scripts/project_router.py normalize --source filesystem`
