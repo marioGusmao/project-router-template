@@ -29,6 +29,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     status=params.get("status"),
                     project=params.get("project"),
                     search=params.get("search"),
+                    review_status=params.get("review_status"),
                     page=int(params.get("page", 1)),
                     per_page=int(params.get("per_page", 50)),
                 )

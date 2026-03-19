@@ -259,6 +259,7 @@ class DashboardIndex:
         status: str | None = None,
         project: str | None = None,
         search: str | None = None,
+        review_status: str | None = None,
         page: int = 1,
         per_page: int = 50,
     ) -> dict[str, Any]:
@@ -277,6 +278,9 @@ class DashboardIndex:
         if search:
             query += " AND (title LIKE ? OR tags LIKE ?)"
             params.extend([f"%{search}%", f"%{search}%"])
+        if review_status:
+            query += " AND review_status = ?"
+            params.append(review_status)
 
         count_query = query.replace("SELECT *", "SELECT COUNT(*)")
         total = self.conn.execute(count_query, params).fetchone()[0]
@@ -367,7 +371,9 @@ class DashboardIndex:
         from ..services.status import compute_pipeline_status
         from ..services.paths import KNOWN_SOURCES
 
-        return compute_pipeline_status(KNOWN_SOURCES)
+        result = compute_pipeline_status(KNOWN_SOURCES)
+        result["index_age_seconds"] = self.last_rebuild_age()
+        return result
 
     def last_rebuild_age(self) -> float:
         """Seconds since last rebuild."""

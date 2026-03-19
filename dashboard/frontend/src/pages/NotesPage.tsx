@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getNotes, getProjects, getStatus, suggestProject, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
+import { getNotes, getProjects, getStatus, suggestProject, noteKey, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfidenceBar } from '../components/ConfidenceBar';
 import { NoteDetail } from '../components/notes/NoteDetail';
@@ -88,36 +88,37 @@ export function NotesPage() {
     loadMeta();
   }, []);
 
-  const selectNote = (note: NoteListItem) => {
+  const selectNote = useCallback((note: NoteListItem) => {
     setSearchParams({ id: note.source_note_id, source: note.source });
-  };
+  }, [setSearchParams]);
 
-  const closeDetail = () => {
+  const closeDetail = useCallback(() => {
     const params: Record<string, string> = {};
     if (filterStatus) params.status = filterStatus;
     if (filterSource) params.source = filterSource;
     if (filterProject) params.project = filterProject;
     if (search) params.search = search;
     setSearchParams(params);
-  };
+  }, [filterStatus, filterSource, filterProject, search, setSearchParams]);
 
-  const handleProjectSuggested = (noteId: string, _source: string, project: string) => {
+  const handleProjectSuggested = (noteId: string, source: string, project: string) => {
     setNotes((prev) =>
       prev.map((n) =>
-        n.source_note_id === noteId ? { ...n, user_suggested_project: project } : n,
+        n.source_note_id === noteId && n.source === source ? { ...n, user_suggested_project: project } : n,
       ),
     );
   };
 
-  const [fadingId, setFadingId] = useState<string | null>(null);
+  const [fadingKey, setFadingKey] = useState<string | null>(null);
 
-  const handleDecided = (noteId: string, _source: string, _decision: string) => {
-    setFadingId(noteId);
+  const handleDecided = (noteId: string, source: string) => {
+    const key = noteKey(source, noteId);
+    setFadingKey(key);
     closeDetail();
     setTimeout(() => {
-      setNotes((prev) => prev.filter((n) => n.source_note_id !== noteId));
+      setNotes((prev) => prev.filter((n) => noteKey(n.source, n.source_note_id) !== key));
       setTotal((prev) => Math.max(0, prev - 1));
-      setFadingId(null);
+      setFadingKey(null);
     }, 1200);
   };
 
@@ -130,8 +131,9 @@ export function NotesPage() {
 
   // Batch selection handlers
   const toggleSelect = useCallback((idx: number, shiftKey: boolean) => {
-    const id = notes[idx]?.source_note_id;
-    if (!id) return;
+    const note = notes[idx];
+    if (!note) return;
+    const key = noteKey(note.source, note.source_note_id);
 
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -139,12 +141,12 @@ export function NotesPage() {
         const lo = Math.min(lastSelectedIndex.current, idx);
         const hi = Math.max(lastSelectedIndex.current, idx);
         for (let i = lo; i <= hi; i++) {
-          next.add(notes[i].source_note_id);
+          next.add(noteKey(notes[i].source, notes[i].source_note_id));
         }
-      } else if (next.has(id)) {
-        next.delete(id);
+      } else if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(id);
+        next.add(key);
       }
       return next;
     });
@@ -154,17 +156,15 @@ export function NotesPage() {
   const toggleSelectAll = useCallback(() => {
     setSelectedIds((prev) => {
       if (prev.size === notes.length) return new Set();
-      return new Set(notes.map((n) => n.source_note_id));
+      return new Set(notes.map((n) => noteKey(n.source, n.source_note_id)));
     });
   }, [notes]);
 
   const handleBulkSuggest = useCallback(async (project: string) => {
     if (!project) return;
-    for (const id of selectedIds) {
-      const note = notes.find((n) => n.source_note_id === id);
-      if (note) {
-        await suggestProject(id, note.source, project);
-      }
+    const selected = notes.filter((n) => selectedIds.has(noteKey(n.source, n.source_note_id)));
+    for (const note of selected) {
+      await suggestProject(note.source_note_id, note.source, project);
     }
     setSelectedIds(new Set());
     lastSelectedIndex.current = null;
@@ -195,7 +195,7 @@ export function NotesPage() {
         selectNote(notes[focusedIndex]);
       }
     },
-  }), [notes, focusedIndex, selectedId]);
+  }), [notes, focusedIndex, selectedId, selectNote, closeDetail]);
 
   useKeyboard(keyboardHandlers);
 
@@ -333,7 +333,7 @@ export function NotesPage() {
                       key={`${note.source}-${note.source_note_id}`}
                       onClick={() => { setFocusedIndex(idx); selectNote(note); }}
                       className={`table-row-hover cursor-pointer ${
-                        fadingId === note.source_note_id ? 'note-fade-out' : ''
+                        fadingKey === noteKey(note.source, note.source_note_id) ? 'note-fade-out' : ''
                       } ${selectedId === note.source_note_id ? 'bg-blue-500/5' : ''
                       } ${focusedIndex === idx && selectedId !== note.source_note_id ? 'bg-zinc-800/40' : ''}`}
                       style={{
@@ -349,7 +349,7 @@ export function NotesPage() {
                       <td style={{ padding: '14px 0 14px 20px', width: 36 }} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
-                          checked={selectedIds.has(note.source_note_id)}
+                          checked={selectedIds.has(noteKey(note.source, note.source_note_id))}
                           onChange={() => {/* handled by onClick */}}
                           onClick={(e) => { toggleSelect(idx, e.shiftKey); }}
                           className="accent-blue-500 cursor-pointer"

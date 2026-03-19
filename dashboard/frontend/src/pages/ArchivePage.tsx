@@ -38,22 +38,16 @@ export function ArchivePage() {
     setLoading(true);
     setError(null);
     try {
-      // Load both dispatched and processed
       const params: Record<string, string> = {
         page: String(page),
         per_page: String(perPage),
-        status: 'dispatched',
+        status: 'dispatched,processed',
       };
       if (filterProject) params.project = filterProject;
 
-      const [dispatched, processed] = await Promise.all([
-        getNotes(params),
-        getNotes({ ...params, status: 'processed' }),
-      ]);
-
-      const combined = [...(dispatched.notes ?? []), ...(processed.notes ?? [])];
-      setNotes(combined);
-      setTotal((dispatched.total ?? 0) + (processed.total ?? 0));
+      const res = await getNotes(params);
+      setNotes(res.notes ?? []);
+      setTotal(res.total ?? 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {

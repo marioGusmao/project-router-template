@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getNotes, type NoteListItem } from '../lib/api';
 import { SourceIcon } from '../components/SourceIcon';
@@ -15,27 +15,36 @@ function formatDate(iso: string | undefined): string {
 export function RejectedPage() {
   const navigate = useNavigate();
   const [notes, setNotes] = useState<NoteListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await getNotes({ status: 'needs_review', per_page: '200' });
-        const rejected = (res.notes ?? []).filter(
-          (n) => n.review_status === 'reject',
-        );
-        setNotes(rejected);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load');
-      } finally {
-        setLoading(false);
-      }
+  const perPage = 25;
+
+  const loadNotes = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await getNotes({
+        review_status: 'reject',
+        per_page: String(perPage),
+        page: String(page),
+      });
+      setNotes(res.notes ?? []);
+      setTotal(res.total ?? 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    } finally {
+      setLoading(false);
     }
-    load();
-  }, []);
+  }, [page]);
+
+  useEffect(() => {
+    loadNotes();
+  }, [loadNotes]);
+
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   return (
     <div className="space-y-5">
@@ -54,7 +63,7 @@ export function RejectedPage() {
             padding: '2px 10px',
           }}
         >
-          {notes.length}
+          {total}
         </span>
       </div>
 
@@ -111,6 +120,43 @@ export function RejectedPage() {
           </table>
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3" style={{ paddingTop: 4 }}>
+          <button
+            onClick={() => setPage(Math.max(1, page - 1))}
+            disabled={page <= 1}
+            className="font-medium text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{
+              padding: '6px 14px',
+              fontSize: 12,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: 8,
+            }}
+          >
+            Prev
+          </button>
+          <span className="text-zinc-400 tabular-nums" style={{ fontSize: 13 }}>
+            Page {page} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage(Math.min(totalPages, page + 1))}
+            disabled={page >= totalPages}
+            className="font-medium text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{
+              padding: '6px 14px',
+              fontSize: 12,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: 8,
+            }}
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

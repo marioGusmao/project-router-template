@@ -6,10 +6,10 @@ import { ConfidenceBar } from '../components/ConfidenceBar';
 
 type Tab = 'active' | 'review' | 'archived';
 
-const TAB_FILTERS: Record<Tab, string[]> = {
-  active: ['normalized', 'classified', 'compiled'],
-  review: ['needs_review', 'ambiguous', 'pending_project'],
-  archived: ['dispatched', 'processed'],
+const TAB_FILTERS: Record<Tab, string> = {
+  active: 'normalized,classified,compiled',
+  review: 'needs_review,ambiguous,pending_project',
+  archived: 'dispatched,processed',
 };
 
 export function ProjectDetailPage() {
@@ -40,13 +40,8 @@ export function ProjectDetailPage() {
     if (!key) return;
     setNotesLoading(true);
     try {
-      const statuses = TAB_FILTERS[tab];
-      const allNotes: NoteListItem[] = [];
-      for (const status of statuses) {
-        const res = await getNotes({ project: key, status, per_page: '100' });
-        allNotes.push(...(res.notes ?? []));
-      }
-      setNotes(allNotes);
+      const res = await getNotes({ project: key, status: TAB_FILTERS[tab], per_page: '100' });
+      setNotes(res.notes ?? []);
     } catch {
       // silent
     } finally {

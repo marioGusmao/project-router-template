@@ -38,6 +38,7 @@ class TestDashboardAPI(unittest.TestCase):
                         self.assertIn("sources", data)
                 finally:
                     server.shutdown()
+                    server.server_close()
 
     def test_notes_endpoint(self):
         with temporary_repo_dir() as tmp:
@@ -75,6 +76,7 @@ class TestDashboardAPI(unittest.TestCase):
                         )
                 finally:
                     server.shutdown()
+                    server.server_close()
 
     def test_notes_filter_by_source(self):
         with temporary_repo_dir() as tmp:
@@ -114,6 +116,7 @@ class TestDashboardAPI(unittest.TestCase):
                         self.assertEqual(data["total"], 0)
                 finally:
                     server.shutdown()
+                    server.server_close()
 
     def test_single_note_endpoint(self):
         with temporary_repo_dir() as tmp:
@@ -151,6 +154,7 @@ class TestDashboardAPI(unittest.TestCase):
                         self.assertIn("body", data["note"])
                 finally:
                     server.shutdown()
+                    server.server_close()
 
     def test_projects_endpoint(self):
         with temporary_repo_dir() as tmp:
@@ -174,6 +178,7 @@ class TestDashboardAPI(unittest.TestCase):
                         self.assertIn("home_renovation", keys)
                 finally:
                     server.shutdown()
+                    server.server_close()
 
     def test_triage_endpoint(self):
         with temporary_repo_dir() as tmp:
@@ -210,6 +215,7 @@ class TestDashboardAPI(unittest.TestCase):
                         self.assertIn("vn_triage", ids)
                 finally:
                     server.shutdown()
+                    server.server_close()
 
     def test_refresh_endpoint(self):
         with temporary_repo_dir() as tmp:
@@ -235,6 +241,7 @@ class TestDashboardAPI(unittest.TestCase):
                         self.assertTrue(data["rebuilt"])
                 finally:
                     server.shutdown()
+                    server.server_close()
 
     def test_404_for_unknown_api_endpoint(self):
         with temporary_repo_dir() as tmp:
@@ -259,6 +266,7 @@ class TestDashboardAPI(unittest.TestCase):
                         self.assertEqual(e.code, 404)
                 finally:
                     server.shutdown()
+                    server.server_close()
 
     def test_options_cors(self):
         with temporary_repo_dir() as tmp:
@@ -284,6 +292,157 @@ class TestDashboardAPI(unittest.TestCase):
                         )
                 finally:
                     server.shutdown()
+                    server.server_close()
+
+    def test_status_includes_index_age(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/status"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertIn("index_age_seconds", data)
+                        self.assertIsInstance(
+                            data["index_age_seconds"], (int, float)
+                        )
+                        self.assertGreaterEqual(data["index_age_seconds"], 0)
+                finally:
+                    server.shutdown()
+                    server.server_close()
+
+    def test_notes_filter_by_review_status(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_dir = svc_paths.NORMALIZED_DIR / "voicenotes"
+
+                meta_reject = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_rej",
+                        "title": "Rejected note",
+                        "status": "needs_review",
+                        "project": "home_renovation",
+                    }
+                )
+                meta_reject["review_status"] = "reject"
+                cli.write_note(
+                    note_dir / "20260318T100000Z--vn_rej.md",
+                    meta_reject,
+                    "Rejected body",
+                )
+
+                meta_defer = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_def",
+                        "title": "Deferred note",
+                        "status": "needs_review",
+                        "project": "home_renovation",
+                    }
+                )
+                meta_defer["review_status"] = "defer"
+                cli.write_note(
+                    note_dir / "20260318T100100Z--vn_def.md",
+                    meta_defer,
+                    "Deferred body",
+                )
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    # Filter for rejected only
+                    url = f"http://localhost:{port}/api/notes?review_status=reject"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        ids = [n["source_note_id"] for n in data["notes"]]
+                        self.assertIn("vn_rej", ids)
+                        self.assertNotIn("vn_def", ids)
+
+                    # Filter for deferred only
+                    url = f"http://localhost:{port}/api/notes?review_status=defer"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        ids = [n["source_note_id"] for n in data["notes"]]
+                        self.assertIn("vn_def", ids)
+                        self.assertNotIn("vn_rej", ids)
+                finally:
+                    server.shutdown()
+                    server.server_close()
+
+    def test_notes_comma_separated_status(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_dir = svc_paths.NORMALIZED_DIR / "voicenotes"
+
+                meta_dispatched = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_disp",
+                        "title": "Dispatched note",
+                        "status": "dispatched",
+                        "project": "home_renovation",
+                    }
+                )
+                cli.write_note(
+                    note_dir / "20260318T100000Z--vn_disp.md",
+                    meta_dispatched,
+                    "Dispatched body",
+                )
+
+                meta_processed = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_proc",
+                        "title": "Processed note",
+                        "status": "processed",
+                        "project": "home_renovation",
+                    }
+                )
+                cli.write_note(
+                    note_dir / "20260318T100100Z--vn_proc.md",
+                    meta_processed,
+                    "Processed body",
+                )
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/notes?status=dispatched,processed"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        ids = {n["source_note_id"] for n in data["notes"]}
+                        self.assertIn("vn_disp", ids)
+                        self.assertIn("vn_proc", ids)
+                        self.assertEqual(data["total"], 2)
+                finally:
+                    server.shutdown()
+                    server.server_close()
 
 
 if __name__ == "__main__":

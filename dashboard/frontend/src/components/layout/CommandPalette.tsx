@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getNotes, type NoteListItem } from '../../lib/api';
 
 interface Props {
   onClose: () => void;
+  onRefresh?: () => void;
 }
 
 interface Command {
@@ -13,7 +14,7 @@ interface Command {
   action: () => void;
 }
 
-export function CommandPalette({ onClose }: Props) {
+export function CommandPalette({ onClose, onRefresh }: Props) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -24,30 +25,30 @@ export function CommandPalette({ onClose }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const navCommands: Command[] = [
+  const navCommands: Command[] = useMemo(() => [
     { id: 'nav-dashboard', label: 'Dashboard', shortcut: '1', action: () => { navigate('/'); onClose(); } },
     { id: 'nav-notes', label: 'Notes', shortcut: '2', action: () => { navigate('/notes'); onClose(); } },
     { id: 'nav-triage', label: 'Triage', shortcut: '3', action: () => { navigate('/triage'); onClose(); } },
     { id: 'nav-projects', label: 'Projects', shortcut: '4', action: () => { navigate('/projects'); onClose(); } },
     { id: 'nav-archive', label: 'Archive', shortcut: '5', action: () => { navigate('/archive'); onClose(); } },
-    { id: 'cmd-refresh', label: 'Refresh Index', shortcut: 'R', action: () => { onClose(); } },
-  ];
+    { id: 'cmd-refresh', label: 'Refresh Index', shortcut: 'R', action: () => { onRefresh?.(); onClose(); } },
+  ], [navigate, onClose, onRefresh]);
 
-  const noteCommands: Command[] = noteResults.map((note) => ({
+  const noteCommands: Command[] = useMemo(() => noteResults.map((note) => ({
     id: `note-${note.source}-${note.source_note_id}`,
     label: note.title || note.source_note_id,
     action: () => {
       navigate(`/notes?id=${encodeURIComponent(note.source_note_id)}&source=${encodeURIComponent(note.source)}`);
       onClose();
     },
-  }));
+  })), [noteResults, navigate, onClose]);
 
-  const items = query.trim()
+  const items = useMemo(() => query.trim()
     ? [
         ...navCommands.filter((c) => c.label.toLowerCase().includes(query.toLowerCase())),
         ...noteCommands,
       ]
-    : navCommands;
+    : navCommands, [query, navCommands, noteCommands]);
 
   // Search notes when query changes
   useEffect(() => {

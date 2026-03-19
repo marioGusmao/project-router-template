@@ -10,13 +10,12 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export interface StatusResponse {
-  raw: number;
-  normalized: number;
-  review: number;
-  compiled: number;
+  raw: Record<string, number>;
+  normalized: Record<string, number>;
+  review: Record<string, Record<string, number>>;
+  compiled: Record<string, number>;
   dispatched: number;
   processed: number;
-  review_breakdown?: Record<string, number>;
   index_age_seconds?: number;
   sources?: string[];
 }
@@ -60,10 +59,9 @@ export interface Project {
   display_name: string;
   language?: string;
   keywords?: string[];
-  note_types?: string[];
-  active_notes?: number;
-  review_notes?: number;
-  archived_notes?: number;
+  note_type?: string[];
+  note_count?: number;
+  review_count?: number;
 }
 
 export interface TriageItem {
@@ -123,3 +121,5 @@ export const decideNote = (id: string, source: string, decision: string, finalPr
   });
 
 export const refreshIndex = () => api<{ ok: boolean }>('/api/refresh', { method: 'POST' });
+
+export const noteKey = (source: string, id: string) => `${source}::${id}`;

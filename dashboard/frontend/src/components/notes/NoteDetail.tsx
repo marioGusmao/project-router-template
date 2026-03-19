@@ -3,7 +3,7 @@ import Markdown from 'react-markdown';
 import { getNote, suggestProject, decideNote, getProjects, type NoteDetail as NoteDetailType, type Project } from '../../lib/api';
 import { StatusBadge } from '../StatusBadge';
 import { ConfidenceBar } from '../ConfidenceBar';
-import { triggerUndo } from '../layout/UndoSnackbar';
+import { triggerUndo } from '../layout/undoEvents';
 
 interface Props {
   noteId: string;

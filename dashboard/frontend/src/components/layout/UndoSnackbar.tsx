@@ -1,26 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-
-interface UndoAction {
-  id: string;
-  message: string;
-  onUndo: () => void;
-}
-
-// Global state for snackbar
-let showSnackbar: (action: UndoAction) => void = () => {};
-
-export function triggerUndo(message: string, onUndo: () => void) {
-  showSnackbar({ id: Date.now().toString(), message, onUndo });
-}
+import { subscribeUndo, type UndoAction } from './undoEvents';
 
 export function UndoSnackbar() {
   const [action, setAction] = useState<UndoAction | null>(null);
   const [remaining, setRemaining] = useState(8);
 
-  showSnackbar = useCallback((a: UndoAction) => {
+  const handleTrigger = useCallback((a: UndoAction) => {
     setAction(a);
     setRemaining(8);
   }, []);
+
+  useEffect(() => subscribeUndo(handleTrigger), [handleTrigger]);
 
   useEffect(() => {
     if (!action) return;
@@ -34,7 +24,7 @@ export function UndoSnackbar() {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [action?.id]);
+  }, [action]);
 
   if (!action) return null;
 

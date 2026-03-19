@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getStatus, getNotes, type StatusResponse, type NoteListItem } from '../lib/api';
+import { getStatus, getNotes, noteKey, type StatusResponse, type NoteListItem } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SourceIcon } from '../components/SourceIcon';
 
@@ -60,9 +60,9 @@ export function DashboardPage() {
     );
   }
 
-  const sumObj = (obj: any): number => {
+  const sumObj = (obj: unknown): number => {
     if (typeof obj === 'number') return obj;
-    if (obj && typeof obj === 'object') return Object.values(obj).reduce((a: number, v: any) => a + sumObj(v), 0);
+    if (obj && typeof obj === 'object') return Object.values(obj).reduce((a: number, v: unknown) => a + sumObj(v), 0);
     return 0;
   };
 
@@ -186,7 +186,7 @@ export function DashboardPage() {
             <tbody>
               {recentNotes.map((note) => (
                 <tr
-                  key={note.source_note_id}
+                  key={noteKey(note.source, note.source_note_id)}
                   className="table-row-hover"
                   style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
                 >

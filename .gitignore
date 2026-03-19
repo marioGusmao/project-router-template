@@ -36,3 +36,7 @@ Knowledge/runbooks/plans/
 
 # Local design scratch spec
 docs/superpowers/specs/2026-03-18-project-router-dashboard-design.md
+
+# Browser automation artifacts
+.playwright-cli/
+output/playwright/

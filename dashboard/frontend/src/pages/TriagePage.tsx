@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getTriageItems, type TriageItem } from '../lib/api';
+import { getTriageItems, noteKey, type TriageItem } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SourceIcon } from '../components/SourceIcon';
 import { ConfidenceBar } from '../components/ConfidenceBar';
@@ -63,22 +63,23 @@ export function TriagePage() {
     setSelectedNote(null);
   };
 
-  const handleProjectSuggested = (noteId: string, _source: string, project: string) => {
+  const handleProjectSuggested = (noteId: string, source: string, project: string) => {
     setItems((prev) =>
       prev.map((it) =>
-        it.source_note_id === noteId ? { ...it, user_suggested_project: project } : it,
+        it.source_note_id === noteId && it.source === source ? { ...it, user_suggested_project: project } : it,
       ),
     );
   };
 
-  const [fadingId, setFadingId] = useState<string | null>(null);
+  const [fadingKey, setFadingKey] = useState<string | null>(null);
 
-  const handleDecided = (noteId: string, _source: string, _decision: string) => {
-    setFadingId(noteId);
+  const handleDecided = (noteId: string, source: string) => {
+    const key = noteKey(source, noteId);
+    setFadingKey(key);
     setSelectedNote(null);
     setTimeout(() => {
-      setItems((prev) => prev.filter((it) => it.source_note_id !== noteId));
-      setFadingId(null);
+      setItems((prev) => prev.filter((it) => noteKey(it.source, it.source_note_id) !== key));
+      setFadingKey(null);
     }, 1200);
   };
 
@@ -185,7 +186,7 @@ export function TriagePage() {
                       <div
                         key={`${item.source}-${item.source_note_id}`}
                         onClick={() => selectItem(item)}
-                        className={`rounded-xl transition-all duration-200 cursor-pointer ${fadingId === item.source_note_id ? 'note-fade-out' : ''} ${isSelected ? 'bg-blue-500/5' : 'hover:bg-white/5'}`}
+                        className={`rounded-xl transition-all duration-200 cursor-pointer ${fadingKey === noteKey(item.source, item.source_note_id) ? 'note-fade-out' : ''} ${isSelected ? 'bg-blue-500/5' : 'hover:bg-white/5'}`}
                         style={{
                           background: isSelected ? 'rgba(59,130,246,0.05)' : 'rgba(255,255,255,0.02)',
                           border: '1px solid rgba(255,255,255,0.04)',

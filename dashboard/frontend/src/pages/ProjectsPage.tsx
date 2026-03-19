@@ -123,19 +123,14 @@ export function ProjectsPage() {
             className="flex items-center gap-5 text-sm text-zinc-500"
             style={{ paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 'auto' }}
           >
-            {project.active_notes !== undefined && (
+            {project.note_count !== undefined && (
               <span>
-                <span className="text-emerald-400 font-semibold tabular-nums">{project.active_notes}</span> active
+                <span className="text-emerald-400 font-semibold tabular-nums">{project.note_count}</span> notes
               </span>
             )}
-            {project.review_notes !== undefined && (
+            {project.review_count !== undefined && (
               <span>
-                <span className="text-amber-400 font-semibold tabular-nums">{project.review_notes}</span> in review
-              </span>
-            )}
-            {project.archived_notes !== undefined && (
-              <span>
-                <span className="text-zinc-400 font-semibold tabular-nums">{project.archived_notes}</span> archived
+                <span className="text-amber-400 font-semibold tabular-nums">{project.review_count}</span> in review
               </span>
             )}
           </div>

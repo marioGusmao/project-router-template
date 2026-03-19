@@ -5,7 +5,7 @@ import { KeyboardHelp } from './KeyboardHelp';
 import { CommandPalette } from './CommandPalette';
 import { UndoSnackbar } from './UndoSnackbar';
 import { RefreshIndicator } from '../RefreshIndicator';
-import { getStatus, getTriageItems, getNotes, refreshIndex } from '../../lib/api';
+import { getStatus, getTriageItems, getNotes, getProjects, refreshIndex } from '../../lib/api';
 import { useKeyboard } from '../../hooks/useKeyboard';
 
 const ROUTE_TITLES: Record<string, string> = {
@@ -19,6 +19,12 @@ const ROUTE_TITLES: Record<string, string> = {
 };
 
 const NAV_ROUTES = ['/', '/notes', '/triage', '/projects', '/archive', '/rejected', '/deferred'];
+
+const sumObj = (obj: unknown): number => {
+  if (typeof obj === 'number') return obj;
+  if (obj && typeof obj === 'object') return Object.values(obj).reduce((a: number, v: unknown) => a + sumObj(v), 0);
+  return 0;
+};
 
 interface Props {
   children: ReactNode;
@@ -44,30 +50,29 @@ export function MainLayout({ children }: Props) {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [status, triage, allReview] = await Promise.all([
+      const [status, triage, rejectedRes, deferredRes, projectsRes] = await Promise.all([
         getStatus(),
         getTriageItems(),
-        getNotes({ status: 'needs_review', per_page: '200' }),
+        getNotes({ review_status: 'reject', per_page: '1' }),
+        getNotes({ review_status: 'defer', per_page: '1' }),
+        getProjects(),
       ]);
       setIndexAge(status.index_age_seconds ?? null);
-      const reviewNotes = allReview.notes ?? [];
-      const rejected = reviewNotes.filter(n => n.review_status === 'reject').length;
-      const deferred = reviewNotes.filter(n => n.review_status === 'defer').length;
       setCounts({
-        notes: status.normalized + status.review + status.compiled,
+        notes: sumObj(status.normalized) + sumObj(status.review) + sumObj(status.compiled),
         triage: triage.items?.length ?? 0,
-        projects: 0,
-        rejected,
-        deferred,
+        projects: projectsRes.projects?.length ?? 0,
+        rejected: rejectedRes.total ?? 0,
+        deferred: deferredRes.total ?? 0,
       });
     } catch {
       // silent
     }
   }, []);
 
-  useEffect(() => {
-    loadMeta();
-  }, [loadMeta]);
+  // Data-fetching on mount — setState after async fetch is intentional
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadMeta(); }, [loadMeta]);
 
   const handleRefresh = useCallback(async () => {
     await refreshIndex();
@@ -118,7 +123,7 @@ export function MainLayout({ children }: Props) {
         <main className="p-8" style={{ overflowX: 'hidden' }}>{children}</main>
       </div>
       {showHelp && <KeyboardHelp onClose={() => setShowHelp(false)} />}
-      {showCommandPalette && <CommandPalette onClose={() => setShowCommandPalette(false)} />}
+      {showCommandPalette && <CommandPalette onClose={() => setShowCommandPalette(false)} onRefresh={handleRefresh} />}
       <UndoSnackbar />
     </div>
   );
