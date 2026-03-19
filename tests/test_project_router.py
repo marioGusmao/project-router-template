@@ -5346,6 +5346,85 @@ class SyncClientTests(unittest.TestCase):
                 self.assertEqual(loaded["status"], "classified")
 
 
+class TestReadwiseSyncClient(unittest.TestCase):
+    def test_require_readwise_token_raises_when_missing(self):
+        from src.project_router.readwise_client import require_access_token
+        saved = {}
+        for key in ("READWISE_ACCESS_TOKEN", "READWISE_TOKEN"):
+            if key in os.environ:
+                saved[key] = os.environ.pop(key)
+        try:
+            with self.assertRaises(SystemExit):
+                require_access_token()
+        finally:
+            os.environ.update(saved)
+
+    def test_require_readwise_token_primary(self):
+        from src.project_router.readwise_client import require_access_token
+        saved = os.environ.get("READWISE_ACCESS_TOKEN")
+        os.environ["READWISE_ACCESS_TOKEN"] = "test_token"
+        try:
+            self.assertEqual(require_access_token(), "test_token")
+        finally:
+            if saved is None:
+                os.environ.pop("READWISE_ACCESS_TOKEN", None)
+            else:
+                os.environ["READWISE_ACCESS_TOKEN"] = saved
+
+    def test_require_readwise_token_alias(self):
+        from src.project_router.readwise_client import require_access_token
+        saved_primary = os.environ.pop("READWISE_ACCESS_TOKEN", None)
+        saved_alias = os.environ.get("READWISE_TOKEN")
+        os.environ["READWISE_TOKEN"] = "alias_token"
+        try:
+            self.assertEqual(require_access_token(), "alias_token")
+        finally:
+            if saved_primary is not None:
+                os.environ["READWISE_ACCESS_TOKEN"] = saved_primary
+            if saved_alias is None:
+                os.environ.pop("READWISE_TOKEN", None)
+            else:
+                os.environ["READWISE_TOKEN"] = saved_alias
+
+    def test_readwise_note_filename(self):
+        from src.project_router.readwise_client import readwise_note_filename
+        doc = {"id": "abc123", "created_at": "2026-03-15T08:00:00Z"}
+        result = readwise_note_filename(doc)
+        self.assertIn("rw_abc123", result)
+        self.assertTrue(result.endswith(".json"))
+        self.assertIn("20260315", result)
+
+    def test_raw_export_payload_structure(self):
+        from src.project_router.readwise_client import raw_export_payload
+        doc = {"id": "abc123", "title": "Test", "parent_id": None}
+        result = raw_export_payload(doc)
+        self.assertEqual(result["source"], "readwise")
+        self.assertEqual(result["source_endpoint"], "reader/list")
+        self.assertEqual(result["source_item_type"], "reader_document")
+        self.assertIn("synced_at", result)
+        self.assertEqual(result["document"], doc)
+
+    def test_should_skip_child_highlight(self):
+        from src.project_router.readwise_client import should_skip_document
+        self.assertFalse(should_skip_document({"id": "abc", "parent_id": None}))
+        self.assertTrue(should_skip_document({"id": "def", "parent_id": "abc"}))
+
+    def test_merge_sync_state_advances_watermark(self):
+        from src.project_router.readwise_client import merge_sync_state
+        existing = {"last_synced_at": "2026-03-15T00:00:00Z", "last_synced_ids": ["rw_1"]}
+        result = merge_sync_state(existing, "2026-03-16T00:00:00Z", ["rw_2"])
+        self.assertEqual(result["last_synced_at"], "2026-03-16T00:00:00Z")
+        self.assertEqual(result["last_synced_ids"], ["rw_2"])
+
+    def test_merge_sync_state_appends_same_timestamp(self):
+        from src.project_router.readwise_client import merge_sync_state
+        existing = {"last_synced_at": "2026-03-15T00:00:00Z", "last_synced_ids": ["rw_1"]}
+        result = merge_sync_state(existing, "2026-03-15T00:00:00Z", ["rw_2"])
+        self.assertEqual(result["last_synced_at"], "2026-03-15T00:00:00Z")
+        self.assertIn("rw_1", result["last_synced_ids"])
+        self.assertIn("rw_2", result["last_synced_ids"])
+
+
 class TestReadwiseNormalize(unittest.TestCase):
     READWISE_RAW = {
         "source": "readwise",
