@@ -88,6 +88,21 @@ body::before {
   box-shadow: inset 3px 0 0 0 #3b82f6;
 }
 
+/* Force dark mode on native select/option elements */
+select {
+  color-scheme: dark;
+  background-color: #18181b;
+  color: #e4e4e7;
+}
+select option {
+  background-color: #18181b;
+  color: #e4e4e7;
+}
+select option:checked {
+  background-color: #3b82f6;
+  color: #fff;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
