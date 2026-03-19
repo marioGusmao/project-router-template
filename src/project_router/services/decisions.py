@@ -235,8 +235,7 @@ def _raw_payload_path_from_packet(packet: dict[str, Any]) -> str | None:
 
 
 def build_review_entry(packet: dict[str, Any], packet_path: Path) -> dict[str, Any]:
-    # Lazy imports for functions not yet extracted from cli.py
-    from ..cli import compiled_artifact_state, compiled_note_path
+    from .compilation import compiled_artifact_state, compiled_note_path
 
     proposal = packet.get("proposal", {})
     compiled = packet.get("compiled") or {}
