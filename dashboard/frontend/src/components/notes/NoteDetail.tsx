@@ -3,6 +3,7 @@ import Markdown from 'react-markdown';
 import { getNote, suggestProject, getProjects, type NoteDetail as NoteDetailType, type Project } from '../../lib/api';
 import { StatusBadge } from '../StatusBadge';
 import { ConfidenceBar } from '../ConfidenceBar';
+import { triggerUndo } from '../layout/UndoSnackbar';
 
 interface Props {
   noteId: string;
@@ -56,12 +57,28 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested }: Prop
     if (!suggestedProject || !note) return;
     setSaving(true);
     setSaved(false);
+    const previousProject = note.user_suggested_project || null;
     try {
       await suggestProject(noteId, source, suggestedProject);
       setNote({ ...note, user_suggested_project: suggestedProject });
       onProjectSuggested?.(noteId, source, suggestedProject);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      triggerUndo(`Suggested "${suggestedProject}" for ${noteId}`, async () => {
+        try {
+          if (previousProject) {
+            await suggestProject(noteId, source, previousProject);
+            setNote(prev => prev ? { ...prev, user_suggested_project: previousProject } : prev);
+            setSuggestedProject(previousProject);
+          } else {
+            await suggestProject(noteId, source, '');
+            setNote(prev => prev ? { ...prev, user_suggested_project: undefined } : prev);
+            setSuggestedProject('');
+          }
+        } catch {
+          // silent
+        }
+      });
     } catch {
       // silent
     } finally {

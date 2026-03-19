@@ -2,6 +2,7 @@ import { type ReactNode, useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { KeyboardHelp } from './KeyboardHelp';
+import { UndoSnackbar } from './UndoSnackbar';
 import { RefreshIndicator } from '../RefreshIndicator';
 import { getStatus, getTriageItems, refreshIndex } from '../../lib/api';
 import { useKeyboard } from '../../hooks/useKeyboard';
@@ -99,6 +100,7 @@ export function MainLayout({ children }: Props) {
         <main className="p-8">{children}</main>
       </div>
       {showHelp && <KeyboardHelp onClose={() => setShowHelp(false)} />}
+      <UndoSnackbar />
     </div>
   );
 }
