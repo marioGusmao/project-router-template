@@ -83,3 +83,22 @@ FILESYSTEM_REVIEW_STATUSES = ("parse_errors", "needs_extraction", "needs_review"
 AMBIGUOUS_DIR = REVIEW_DIR / VOICE_SOURCE / "ambiguous"
 NEEDS_REVIEW_DIR = REVIEW_DIR / VOICE_SOURCE / "needs_review"
 PENDING_PROJECT_DIR = REVIEW_DIR / VOICE_SOURCE / "pending_project"
+
+
+# ---------------------------------------------------------------------------
+#  Source name normalisation
+# ---------------------------------------------------------------------------
+def normalize_source_name(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    cleaned = str(raw).strip().lower()
+    aliases = {
+        "voice_notes": VOICE_SOURCE,
+        "voice-notes": VOICE_SOURCE,
+        "project-router": PROJECT_ROUTER_SOURCE,
+        "filesystem": FILESYSTEM_SOURCE,
+        "fs": FILESYSTEM_SOURCE,
+        "local-inbox": FILESYSTEM_SOURCE,
+        "inbox": FILESYSTEM_SOURCE,
+    }
+    return aliases.get(cleaned, cleaned)

@@ -30,6 +30,13 @@ from .services.paths import (  # noqa: E402
     NOTE_ID_PATTERN, VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE,
     KNOWN_SOURCES, REVIEW_QUEUE_STATUSES, FILESYSTEM_REVIEW_STATUSES,
     AMBIGUOUS_DIR, NEEDS_REVIEW_DIR, PENDING_PROJECT_DIR,
+    normalize_source_name,
+)
+from .services.notes import (  # noqa: E402
+    parse_scalar, read_note, dump_value, write_note,
+    ensure_note_metadata_defaults, apply_note_annotations,
+    remove_review_copies, iso_now, list_markdown_files, list_raw_files,
+    review_dir_for, review_queue_directories,
 )
 PARSER_LANGUAGE_PROFILES_PATH = Path(__file__).resolve().with_name("parser_language_profiles.json")
 PARSER_ENABLED_LANGUAGES_DEFAULTS_KEY = "enabled_parser_languages"
@@ -298,22 +305,6 @@ def ensure_layout() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def normalize_source_name(raw: str | None) -> str | None:
-    if raw is None:
-        return None
-    cleaned = str(raw).strip().lower()
-    aliases = {
-        "voice_notes": VOICE_SOURCE,
-        "voice-notes": VOICE_SOURCE,
-        "project-router": PROJECT_ROUTER_SOURCE,
-        "filesystem": FILESYSTEM_SOURCE,
-        "fs": FILESYSTEM_SOURCE,
-        "local-inbox": FILESYSTEM_SOURCE,
-        "inbox": FILESYSTEM_SOURCE,
-    }
-    return aliases.get(cleaned, cleaned)
-
-
 def parse_source_filter(raw: str | None) -> set[str]:
     source = normalize_source_name(raw)
     if source is None or source in {"all", "*"}:
@@ -381,23 +372,6 @@ def compiled_dir_for(source: str, source_project: str | None = None) -> Path:
         return COMPILED_DIR / PROJECT_ROUTER_SOURCE / source_project
     if source == FILESYSTEM_SOURCE:
         return COMPILED_DIR / FILESYSTEM_SOURCE
-    raise SystemExit(f"Unsupported source '{source}'.")
-
-
-def review_dir_for(source: str, status: str) -> Path:
-    source = normalize_source_name(source) or source
-    if source == VOICE_SOURCE:
-        if status not in REVIEW_QUEUE_STATUSES:
-            raise SystemExit(f"Unsupported review status '{status}'.")
-        return REVIEW_DIR / VOICE_SOURCE / status
-    if source == PROJECT_ROUTER_SOURCE:
-        if status not in {"parse_errors", "needs_review", "pending_project"}:
-            raise SystemExit(f"Unsupported review status '{status}'.")
-        return REVIEW_DIR / PROJECT_ROUTER_SOURCE / status
-    if source == FILESYSTEM_SOURCE:
-        if status not in FILESYSTEM_REVIEW_STATUSES:
-            raise SystemExit(f"Unsupported review status '{status}'.")
-        return REVIEW_DIR / FILESYSTEM_SOURCE / status
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -498,17 +472,6 @@ def iter_compiled_files_by_source(sources: set[str]) -> list[Path]:
     for directory in iter_source_dirs("compiled", sources):
         output.extend(list_markdown_files(directory))
     return sorted(output)
-
-
-def review_queue_directories(sources: set[str]) -> list[Path]:
-    output: list[Path] = []
-    if VOICE_SOURCE in sources:
-        output.extend(review_dir_for(VOICE_SOURCE, status) for status in REVIEW_QUEUE_STATUSES)
-    if PROJECT_ROUTER_SOURCE in sources:
-        output.extend(review_dir_for(PROJECT_ROUTER_SOURCE, status) for status in ("parse_errors", "needs_review", "pending_project"))
-    if FILESYSTEM_SOURCE in sources:
-        output.extend(review_dir_for(FILESYSTEM_SOURCE, status) for status in FILESYSTEM_REVIEW_STATUSES)
-    return output
 
 
 def load_env_file(path: Path) -> None:
@@ -1009,176 +972,6 @@ def load_registry(*, require_local: bool = False) -> tuple[dict[str, Any], dict[
     return defaults, projects
 
 
-def parse_scalar(raw: str) -> Any:
-    raw = raw.strip()
-    if raw == "null":
-        return None
-    if raw == "true":
-        return True
-    if raw == "false":
-        return False
-    if raw.startswith("[") or raw.startswith("{") or raw.startswith('"'):
-        return json.loads(raw)
-    try:
-        if "." in raw:
-            return float(raw)
-        return int(raw)
-    except ValueError:
-        return raw
-
-
-def read_note(path: Path) -> tuple[dict[str, Any], str]:
-    text = path.read_text(encoding="utf-8")
-    if not text.startswith("---\n"):
-        return {}, text
-
-    lines = text.splitlines()
-    metadata: dict[str, Any] = {}
-    end_index = None
-    for index in range(1, len(lines)):
-        line = lines[index]
-        if line == "---":
-            end_index = index
-            break
-        if not line.strip():
-            continue
-        if ":" not in line:
-            sys.stderr.write(f"Warning: {path} has unparseable frontmatter line: {line!r}\n")
-            continue
-        key, _, value = line.partition(":")
-        metadata[key.strip()] = parse_scalar(value)
-
-    if end_index is None:
-        sys.stderr.write(f"Warning: {path} has unclosed frontmatter. Treating as plain text.\n")
-        return {}, text
-
-    body = "\n".join(lines[end_index + 1 :]).lstrip("\n")
-    return metadata, body
-
-
-def dump_value(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    if isinstance(value, list):
-        return json.dumps(value, ensure_ascii=False)
-    return json.dumps(str(value), ensure_ascii=False)
-
-
-def write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
-    ordered_keys = [
-        "source",
-        "source_project",
-        "source_note_id",
-        "source_item_type",
-        "source_endpoint",
-        "title",
-        "created_at",
-        "recorded_at",
-        "recording_type",
-        "duration",
-        "tags",
-        "capture_kind",
-        "intent",
-        "destination",
-        "destination_reason",
-        "user_keywords",
-        "inferred_keywords",
-        "source_language",
-        "language_confidence",
-        "matched_languages",
-        "mixed_languages",
-        "active_parser_languages",
-        "transcript_format",
-        "summary_available",
-        "summary_source",
-        "audio_available",
-        "audio_local_path",
-        "classification_basis",
-        "derived_outputs",
-        "thread_id",
-        "continuation_of",
-        "related_note_ids",
-        "compiled_at",
-        "compiled_version",
-        "compiled_from_path",
-        "compiled_from_signature",
-        "compiled_from_status",
-        "brief_summary",
-        "entities",
-        "facts",
-        "tasks",
-        "decisions",
-        "open_questions",
-        "follow_ups",
-        "timeline",
-        "ambiguities",
-        "confidence_by_field",
-        "evidence_spans",
-        "status",
-        "project",
-        "candidate_projects",
-        "confidence",
-        "routing_reason",
-        "review_status",
-        "requires_user_confirmation",
-        "content_hash",
-        "canonical_path",
-        "raw_payload_path",
-        "dispatched_at",
-        "dispatched_to",
-        "note_type",
-        "user_suggested_project",
-        "user_suggestion_timestamp",
-        "reviewer_notes",
-    ]
-    rendered: list[str] = []
-    seen = set()
-    for key in ordered_keys:
-        if key in metadata:
-            rendered.append(f"{key}: {dump_value(metadata[key])}")
-            seen.add(key)
-    for key in sorted(k for k in metadata if k not in seen):
-        rendered.append(f"{key}: {dump_value(metadata[key])}")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"---\n" + "\n".join(rendered) + f"\n---\n\n{body.rstrip()}\n", encoding="utf-8")
-
-
-def list_markdown_files(path: Path) -> list[Path]:
-    if not path.exists():
-        return []
-    return sorted(file for file in path.iterdir() if file.is_file() and file.suffix == ".md")
-
-
-def list_raw_files(path: Path) -> list[Path]:
-    if not path.exists():
-        return []
-    return sorted(
-        file
-        for file in path.iterdir()
-        if file.is_file() and file.name != ".gitkeep" and file.suffix in {".json", ".md"}
-    )
-
-
-def remove_review_copies(note_name: str) -> None:
-    for review_dir in review_queue_directories(KNOWN_SOURCES):
-        review_copy = review_dir / note_name
-        if review_copy.exists():
-            review_copy.unlink()
-
-
-def iso_now() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 def existing_artifact_path(directory: Path, note_id: str, suffix: str) -> Path | None:
     safe_note_id = require_valid_note_id(note_id)
     matches = sorted(
@@ -1651,39 +1444,6 @@ def extract_keywords(metadata: dict[str, Any], body: str, *, limit: int = 8) -> 
             counter[token] += 4
 
     return [token for token, _ in counter.most_common(limit)]
-
-
-def ensure_note_metadata_defaults(metadata: dict[str, Any]) -> dict[str, Any]:
-    metadata.setdefault("source", VOICE_SOURCE)
-    metadata.setdefault("source_project", None)
-    metadata.setdefault("tags", [])
-    metadata.setdefault("capture_kind", None)
-    metadata.setdefault("intent", None)
-    metadata.setdefault("destination", None)
-    metadata.setdefault("destination_reason", "")
-    metadata.setdefault("user_keywords", [])
-    metadata.setdefault("inferred_keywords", [])
-    metadata.setdefault("source_language", "unknown")
-    metadata.setdefault("language_confidence", 0.0)
-    metadata.setdefault("matched_languages", [])
-    metadata.setdefault("mixed_languages", False)
-    metadata.setdefault("active_parser_languages", list(active_parser_profile_keys()))
-    metadata.setdefault("summary_available", False)
-    metadata.setdefault("summary_source", None)
-    metadata.setdefault("audio_available", False)
-    metadata.setdefault("audio_local_path", None)
-    metadata.setdefault("classification_basis", [])
-    metadata.setdefault("derived_outputs", [])
-    metadata.setdefault("thread_id", None)
-    metadata.setdefault("continuation_of", None)
-    metadata.setdefault("related_note_ids", [])
-    metadata.setdefault("candidate_projects", [])
-    metadata.setdefault("dispatched_to", [])
-    metadata.setdefault("content_hash", None)
-    metadata.setdefault("user_suggested_project", None)
-    metadata.setdefault("user_suggestion_timestamp", None)
-    metadata.setdefault("reviewer_notes", None)
-    return metadata
 
 
 def note_keyword_set(metadata: dict[str, Any]) -> set[str]:
@@ -3361,31 +3121,6 @@ def resolve_unique_normalized_note_path(note_id: str, *, sources: set[str] | Non
         rendered = ", ".join(str(path) for path in matches)
         raise SystemExit(f"Multiple normalized notes found for {note_id}. Narrow the source scope first: {rendered}")
     return matches[0]
-
-
-def apply_note_annotations(metadata: dict[str, Any], args: argparse.Namespace, note_id: str) -> None:
-    metadata = ensure_note_metadata_defaults(metadata)
-    if getattr(args, "user_keywords", None):
-        merged = {str(value).strip().lower() for value in metadata.get("user_keywords", []) if str(value).strip()}
-        merged.update(str(value).strip().lower() for value in args.user_keywords if str(value).strip())
-        metadata["user_keywords"] = sorted(merged)
-    if getattr(args, "related_note_ids", None):
-        merged_ids = {str(value).strip() for value in metadata.get("related_note_ids", []) if str(value).strip()}
-        merged_ids.update(str(value).strip() for value in args.related_note_ids if str(value).strip())
-        merged_ids.discard(note_id)
-        metadata["related_note_ids"] = sorted(merged_ids)
-    if getattr(args, "thread_id", None):
-        metadata["thread_id"] = args.thread_id
-    if getattr(args, "continuation_of", None):
-        continuation_of = str(args.continuation_of).strip()
-        metadata["continuation_of"] = continuation_of or None
-        if continuation_of and continuation_of != note_id:
-            merged_ids = {str(value).strip() for value in metadata.get("related_note_ids", []) if str(value).strip()}
-            merged_ids.add(continuation_of)
-            metadata["related_note_ids"] = sorted(merged_ids)
-    reviewer_notes = getattr(args, "reviewer_notes", None)
-    if reviewer_notes is not None:
-        metadata["reviewer_notes"] = reviewer_notes
 
 
 def decide_command(args: argparse.Namespace) -> int:
