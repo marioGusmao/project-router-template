@@ -19,43 +19,18 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "data"
-RAW_DIR = DATA_DIR / "raw"
-NORMALIZED_DIR = DATA_DIR / "normalized"
-COMPILED_DIR = DATA_DIR / "compiled"
-REVIEW_DIR = DATA_DIR / "review"
-DISPATCHED_DIR = DATA_DIR / "dispatched"
-PROCESSED_DIR = DATA_DIR / "processed"
-STATE_DIR = ROOT / "state"
-DECISIONS_DIR = STATE_DIR / "decisions"
-DISCOVERIES_DIR = STATE_DIR / "discoveries"
-PROJECT_ROUTER_STATE_DIR = STATE_DIR / "project_router"
-OUTBOX_SCAN_STATE_PATH = PROJECT_ROUTER_STATE_DIR / "outbox_scan_state.json"
-OUTBOX_SCAN_LOCK_PATH = PROJECT_ROUTER_STATE_DIR / "scan.lock"
-REGISTRY_LOCAL_PATH = ROOT / "projects" / "registry.local.json"
-REGISTRY_SHARED_PATH = ROOT / "projects" / "registry.shared.json"
-REGISTRY_EXAMPLE_PATH = ROOT / "projects" / "registry.example.json"
-ENV_LOCAL_PATH = ROOT / ".env.local"
-ENV_PATH = ROOT / ".env"
-DISCOVERY_REPORT_PATH = DISCOVERIES_DIR / "pending_project_latest.json"
-LOCAL_ROUTER_DIR = ROOT / "router"
-LOCAL_ROUTER_ARCHIVE_DIR = LOCAL_ROUTER_DIR / "archive"
-INBOX_STATUS_DIR = PROJECT_ROUTER_STATE_DIR / "inbox_status"
-TEMPLATE_BASE_PATH = ROOT / "template-base.json"
-PRIVATE_META_PATH = ROOT / "private.meta.json"
-TEMPLATE_META_PATH = ROOT / "template.meta.json"
-VERSION_PATH = ROOT / "version.txt"
-NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-VOICE_SOURCE = "voicenotes"
-PROJECT_ROUTER_SOURCE = "project_router"
-FILESYSTEM_SOURCE = "filesystem"
-KNOWN_SOURCES = frozenset({VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE})
-REVIEW_QUEUE_STATUSES = ("ambiguous", "needs_review", "pending_project")
-FILESYSTEM_REVIEW_STATUSES = ("parse_errors", "needs_extraction", "needs_review", "ambiguous", "pending_project")
-AMBIGUOUS_DIR = REVIEW_DIR / VOICE_SOURCE / "ambiguous"
-NEEDS_REVIEW_DIR = REVIEW_DIR / VOICE_SOURCE / "needs_review"
-PENDING_PROJECT_DIR = REVIEW_DIR / VOICE_SOURCE / "pending_project"
+from .services.paths import (  # noqa: E402
+    ROOT, DATA_DIR, RAW_DIR, NORMALIZED_DIR, COMPILED_DIR, REVIEW_DIR,
+    DISPATCHED_DIR, PROCESSED_DIR, STATE_DIR, DECISIONS_DIR, DISCOVERIES_DIR,
+    PROJECT_ROUTER_STATE_DIR, OUTBOX_SCAN_STATE_PATH, OUTBOX_SCAN_LOCK_PATH,
+    ADOPTIONS_DIR, INBOX_STATUS_DIR, DISCOVERY_REPORT_PATH,
+    REGISTRY_LOCAL_PATH, REGISTRY_SHARED_PATH, REGISTRY_EXAMPLE_PATH,
+    ENV_LOCAL_PATH, ENV_PATH, LOCAL_ROUTER_DIR, LOCAL_ROUTER_ARCHIVE_DIR,
+    TEMPLATE_BASE_PATH, PRIVATE_META_PATH, TEMPLATE_META_PATH, VERSION_PATH,
+    NOTE_ID_PATTERN, VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE,
+    KNOWN_SOURCES, REVIEW_QUEUE_STATUSES, FILESYSTEM_REVIEW_STATUSES,
+    AMBIGUOUS_DIR, NEEDS_REVIEW_DIR, PENDING_PROJECT_DIR,
+)
 PARSER_LANGUAGE_PROFILES_PATH = Path(__file__).resolve().with_name("parser_language_profiles.json")
 PARSER_ENABLED_LANGUAGES_DEFAULTS_KEY = "enabled_parser_languages"
 GENERIC_PARSER_STOPWORDS = frozenset(
@@ -4055,8 +4030,6 @@ def init_router_root_command(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 #  adopt-router-root — transaction-style migration
 # ---------------------------------------------------------------------------
-
-ADOPTIONS_DIR = PROJECT_ROUTER_STATE_DIR / "adoptions"
 
 
 @dataclass

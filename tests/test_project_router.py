@@ -14,6 +14,7 @@ from unittest import mock
 
 from src.project_router import cli
 from src.project_router import sync_client
+from src.project_router.services import paths as svc_paths
 
 
 TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / ".tmp-tests"
@@ -104,6 +105,7 @@ def patch_cli_paths(root: Path) -> ExitStack:
     }
     for key, value in patches.items():
         stack.enter_context(mock.patch.object(cli, key, value))
+        stack.enter_context(mock.patch.object(svc_paths, key, value))
     return stack
 
 
