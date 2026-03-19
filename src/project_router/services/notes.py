@@ -18,6 +18,8 @@ from .paths import (
     FILESYSTEM_SOURCE,
     KNOWN_SOURCES,
     PROJECT_ROUTER_SOURCE,
+    READWISE_REVIEW_STATUSES,
+    READWISE_SOURCE,
     REVIEW_DIR,
     REVIEW_QUEUE_STATUSES,
     VOICE_SOURCE,
@@ -262,6 +264,10 @@ def review_dir_for(source: str, status: str) -> Path:
         if status not in FILESYSTEM_REVIEW_STATUSES:
             raise SystemExit(f"Unsupported review status '{status}'.")
         return REVIEW_DIR / FILESYSTEM_SOURCE / status
+    if source == READWISE_SOURCE:
+        if status not in READWISE_REVIEW_STATUSES:
+            raise SystemExit(f"Unsupported review status '{status}'.")
+        return REVIEW_DIR / READWISE_SOURCE / status
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -273,6 +279,8 @@ def review_queue_directories(sources: set[str]) -> list[Path]:
         output.extend(review_dir_for(PROJECT_ROUTER_SOURCE, status) for status in ("parse_errors", "needs_review", "pending_project"))
     if FILESYSTEM_SOURCE in sources:
         output.extend(review_dir_for(FILESYSTEM_SOURCE, status) for status in FILESYSTEM_REVIEW_STATUSES)
+    if READWISE_SOURCE in sources:
+        output.extend(review_dir_for(READWISE_SOURCE, status) for status in READWISE_REVIEW_STATUSES)
     return output
 
 

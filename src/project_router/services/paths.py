@@ -73,13 +73,15 @@ NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 VOICE_SOURCE = "voicenotes"
 PROJECT_ROUTER_SOURCE = "project_router"
 FILESYSTEM_SOURCE = "filesystem"
-KNOWN_SOURCES = frozenset({VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE})
+READWISE_SOURCE = "readwise"
+KNOWN_SOURCES = frozenset({VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE, READWISE_SOURCE})
 
 # ---------------------------------------------------------------------------
 #  Review queue constants
 # ---------------------------------------------------------------------------
 REVIEW_QUEUE_STATUSES = ("ambiguous", "needs_review", "pending_project")
 FILESYSTEM_REVIEW_STATUSES = ("parse_errors", "needs_extraction", "needs_review", "ambiguous", "pending_project")
+READWISE_REVIEW_STATUSES = ("ambiguous", "needs_review", "pending_project")
 AMBIGUOUS_DIR = REVIEW_DIR / VOICE_SOURCE / "ambiguous"
 NEEDS_REVIEW_DIR = REVIEW_DIR / VOICE_SOURCE / "needs_review"
 PENDING_PROJECT_DIR = REVIEW_DIR / VOICE_SOURCE / "pending_project"
@@ -100,5 +102,7 @@ def normalize_source_name(raw: str | None) -> str | None:
         "fs": FILESYSTEM_SOURCE,
         "local-inbox": FILESYSTEM_SOURCE,
         "inbox": FILESYSTEM_SOURCE,
+        "reader": READWISE_SOURCE,
+        "rw": READWISE_SOURCE,
     }
     return aliases.get(cleaned, cleaned)

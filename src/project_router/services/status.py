@@ -24,6 +24,7 @@ from .paths import (
     PROCESSED_DIR,
     PROJECT_ROUTER_SOURCE,
     RAW_DIR,
+    READWISE_SOURCE,
     VOICE_SOURCE,
 )
 from .notes import (
@@ -101,6 +102,13 @@ def iter_source_dirs(kind: str, sources: set[str]) -> list[Path]:
             output.append(NORMALIZED_DIR / FILESYSTEM_SOURCE)
         elif kind == "compiled":
             output.append(COMPILED_DIR / FILESYSTEM_SOURCE)
+    if READWISE_SOURCE in sources:
+        if kind == "raw":
+            output.append(RAW_DIR / READWISE_SOURCE)
+        elif kind == "normalized":
+            output.append(NORMALIZED_DIR / READWISE_SOURCE)
+        elif kind == "compiled":
+            output.append(COMPILED_DIR / READWISE_SOURCE)
     return output
 
 
@@ -182,6 +190,9 @@ def compute_pipeline_status(sources: set[str]) -> dict[str, Any]:
     filesystem_raw = count_manifests() if FILESYSTEM_SOURCE in sources else 0
     filesystem_normalized = count_markdown(normalized_dir_for(FILESYSTEM_SOURCE)) if FILESYSTEM_SOURCE in sources else 0
     filesystem_compiled = count_markdown(compiled_dir_for(FILESYSTEM_SOURCE)) if FILESYSTEM_SOURCE in sources else 0
+    readwise_raw = count_raw(raw_dir_for(READWISE_SOURCE)) if READWISE_SOURCE in sources else 0
+    readwise_normalized = count_markdown(normalized_dir_for(READWISE_SOURCE)) if READWISE_SOURCE in sources else 0
+    readwise_compiled = count_markdown(compiled_dir_for(READWISE_SOURCE)) if READWISE_SOURCE in sources else 0
     scan_state = load_outbox_scan_state() if PROJECT_ROUTER_SOURCE in sources else None
     legacy_backlog = len(legacy_source_layout_operations())
 
@@ -191,16 +202,19 @@ def compute_pipeline_status(sources: set[str]) -> dict[str, Any]:
             "voicenotes": voicenotes_raw,
             "project_router": project_router_raw,
             "filesystem": filesystem_raw,
+            "readwise": readwise_raw,
         },
         "normalized": {
             "voicenotes": voicenotes_normalized,
             "project_router": project_router_normalized,
             "filesystem": filesystem_normalized,
+            "readwise": readwise_normalized,
         },
         "compiled": {
             "voicenotes": voicenotes_compiled,
             "project_router": project_router_compiled,
             "filesystem": filesystem_compiled,
+            "readwise": readwise_compiled,
         },
         "review": {
             "voicenotes": {
@@ -219,6 +233,11 @@ def compute_pipeline_status(sources: set[str]) -> dict[str, Any]:
                 "ambiguous": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "ambiguous")) if FILESYSTEM_SOURCE in sources else 0,
                 "pending_project": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "pending_project")) if FILESYSTEM_SOURCE in sources else 0,
                 "needs_review": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "needs_review")) if FILESYSTEM_SOURCE in sources else 0,
+            },
+            "readwise": {
+                "ambiguous": count_markdown(review_dir_for(READWISE_SOURCE, "ambiguous")) if READWISE_SOURCE in sources else 0,
+                "pending_project": count_markdown(review_dir_for(READWISE_SOURCE, "pending_project")) if READWISE_SOURCE in sources else 0,
+                "needs_review": count_markdown(review_dir_for(READWISE_SOURCE, "needs_review")) if READWISE_SOURCE in sources else 0,
             },
         },
         "dispatched": sum(count_markdown(path) for path in DISPATCHED_DIR.glob("*") if path.is_dir()),

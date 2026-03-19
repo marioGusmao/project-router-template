@@ -26,8 +26,8 @@ from .services.paths import (  # noqa: E402
     REGISTRY_LOCAL_PATH, REGISTRY_SHARED_PATH, REGISTRY_EXAMPLE_PATH,
     ENV_LOCAL_PATH, ENV_PATH, LOCAL_ROUTER_DIR, LOCAL_ROUTER_ARCHIVE_DIR,
     TEMPLATE_BASE_PATH, PRIVATE_META_PATH, TEMPLATE_META_PATH, VERSION_PATH,
-    NOTE_ID_PATTERN, VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE,
-    KNOWN_SOURCES, REVIEW_QUEUE_STATUSES, FILESYSTEM_REVIEW_STATUSES,
+    NOTE_ID_PATTERN, VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE, READWISE_SOURCE,
+    KNOWN_SOURCES, REVIEW_QUEUE_STATUSES, FILESYSTEM_REVIEW_STATUSES, READWISE_REVIEW_STATUSES,
     AMBIGUOUS_DIR, NEEDS_REVIEW_DIR, PENDING_PROJECT_DIR,
     normalize_source_name,
 )
@@ -149,6 +149,12 @@ def ensure_layout() -> None:
         REVIEW_DIR / FILESYSTEM_SOURCE / "needs_review",
         REVIEW_DIR / FILESYSTEM_SOURCE / "ambiguous",
         REVIEW_DIR / FILESYSTEM_SOURCE / "pending_project",
+        RAW_DIR / READWISE_SOURCE,
+        NORMALIZED_DIR / READWISE_SOURCE,
+        COMPILED_DIR / READWISE_SOURCE,
+        REVIEW_DIR / READWISE_SOURCE / "ambiguous",
+        REVIEW_DIR / READWISE_SOURCE / "needs_review",
+        REVIEW_DIR / READWISE_SOURCE / "pending_project",
         DISPATCHED_DIR,
         PROCESSED_DIR,
         DECISIONS_DIR,
@@ -181,6 +187,8 @@ def raw_dir_for(source: str, source_project: str | None = None) -> Path:
         return RAW_DIR / PROJECT_ROUTER_SOURCE / source_project
     if source == FILESYSTEM_SOURCE:
         return RAW_DIR / FILESYSTEM_SOURCE
+    if source == READWISE_SOURCE:
+        return RAW_DIR / READWISE_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -194,6 +202,8 @@ def normalized_dir_for(source: str, source_project: str | None = None) -> Path:
         return NORMALIZED_DIR / PROJECT_ROUTER_SOURCE / source_project
     if source == FILESYSTEM_SOURCE:
         return NORMALIZED_DIR / FILESYSTEM_SOURCE
+    if source == READWISE_SOURCE:
+        return NORMALIZED_DIR / READWISE_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -207,6 +217,8 @@ def compiled_dir_for(source: str, source_project: str | None = None) -> Path:
         return COMPILED_DIR / PROJECT_ROUTER_SOURCE / source_project
     if source == FILESYSTEM_SOURCE:
         return COMPILED_DIR / FILESYSTEM_SOURCE
+    if source == READWISE_SOURCE:
+        return COMPILED_DIR / READWISE_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -1093,6 +1105,8 @@ def load_raw_recording(path: Path) -> tuple[dict[str, Any], str]:
         payload = json.loads(path.read_text(encoding="utf-8"))
         if payload.get("source") == PROJECT_ROUTER_SOURCE:
             return payload, "project-router-json"
+        if payload.get("source") == READWISE_SOURCE:
+            return payload, "readwise-json"
         if "recording" in payload:
             return payload, "json"
         # tolerate direct recording payloads too
@@ -1444,6 +1458,11 @@ def normalize_command(args: argparse.Namespace) -> int:
             note_id = packet.get("packet_id") or packet.get("source_note_id")
         elif detected_source == FILESYSTEM_SOURCE:
             note_id = raw_payload.get("source_note_id")
+        elif detected_source == READWISE_SOURCE:
+            document = raw_payload.get("document") or {}
+            note_id = document.get("id")
+            if note_id:
+                note_id = f"rw_{note_id}"
         else:
             recording = raw_payload.get("recording") or {}
             note_id = recording.get("id") or recording.get("uuid")
