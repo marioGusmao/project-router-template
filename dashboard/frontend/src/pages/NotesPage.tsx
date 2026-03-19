@@ -217,7 +217,7 @@ export function NotesPage() {
   };
 
   return (
-    <div className="flex gap-0" style={{ margin: -32 }}>
+    <div className="flex gap-0" style={{ margin: '-32px', width: 'calc(100% + 64px)', overflowX: 'hidden' }}>
       {/* Table section */}
       <div className={`flex-1 min-w-0 ${selectedId ? 'w-3/5' : 'w-full'}`}>
         {/* Filter bar */}

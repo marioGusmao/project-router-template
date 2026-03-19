@@ -129,7 +129,7 @@ export function TriagePage() {
   }
 
   return (
-    <div className="flex gap-0" style={{ margin: -32 }}>
+    <div className="flex gap-0" style={{ margin: '-32px', width: 'calc(100% + 64px)', overflowX: 'hidden' }}>
       {/* Swimlanes section */}
       <div className={`flex-1 min-w-0 ${selectedNote ? 'w-3/5' : 'w-full'}`} style={{ padding: 32 }}>
         <div className="space-y-5">

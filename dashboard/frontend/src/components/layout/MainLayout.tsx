@@ -115,7 +115,7 @@ export function MainLayout({ children }: Props) {
             <RefreshIndicator ageSeconds={indexAge} onRefreshed={handleRefresh} />
           </div>
         </header>
-        <main className="p-8">{children}</main>
+        <main className="p-8" style={{ overflowX: 'hidden' }}>{children}</main>
       </div>
       {showHelp && <KeyboardHelp onClose={() => setShowHelp(false)} />}
       {showCommandPalette && <CommandPalette onClose={() => setShowCommandPalette(false)} />}
