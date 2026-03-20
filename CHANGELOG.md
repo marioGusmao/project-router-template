@@ -23,6 +23,61 @@ All notable changes to the shared Project Router starter will be documented in t
 - Registered `Knowledge/runbooks/**` as local-only in ownership manifest and customization contracts.
 - Gitignored `Knowledge/runbooks/plans/` as operational artifacts.
 
+## [0.7.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.6.0...project-router-template-v0.7.0) (2026-03-20)
+
+
+### Features
+
+* add --dashboard flag to triage and review CLI commands ([618b2a2](https://github.com/marioGusmao/project-router-template/commit/618b2a26e54153c03552e618570f5bad739c4a24))
+* add --exclude-category filter to Readwise sync client ([bd5de8c](https://github.com/marioGusmao/project-router-template/commit/bd5de8ce9cacce6c7c8c10451546929500820f84))
+* add batch selection and command palette (Cmd+K) ([9023089](https://github.com/marioGusmao/project-router-template/commit/9023089d7a7be615dea288b7910ec24c0153e605))
+* add dashboard backend — HTTP server + SQLite index ([d04218e](https://github.com/marioGusmao/project-router-template/commit/d04218ee136379f49da4db1f5309023066c09e16))
+* add dashboard frontend — React + Tailwind dark mode UI ([d56e354](https://github.com/marioGusmao/project-router-template/commit/d56e3541009ce1f31aaab89181d515d607cea0d4))
+* add dashboard suggestion fields to note frontmatter ([486adae](https://github.com/marioGusmao/project-router-template/commit/486adae6fece37a944c3e1574affb485211f2561))
+* add decide actions (approve/reject/ambiguous) to dashboard ([d7066f6](https://github.com/marioGusmao/project-router-template/commit/d7066f62e26c9772130dd55bd9d97842e47f8fbd))
+* add defer (rever mais tarde) decision to CLI and dashboard ([3d41490](https://github.com/marioGusmao/project-router-template/commit/3d41490bf1fee94a8350ba371b9bfa949ad78aec))
+* add keyboard shortcuts, help overlay, and fix MainLayout wiring ([1e7e34f](https://github.com/marioGusmao/project-router-template/commit/1e7e34fdd1e8bb18a4f355f4f7d8297e0b19a242))
+* add note detail split panel with project suggestion ([6ae9d04](https://github.com/marioGusmao/project-router-template/commit/6ae9d045faee81565a2970c513f9fd85ce64c3e2))
+* add Readwise icon to source icons in notes list ([2355e24](https://github.com/marioGusmao/project-router-template/commit/2355e24a68a02dbac256d7547df8d3057d83e86f))
+* add Readwise Reader normalizer with full metadata mapping ([8f0ce30](https://github.com/marioGusmao/project-router-template/commit/8f0ce30c9599edc106e673e3c1915eec800ac643))
+* add Readwise Reader sync client with incremental fetch ([691e43c](https://github.com/marioGusmao/project-router-template/commit/691e43cc042be621aaf26fa9cb04c48cec9d82cb))
+* add Rejected/Deferred sidebar views and auto-refresh on decide ([9c64bae](https://github.com/marioGusmao/project-router-template/commit/9c64baeccdf6d5cc8671d24a0489430f4cfceb16))
+* add reviewer_notes to apply_note_annotations ([d59d253](https://github.com/marioGusmao/project-router-template/commit/d59d253c6fb371631d7ad96e51dfddfaabf07f0e))
+* add source icon before note title in notes list ([2605efb](https://github.com/marioGusmao/project-router-template/commit/2605efb5a8cc660fbe73258152221b8fa2b53795))
+* add source icons to dashboard home and triage pages ([b460ebd](https://github.com/marioGusmao/project-router-template/commit/b460ebd28e61fee7b07df03df4f8e9acf337489c))
+* add suggestions service for dashboard write operations ([bb3f74a](https://github.com/marioGusmao/project-router-template/commit/bb3f74a092a0e738d00abe6d54c7e4669b668c06))
+* add template update status checks ([89f2901](https://github.com/marioGusmao/project-router-template/commit/89f29015e029658cb8d718720895b8454dc70b1e))
+* add undo snackbar and color-coded stale indicator ([bb04ead](https://github.com/marioGusmao/project-router-template/commit/bb04ead5ef77bab64ab9e87a33d3c6a9f50ab88b))
+* blink-then-fade animation when note is decided ([5757b26](https://github.com/marioGusmao/project-router-template/commit/5757b26fa39b76326fd576074c85d9335b6a5d4b))
+* clear suggestion fields on decide approve ([1f44bb5](https://github.com/marioGusmao/project-router-template/commit/1f44bb5d60def8d8778d260852ecfb3752133f50))
+* dashboard UX improvements — keyboard shortcuts, sort, batch, annotate ([75c5dd8](https://github.com/marioGusmao/project-router-template/commit/75c5dd8694eecfb4b65b2e5a34c200d6d71cd474))
+* **dashboard:** premium "Luxury Terminal" redesign ([4860d9d](https://github.com/marioGusmao/project-router-template/commit/4860d9d91bd539022a4860f2acec4cf5e0e53493))
+* **dashboard:** redesign frontend with modern dark theme ([c2a4940](https://github.com/marioGusmao/project-router-template/commit/c2a49405b1b2c5031ec224eaeede6c62ecc94f46))
+* enhance project detail tabs and file preview in note detail ([0fd4ea2](https://github.com/marioGusmao/project-router-template/commit/0fd4ea2f3727fa3915695c961bb3c24db6449af8))
+* include suggestion fields in review command output ([3df3144](https://github.com/marioGusmao/project-router-template/commit/3df31446457a8a104fd81c80b60fb7c8173c80be))
+* premium "Luxury Terminal" dashboard redesign ([ebd666c](https://github.com/marioGusmao/project-router-template/commit/ebd666c377261b3ade5e30f7f5f05d1da279fc67))
+* use real VoiceNotes icon in notes list ([24384fc](https://github.com/marioGusmao/project-router-template/commit/24384fcbf591480160736f610e39ce0d5550d425))
+* wire readwise source through pipeline infrastructure ([93595c9](https://github.com/marioGusmao/project-router-template/commit/93595c92cdfc712d37a1c2bbf01da7481f651f21))
+
+
+### Bug Fixes
+
+* force dark theme on native select/option dropdown elements ([a2a6f51](https://github.com/marioGusmao/project-router-template/commit/a2a6f5119a01d666ef33121d9e82bba3a5b0c87e))
+* harden dashboard identity and ship frontend build ([33b5355](https://github.com/marioGusmao/project-router-template/commit/33b53557897a6cfc852037e2db2c257a13122393))
+* harden dashboard identity and ship frontend build ([ca42d84](https://github.com/marioGusmao/project-router-template/commit/ca42d84087971161976ee4347f190a277d7d3202))
+* propagate --notes CLI arg to reviewer_notes metadata ([be67233](https://github.com/marioGusmao/project-router-template/commit/be67233e4763e4441c7c248696414fe16c31f303))
+* reconcile template sync metadata state ([f26fbc9](https://github.com/marioGusmao/project-router-template/commit/f26fbc92872cf944cad64a51d9f3297f10d46b4d))
+* remove_review_copies also cleans legacy flat review directories ([0376a29](https://github.com/marioGusmao/project-router-template/commit/0376a292c90a04c20f438fde7d678f44fab1aca2))
+* require explicit sync bootstrap scope ([24680b6](https://github.com/marioGusmao/project-router-template/commit/24680b6f434a66abcc6cc6eaf2d0eb4cfccc19ac))
+* resolve dashboard frontend bugs — identity, types, pagination, lint ([538d6a1](https://github.com/marioGusmao/project-router-template/commit/538d6a1f40635adb86ee3e077acd972a94d81b7d))
+* resolve horizontal overflow on Notes and Triage pages ([75d3f0a](https://github.com/marioGusmao/project-router-template/commit/75d3f0a2eb7f0c5fa573aa558805418b8fb01629))
+* sanitize ISO timestamps for Readwise API and isolate token tests ([b72dd1e](https://github.com/marioGusmao/project-router-template/commit/b72dd1eadfcede5df220773b1e5399f5752f0ec1))
+* serve dashboard attachments safely ([dc7dfa8](https://github.com/marioGusmao/project-router-template/commit/dc7dfa8e990854b1014e66f6e1306c53f309fe7c))
+* unwrap note response in getNote API call ([fd18d41](https://github.com/marioGusmao/project-router-template/commit/fd18d414b6eab8a8989add433e49c9b7066a47fa))
+* use fixed 480px width for detail panel instead of 40% ([a77ca04](https://github.com/marioGusmao/project-router-template/commit/a77ca048b07f8f233168a368720c1e331c3efe60))
+* use fixed-position detail panel to prevent right-side clipping ([64ae435](https://github.com/marioGusmao/project-router-template/commit/64ae435efdeaabe752099d7fc24a7fff3e778085))
+* use inline style for sidebar margin (Tailwind v4 arbitrary value fix) ([eefee8e](https://github.com/marioGusmao/project-router-template/commit/eefee8ecfd48b9513a91de9fb72ec0c492fe59e7))
+
 ## [0.6.0](https://github.com/marioGusmao/project-router-template/compare/project-router-template-v0.5.1...project-router-template-v0.6.0) (2026-03-18)
 
 
