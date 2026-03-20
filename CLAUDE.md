@@ -65,6 +65,9 @@ python3 scripts/project_router.py dispatch --confirm-user-approval --note-id vn_
 # Sync from the VoiceNotes API
 python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes
 
+# Sync from the Readwise Reader API
+python3 scripts/readwise_client.py sync --output-dir ./data/raw/readwise
+
 # Governance checks
 python3 scripts/check_agent_surface_parity.py
 python3 scripts/check_repo_ownership.py
@@ -153,11 +156,16 @@ At the beginning of a session:
 1. Run `python3 scripts/project_router.py status`
 2. If the machine is new, run `python3 scripts/bootstrap_local.py`
 3. Confirm `.env.local` and `projects/registry.local.json` exist
-4. If `.env.local` exists, use:
+4. If `.env.local` exists and `VOICENOTES_API_KEY` is configured, use:
    - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
-   - `python3 scripts/project_router.py normalize`
-   - `python3 scripts/project_router.py triage`
-   - `python3 scripts/project_router.py compile`
+   - `python3 scripts/project_router.py normalize --source voicenotes`
+   - `python3 scripts/project_router.py triage --source voicenotes`
+   - `python3 scripts/project_router.py compile --source voicenotes`
+4b. If `READWISE_ACCESS_TOKEN` exists in `.env.local`, use:
+   - `python3 scripts/readwise_client.py sync --output-dir ./data/raw/readwise`
+   - `python3 scripts/project_router.py normalize --source readwise`
+   - `python3 scripts/project_router.py triage --source readwise`
+   - `python3 scripts/project_router.py compile --source readwise`
 5. If filesystem inboxes are configured, run:
    - `python3 scripts/project_router.py ingest --integration filesystem`
    - `python3 scripts/project_router.py normalize --source filesystem`

@@ -17,6 +17,8 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 |--------|---------|---------------|
 | `scripts/project_router_client.py sync` | Fetch new captures from the VoiceNotes API into `data/raw/voicenotes/` | `.env.local` with VoiceNotes API token |
 
+For `sync`, normal reruns use the local checkpoint in `state/sync_state.json`. A first sync without a checkpoint must now be explicit: pass `--window-days <N>`, `--from ...`, or `--full-history`. Use `--window-days` for machine recovery or bounded backfills.
+
 ## Pipeline
 
 | Script | Stage | Purpose | Prerequisites |
@@ -36,6 +38,8 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/project_router.py ingest` | ingest | Scan configured filesystem inboxes, copy blobs, run extractors, write manifests, archive originals | `registry.local.json` with `sources.filesystem_inboxes` configured |
 | `scripts/project_router.py extract` | extract | List notes needing AI extraction, or update extraction for a specific note | Ingested + normalized filesystem notes |
 | `scripts/project_router.py context` | context | Generate a live project briefing in the terminal from current state | None |
+| `scripts/project_router.py template-update-status` | template-update-status | Report the installed template version, surface stale sync metadata, and optionally compare it with the latest upstream GitHub release | `template-base.json` or equivalent template metadata; add `--check-remote` to query GitHub |
+| `scripts/project_router.py template-sync-metadata` | template-sync-metadata | Reconcile `template-base.json` with the installed template version and commit metadata | Private-derived repo or any clone that tracks template metadata; add `--check` to detect drift without writing |
 | `scripts/project_router.py inbox-intake` | inbox-intake | Ingest and archive inbox packets from `router/inbox/` | Local router contract exists |
 | `scripts/project_router.py inbox-status` | inbox-status | List open inbox packet states | Inbox packets ingested |
 | `scripts/project_router.py inbox-ack` | inbox-ack | Acknowledge a packet (record decision: applied, blocked, rejected) | Inbox packets ingested; requires `--packet-id` and `--status` |
@@ -60,6 +64,24 @@ Scripts grouped by purpose. For the raw command list, see `CLAUDE.md`. This refe
 | `scripts/render_template_sync_pr_body.py` | Render the PR body for template sync PRs with diff-only diffs | Called by `template-upstream-sync.yml` Pass 5 |
 | `scripts/apply_managed_block_sync.py` | Sync managed blocks from upstream into local README files, preserving content outside markers | Called by `template-upstream-sync.yml` Pass 3 |
 | `scripts/migrate_add_contract_block.py` | Insert customization-contract markers into CLAUDE.md/AGENTS.md for old derived repos that lack them | Run once before first sync; also called by Pass 0 of the sync workflow |
+
+## Dashboard
+
+### dashboard.py
+
+**Purpose:** Launch the local web dashboard for visual note triage and pipeline monitoring.
+
+**When to use:** When you want a visual interface to browse notes, suggest project routing, review pipeline status, and inspect note details — instead of using CLI commands.
+
+**Usage:**
+- `python3 scripts/dashboard.py` — Start server and open browser at http://localhost:8420
+- `python3 scripts/dashboard.py --no-browser` — Start server without opening browser
+- `python3 scripts/dashboard.py --port 9000` — Use a custom port
+- `python3 scripts/dashboard.py --dev` — Enable CORS for frontend development
+
+**How it works:** Starts a local HTTP server (stdlib, no dependencies) that serves a React frontend and JSON API. Reads data from the existing `data/`, `state/`, and `projects/` directories via a SQLite cache. The dashboard can suggest project routing but never executes the pipeline or dispatches notes.
+
+**Related:** The `--dashboard` flag on `triage` and `review` commands auto-starts the dashboard after those commands complete.
 
 ## Testing
 

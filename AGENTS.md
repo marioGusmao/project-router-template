@@ -66,6 +66,7 @@
 - Prefer `python3 scripts/bootstrap_private_repo.py` when promoting a fresh template copy into a private operational repository.
 - Prefer `python3 scripts/bootstrap_local.py` when setting up a new machine or validating starter hygiene.
 - Prefer the repository entrypoint `python3 scripts/project_router_client.py ...` for direct VoiceNotes API access in project-facing docs and workflows.
+- Prefer the repository entrypoint `python3 scripts/readwise_client.py ...` for Readwise Reader API access.
 - Prefer `python3 scripts/project_router.py scan-outboxes` when pulling project-router packets from downstream repositories.
 - Prefer `python3 scripts/project_router.py doctor --project <key>` before trusting a downstream `router/` surface.
 - Prefer `python3 scripts/project_router.py migrate-source-layout --dry-run` before changing or auditing old local starter copies that still use the flat pre-source-aware layout.
@@ -95,6 +96,7 @@
 - `python3 scripts/bootstrap_local.py`
 - `python3 scripts/refresh_knowledge_local.py`
 - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
+- `python3 scripts/readwise_client.py sync --output-dir ./data/raw/readwise`
 - `python3 scripts/project_router.py status`
 - `python3 scripts/project_router.py normalize`
 - `python3 scripts/project_router.py triage`

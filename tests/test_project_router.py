@@ -13,6 +13,13 @@ from pathlib import Path
 from unittest import mock
 
 from src.project_router import cli
+from src.project_router import sync_client
+from src.project_router.services import paths as svc_paths
+from src.project_router.services import notes as svc_notes
+from src.project_router.services import projects as svc_projects
+from src.project_router.services import classification as svc_classification
+from src.project_router.services import decisions as svc_decisions
+from src.project_router.services import status as svc_status
 
 
 TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / ".tmp-tests"
@@ -46,6 +53,12 @@ def prepare_repo(root: Path) -> None:
         root / "data" / "review" / "filesystem" / "needs_review",
         root / "data" / "review" / "filesystem" / "ambiguous",
         root / "data" / "review" / "filesystem" / "pending_project",
+        root / "data" / "raw" / "readwise",
+        root / "data" / "normalized" / "readwise",
+        root / "data" / "compiled" / "readwise",
+        root / "data" / "review" / "readwise" / "ambiguous",
+        root / "data" / "review" / "readwise" / "needs_review",
+        root / "data" / "review" / "readwise" / "pending_project",
         root / "data" / "dispatched",
         root / "data" / "processed",
         root / "projects",
@@ -66,6 +79,8 @@ def patch_cli_paths(root: Path) -> ExitStack:
     data = root / "data"
     state = root / "state"
     stack = ExitStack()
+    svc_classification.load_parser_language_profiles.cache_clear()
+    stack.callback(svc_classification.load_parser_language_profiles.cache_clear)
     patches = {
         "ROOT": root,
         "DATA_DIR": data,
@@ -94,9 +109,24 @@ def patch_cli_paths(root: Path) -> ExitStack:
         "LOCAL_ROUTER_DIR": root / "router",
         "LOCAL_ROUTER_ARCHIVE_DIR": root / "router" / "archive",
         "INBOX_STATUS_DIR": state / "project_router" / "inbox_status",
+        "TEMPLATE_BASE_PATH": root / "template-base.json",
+        "PRIVATE_META_PATH": root / "private.meta.json",
+        "TEMPLATE_META_PATH": root / "template.meta.json",
+        "VERSION_PATH": root / "version.txt",
     }
     for key, value in patches.items():
         stack.enter_context(mock.patch.object(cli, key, value))
+        stack.enter_context(mock.patch.object(svc_paths, key, value))
+        if hasattr(svc_notes, key):
+            stack.enter_context(mock.patch.object(svc_notes, key, value))
+        if hasattr(svc_projects, key):
+            stack.enter_context(mock.patch.object(svc_projects, key, value))
+        if hasattr(svc_classification, key):
+            stack.enter_context(mock.patch.object(svc_classification, key, value))
+        if hasattr(svc_decisions, key):
+            stack.enter_context(mock.patch.object(svc_decisions, key, value))
+        if hasattr(svc_status, key):
+            stack.enter_context(mock.patch.object(svc_status, key, value))
     return stack
 
 
@@ -257,6 +287,47 @@ class ProjectRouterFlowTests(unittest.TestCase):
             self.assertIn("es", metadata["matched_languages"])
             self.assertIn("es", metadata["active_parser_languages"])
             self.assertFalse(metadata["mixed_languages"])
+
+    def test_normalize_respects_registry_enabled_parser_languages_override(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            (root / "projects" / "registry.shared.json").write_text(
+                json.dumps(
+                    {
+                        "defaults": {"enabled_parser_languages": ["pt", "en"]},
+                        "projects": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            raw_path = root / "data" / "raw" / "voicenotes" / "20260311T160000Z--vn_es_disabled.json"
+            raw_path.write_text(
+                json.dumps(
+                    {
+                        "source": "voicenotes",
+                        "source_endpoint": "recordings",
+                        "recording": {
+                            "id": "vn_es_disabled",
+                            "title": "Idea de proyecto",
+                            "created_at": "2026-03-11T16:00:00Z",
+                            "recorded_at": "2026-03-11T16:00:00Z",
+                            "recording_type": 3,
+                            "duration": 0,
+                            "tags": ["proyecto"],
+                            "transcript": "Necesito llamar al contratista manana para el presupuesto de la cocina.",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch_cli_paths(root):
+                cli.normalize_command(type("Args", (), {"source": "voicenotes"})())
+            normalized = root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_es_disabled.md"
+            metadata, _ = cli.read_note(normalized)
+            self.assertEqual(metadata["active_parser_languages"], ["pt", "en"])
+            self.assertNotEqual(metadata["source_language"], "es")
+            self.assertNotIn("es", metadata["matched_languages"])
 
     def test_triage_routes_unmatched_voicenote_to_pending_project_queue(self) -> None:
         with temporary_repo_dir() as tmp:
@@ -1548,6 +1619,208 @@ class PR1FixTests(unittest.TestCase):
             self.assertIn("project-router` inbox/outbox", output)
             self.assertIn("doctor --project <key>", output)
 
+    def test_extract_template_version_accepts_prefixed_tags(self) -> None:
+        self.assertEqual(cli.extract_template_version("project-router-template-v0.6.0"), "0.6.0")
+        self.assertEqual(cli.extract_template_version("v0.6.0"), "0.6.0")
+        self.assertEqual(cli.extract_template_version("0.6.0"), "0.6.0")
+        self.assertIsNone(cli.extract_template_version("release-candidate"))
+
+    def test_template_update_status_command_reports_stale_metadata_when_local_version_matches_latest(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            (root / "template-base.json").write_text(
+                json.dumps(
+                    {
+                        "template_repo": "marioGusmao/project-router-template",
+                        "template_base_version": "0.1.0",
+                        "template_base_tag": "v0.1.0",
+                        "last_template_sync_at": "2026-03-14T21:30:55Z",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (root / "private.meta.json").write_text(
+                json.dumps({"repo_role": "private-derived", "template_repo": "marioGusmao/project-router-template"}, indent=2),
+                encoding="utf-8",
+            )
+            (root / "version.txt").write_text("0.6.0\n", encoding="utf-8")
+
+            with patch_cli_paths(root):
+                with unittest.mock.patch.object(
+                    cli,
+                    "fetch_latest_template_release",
+                    return_value={
+                        "tag_name": "project-router-template-v0.6.0",
+                        "published_at": "2026-03-18T17:42:20Z",
+                        "html_url": "https://github.com/marioGusmao/project-router-template/releases/tag/project-router-template-v0.6.0",
+                    },
+                ):
+                    with unittest.mock.patch("builtins.print") as mock_print:
+                        cli.template_update_status_command(type("Args", (), {"check_remote": True})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["status"], "metadata_stale")
+            self.assertEqual(output["current_version"], "0.6.0")
+            self.assertEqual(output["recorded_version"], "0.1.0")
+            self.assertEqual(output["latest_version"], "0.6.0")
+            self.assertFalse(output["update_required"])
+            self.assertFalse(output["should_prompt_user"])
+            self.assertTrue(output["metadata_needs_sync"])
+            self.assertEqual(output["latest_tag"], "project-router-template-v0.6.0")
+
+    def test_template_update_status_command_reports_up_to_date_when_versions_match(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            (root / "template-base.json").write_text(
+                json.dumps(
+                    {
+                        "template_repo": "marioGusmao/project-router-template",
+                        "template_base_version": "0.6.0",
+                        "template_base_tag": "project-router-template-v0.6.0",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (root / "private.meta.json").write_text(
+                json.dumps({"repo_role": "private-derived", "template_repo": "marioGusmao/project-router-template"}, indent=2),
+                encoding="utf-8",
+            )
+
+            with patch_cli_paths(root):
+                with unittest.mock.patch.object(
+                    cli,
+                    "fetch_latest_template_release",
+                    return_value={
+                        "tag_name": "project-router-template-v0.6.0",
+                        "published_at": "2026-03-18T17:42:20Z",
+                        "html_url": "https://github.com/marioGusmao/project-router-template/releases/tag/project-router-template-v0.6.0",
+                    },
+                ):
+                    with unittest.mock.patch("builtins.print") as mock_print:
+                        cli.template_update_status_command(type("Args", (), {"check_remote": True})())
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["status"], "up_to_date")
+            self.assertFalse(output["update_required"])
+            self.assertFalse(output["should_prompt_user"])
+            self.assertFalse(output["metadata_needs_sync"])
+
+    def test_template_sync_metadata_command_updates_template_base_from_local_version(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            (root / "template-base.json").write_text(
+                json.dumps(
+                    {
+                        "template_repo": "marioGusmao/project-router-template",
+                        "template_base_version": "0.1.0",
+                        "template_base_tag": "v0.1.0",
+                        "template_base_commit": "b6e1481b50f94c010ba2c867b7500db9098ed950",
+                        "last_template_sync_at": "2026-03-14T21:30:55Z",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (root / "private.meta.json").write_text(
+                json.dumps({"repo_role": "private-derived", "template_repo": "marioGusmao/project-router-template"}, indent=2),
+                encoding="utf-8",
+            )
+            (root / "template.meta.json").write_text(
+                json.dumps(
+                    {
+                        "template_name": "project-router-template",
+                        "template_repo": "marioGusmao/project-router-template",
+                        "version": "0.6.0",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (root / "version.txt").write_text("0.6.0\n", encoding="utf-8")
+
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    exit_code = cli.template_sync_metadata_command(
+                        type(
+                            "Args",
+                            (),
+                            {
+                                "check": False,
+                                "template_repo": None,
+                                "template_version": None,
+                                "template_tag": None,
+                                "template_commit": "acb40a2657d99f4766610122147cf4c41fea1ed5",
+                                "synced_at": "2026-03-19T10:00:00Z",
+                            },
+                        )()
+                    )
+            self.assertEqual(exit_code, 0)
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["status"], "updated")
+            payload = json.loads((root / "template-base.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["template_base_version"], "0.6.0")
+            self.assertEqual(payload["template_base_tag"], "project-router-template-v0.6.0")
+            self.assertEqual(payload["template_base_commit"], "acb40a2657d99f4766610122147cf4c41fea1ed5")
+            self.assertEqual(payload["last_template_sync_at"], "2026-03-19T10:00:00Z")
+
+    def test_template_sync_metadata_check_is_clean_when_template_base_is_current(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            (root / "template-base.json").write_text(
+                json.dumps(
+                    {
+                        "template_repo": "marioGusmao/project-router-template",
+                        "template_base_version": "0.6.0",
+                        "template_base_tag": "project-router-template-v0.6.0",
+                        "template_base_commit": "acb40a2657d99f4766610122147cf4c41fea1ed5",
+                        "last_template_sync_at": "2026-03-19T10:00:00Z",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (root / "private.meta.json").write_text(
+                json.dumps({"repo_role": "private-derived", "template_repo": "marioGusmao/project-router-template"}, indent=2),
+                encoding="utf-8",
+            )
+            (root / "template.meta.json").write_text(
+                json.dumps(
+                    {
+                        "template_name": "project-router-template",
+                        "template_repo": "marioGusmao/project-router-template",
+                        "version": "0.6.0",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (root / "version.txt").write_text("0.6.0\n", encoding="utf-8")
+
+            with patch_cli_paths(root):
+                with unittest.mock.patch("builtins.print") as mock_print:
+                    exit_code = cli.template_sync_metadata_command(
+                        type(
+                            "Args",
+                            (),
+                            {
+                                "check": True,
+                                "template_repo": None,
+                                "template_version": None,
+                                "template_tag": None,
+                                "template_commit": "acb40a2657d99f4766610122147cf4c41fea1ed5",
+                                "synced_at": None,
+                            },
+                        )()
+                    )
+            self.assertEqual(exit_code, 0)
+            output = parse_print_json(mock_print)
+            self.assertEqual(output["status"], "ok")
+            self.assertFalse(output["changed"])
+
     def test_metadata_paths_are_relative(self) -> None:
         """Decision packets must use project-relative paths for internal metadata."""
         with temporary_repo_dir() as tmp:
@@ -1703,7 +1976,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d1", "decision": "approve", "final_project": "home_renovation",
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d1.md")
             self.assertEqual(metadata["status"], "classified")
@@ -1724,7 +1997,7 @@ class DecideCommandTests(unittest.TestCase):
                     cli.decide_command(type("Args", (), {
                         "note_id": "vn_d2", "decision": "approve", "final_project": None,
                         "final_type": None, "user_keywords": None, "related_note_ids": None,
-                        "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                        "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                     })())
                 self.assertIn("Approve requires", str(ctx.exception))
 
@@ -1739,7 +2012,7 @@ class DecideCommandTests(unittest.TestCase):
                     cli.decide_command(type("Args", (), {
                         "note_id": "vn_d3", "decision": "approve", "final_project": "nonexistent_project",
                         "final_type": None, "user_keywords": None, "related_note_ids": None,
-                        "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                        "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                     })())
                 self.assertIn("Unknown project", str(ctx.exception))
 
@@ -1753,7 +2026,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d4", "decision": "ambiguous", "final_project": None,
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d4.md")
             self.assertEqual(metadata["status"], "ambiguous")
@@ -1769,7 +2042,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d5", "decision": "pending-project", "final_project": None,
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d5.md")
             self.assertEqual(metadata["status"], "pending_project")
@@ -1785,7 +2058,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d6", "decision": "reject", "final_project": None,
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d6.md")
             self.assertEqual(metadata["status"], "needs_review")
@@ -1802,7 +2075,7 @@ class DecideCommandTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_d7", "decision": "approve", "final_project": "home_renovation",
                     "final_type": "meeting-notes", "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "Looks good", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "Looks good", "source": "all",
                 })())
             packets = list((root / "state" / "decisions").glob("*vn-d7*"))
             self.assertEqual(len(packets), 1)
@@ -1825,7 +2098,7 @@ class DecideCommandTests(unittest.TestCase):
                     "note_id": "vn_d8", "decision": "approve", "final_project": "home_renovation",
                     "final_type": None, "user_keywords": ["bathroom", "tile"],
                     "related_note_ids": ["vn_d7"], "thread_id": "thread-001",
-                    "continuation_of": "vn_d7", "notes": "", "source": "all",
+                    "continuation_of": "vn_d7", "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_d8.md")
             self.assertIn("bathroom", metadata.get("user_keywords", []))
@@ -4398,6 +4671,35 @@ def write_compiled_brief_inbox_packet(root: Path, packet_id: str, *, title: str 
     return path
 
 
+def write_sparse_compiled_brief_inbox_packet(root: Path, packet_id: str, *, title: str = "Brief Title") -> Path:
+    """Write a compiled-brief packet that lacks capture_kind/inferred_keywords but should still convert."""
+    inbox = root / "router" / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = inbox / f"20260318T201300Z--{packet_id}.md"
+    path.write_text(
+        "---\n"
+        'source: "project_router"\n'
+        'source_project: "my_project_router"\n'
+        f'source_note_id: "{packet_id}"\n'
+        'created_at: "2026-03-18T20:13:00Z"\n'
+        'project: "project_router_template"\n'
+        'classification: "maintainer-follow-up"\n'
+        'capture_kind: null\n'
+        'intent: null\n'
+        'confidence: 1.0\n'
+        'user_keywords: []\n'
+        'inferred_keywords: []\n'
+        'status: "to_review"\n'
+        'compiled_path: "data/compiled/project_router/my_project_router/20260318T201300Z--'
+        f'{packet_id}.md"\n'
+        'brief_summary: "Registry override follow-up."\n'
+        "---\n\n"
+        f"# {title}\n\nBody content.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def write_local_router_contract(root: Path) -> None:
     """Write a router-contract.json for the local router."""
     contract_path = root / "router" / "router-contract.json"
@@ -4450,6 +4752,22 @@ class InboxConsumptionTests(unittest.TestCase):
             self.assertEqual(result["ingested"], 1)
             self.assertFalse(pkt.exists())
             state = json.loads((root / "state" / "project_router" / "inbox_status" / "brief_001.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "open")
+            self.assertEqual(state["packet_type"], "improvement_proposal")
+
+    def test_inbox_intake_converts_sparse_brief(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_local_router_contract(root)
+            pkt = write_sparse_compiled_brief_inbox_packet(root, "brief_sparse_001", title="Sparse Brief")
+            with patch_cli_paths(root), mock.patch("builtins.print") as mock_print:
+                cli.inbox_intake_command(type("Args", (), {"dry_run": False})())
+            result = parse_print_json(mock_print)
+            self.assertEqual(result["ingested"], 1)
+            self.assertEqual(result["errors"], 0)
+            self.assertFalse(pkt.exists())
+            state = json.loads((root / "state" / "project_router" / "inbox_status" / "brief_sparse_001.json").read_text(encoding="utf-8"))
             self.assertEqual(state["status"], "open")
             self.assertEqual(state["packet_type"], "improvement_proposal")
 
@@ -4766,7 +5084,7 @@ class TriagePreservationTests(unittest.TestCase):
                 cli.decide_command(type("Args", (), {
                     "note_id": "vn_rt1", "decision": "reject", "final_project": None,
                     "final_type": None, "user_keywords": None, "related_note_ids": None,
-                    "thread_id": None, "continuation_of": None, "notes": "", "source": "all",
+                    "thread_id": None, "continuation_of": None, "reviewer_notes": "", "source": "all",
                 })())
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rt1.md")
             self.assertEqual(metadata["review_status"], "reject")
@@ -4776,6 +5094,421 @@ class TriagePreservationTests(unittest.TestCase):
             metadata, _ = cli.read_note(root / "data" / "normalized" / "voicenotes" / "20260311T160000Z--vn_rt1.md")
             self.assertEqual(metadata["review_status"], "reject")
             self.assertTrue(metadata["requires_user_confirmation"])
+
+
+class SyncClientTests(unittest.TestCase):
+    def test_first_sync_requires_explicit_scope(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            output_dir = root / "exports"
+            args = type(
+                "Args",
+                (),
+                {
+                    "output_dir": str(output_dir),
+                    "tags": [],
+                    "date_from": None,
+                    "date_to": None,
+                    "window_days": None,
+                    "full_history": False,
+                    "max_pages": 10,
+                    "overwrite": False,
+                    "state_file": root / "state" / "sync_state.json",
+                    "no_checkpoint": False,
+                },
+            )()
+            with self.assertRaisesRegex(SystemExit, "First sync requires an explicit history scope"):
+                sync_client.command_sync(args)
+
+    def test_window_days_scopes_first_sync(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            output_dir = root / "exports"
+            args = type(
+                "Args",
+                (),
+                {
+                    "output_dir": str(output_dir),
+                    "tags": [],
+                    "date_from": None,
+                    "date_to": None,
+                    "window_days": 7,
+                    "full_history": False,
+                    "max_pages": 10,
+                    "overwrite": False,
+                    "state_file": root / "state" / "sync_state.json",
+                    "no_checkpoint": False,
+                },
+            )()
+            with (
+                mock.patch.object(sync_client, "iso_now", return_value="2026-03-18T12:00:00Z"),
+                mock.patch.object(sync_client, "fetch_page", return_value={"data": [], "links": {"next": None}}) as fetch_mock,
+                mock.patch("builtins.print") as print_mock,
+            ):
+                result = sync_client.command_sync(args)
+            self.assertEqual(result, 0)
+            fetch_mock.assert_called_once_with(1, [], "2026-03-11T12:00:00Z", None)
+            summary = parse_print_json(print_mock)
+            self.assertEqual(summary["effective_from"], "2026-03-11T12:00:00Z")
+
+    def test_full_history_allows_first_sync(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            output_dir = root / "exports"
+            args = type(
+                "Args",
+                (),
+                {
+                    "output_dir": str(output_dir),
+                    "tags": [],
+                    "date_from": None,
+                    "date_to": None,
+                    "window_days": None,
+                    "full_history": True,
+                    "max_pages": 10,
+                    "overwrite": False,
+                    "state_file": root / "state" / "sync_state.json",
+                    "no_checkpoint": False,
+                },
+            )()
+            with (
+                mock.patch.object(sync_client, "fetch_page", return_value={"data": [], "links": {"next": None}}) as fetch_mock,
+                mock.patch("builtins.print") as print_mock,
+            ):
+                result = sync_client.command_sync(args)
+            self.assertEqual(result, 0)
+            fetch_mock.assert_called_once_with(1, [], None, None)
+            summary = parse_print_json(print_mock)
+            self.assertIsNone(summary["effective_from"])
+
+    def test_existing_checkpoint_remains_default_scope(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            output_dir = root / "exports"
+            state_file = root / "state" / "sync_state.json"
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text(
+                json.dumps({"last_synced_at": "2026-03-14T16:49:47.000000Z", "last_synced_ids": ["42VULMHb"]}),
+                encoding="utf-8",
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "output_dir": str(output_dir),
+                    "tags": [],
+                    "date_from": None,
+                    "date_to": None,
+                    "window_days": None,
+                    "full_history": False,
+                    "max_pages": 10,
+                    "overwrite": False,
+                    "state_file": state_file,
+                    "no_checkpoint": False,
+                },
+            )()
+            with (
+                mock.patch.object(sync_client, "fetch_page", return_value={"data": [], "links": {"next": None}}) as fetch_mock,
+                mock.patch("builtins.print"),
+            ):
+                result = sync_client.command_sync(args)
+            self.assertEqual(result, 0)
+            fetch_mock.assert_called_once_with(1, [], "2026-03-14T16:49:47.000000Z", None)
+
+    def test_no_checkpoint_requires_explicit_scope_even_with_saved_state(self) -> None:
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            output_dir = root / "exports"
+            state_file = root / "state" / "sync_state.json"
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text(
+                json.dumps({"last_synced_at": "2026-03-14T16:49:47.000000Z", "last_synced_ids": ["42VULMHb"]}),
+                encoding="utf-8",
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "output_dir": str(output_dir),
+                    "tags": [],
+                    "date_from": None,
+                    "date_to": None,
+                    "window_days": None,
+                    "full_history": False,
+                    "max_pages": 10,
+                    "overwrite": False,
+                    "state_file": state_file,
+                    "no_checkpoint": True,
+                },
+            )()
+            with self.assertRaisesRegex(SystemExit, "First sync requires an explicit history scope"):
+                sync_client.command_sync(args)
+
+
+    def test_dashboard_suggestion_fields_round_trip(self):
+        """user_suggested_project, user_suggestion_timestamp, reviewer_notes survive write/read."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            with patch_cli_paths(root):
+                note_path = cli.NORMALIZED_DIR / "voicenotes" / "20260318T100000Z--test_suggest.md"
+                metadata = cli.ensure_note_metadata_defaults({
+                    "source": "voicenotes",
+                    "source_note_id": "test_suggest",
+                    "title": "Test note",
+                    "status": "classified",
+                    "project": "home_renovation",
+                })
+                metadata["user_suggested_project"] = "garden"
+                metadata["user_suggestion_timestamp"] = "2026-03-18T14:30:00Z"
+                metadata["reviewer_notes"] = "Check: the routing seems wrong"
+                cli.write_note(note_path, metadata, "Body text")
+                loaded, body = cli.read_note(note_path)
+                self.assertEqual(loaded["user_suggested_project"], "garden")
+                self.assertEqual(loaded["user_suggestion_timestamp"], "2026-03-18T14:30:00Z")
+                self.assertEqual(loaded["reviewer_notes"], "Check: the routing seems wrong")
+
+    def test_apply_annotations_reviewer_notes(self):
+        """apply_note_annotations sets reviewer_notes from args."""
+        import argparse
+        metadata = cli.ensure_note_metadata_defaults({"source_note_id": "test1"})
+        args = argparse.Namespace(
+            user_keywords=None, related_note_ids=None,
+            thread_id=None, continuation_of=None,
+            reviewer_notes="Routing seems wrong",
+        )
+        cli.apply_note_annotations(metadata, args, "test1")
+        self.assertEqual(metadata["reviewer_notes"], "Routing seems wrong")
+
+
+    def test_review_entry_includes_suggestion_fields(self):
+        """build_review_entry includes user_suggested_project and reviewer_notes."""
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_path = cli.NORMALIZED_DIR / "voicenotes" / "20260318T100000Z--vn_review_suggest.md"
+                metadata = cli.ensure_note_metadata_defaults({
+                    "source": "voicenotes",
+                    "source_note_id": "vn_review_suggest",
+                    "title": "Review test",
+                    "status": "classified",
+                    "project": "home_renovation",
+                    "user_suggested_project": "garden",
+                    "user_suggestion_timestamp": "2026-03-18T14:30:00Z",
+                    "reviewer_notes": "Check routing",
+                })
+                cli.write_note(note_path, metadata, "Body")
+                packet = cli.build_decision_packet(note_path, metadata, "Body",
+                                                   route="home_renovation",
+                                                   details={"home_renovation": 3, "confidence": 0.8},
+                                                   reason="test")
+                cli.save_decision_packet_for_metadata(metadata, packet)
+                entry = cli.build_review_entry(packet, cli.decision_packet_path_for_metadata(metadata))
+                self.assertEqual(entry["user_suggested_project"], "garden")
+                self.assertEqual(entry["user_suggestion_timestamp"], "2026-03-18T14:30:00Z")
+                self.assertEqual(entry["reviewer_notes"], "Check routing")
+
+    def test_decide_approve_clears_suggestion(self):
+        """decide approve clears user_suggested_project and timestamp."""
+        import argparse
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_path = cli.NORMALIZED_DIR / "voicenotes" / "20260318T100000Z--vn_clear_suggest.md"
+                metadata = cli.ensure_note_metadata_defaults({
+                    "source": "voicenotes",
+                    "source_note_id": "vn_clear_suggest",
+                    "title": "Clear test",
+                    "status": "needs_review",
+                    "project": None,
+                    "user_suggested_project": "home_renovation",
+                    "user_suggestion_timestamp": "2026-03-18T14:30:00Z",
+                })
+                cli.write_note(note_path, metadata, "Body")
+                packet = cli.build_decision_packet(note_path, metadata, "Body",
+                                                   route="needs_review", details={}, reason="test")
+                cli.save_decision_packet_for_metadata(metadata, packet)
+                args = argparse.Namespace(
+                    decision="approve", final_project="home_renovation", final_type=None,
+                    note_id="vn_clear_suggest", source=None,
+                    user_keywords=None, related_note_ids=None,
+                    thread_id=None, continuation_of=None, reviewer_notes=None,
+                )
+                cli.decide_command(args)
+                loaded, _ = cli.read_note(note_path)
+                self.assertIsNone(loaded.get("user_suggested_project"))
+                self.assertIsNone(loaded.get("user_suggestion_timestamp"))
+                self.assertEqual(loaded["project"], "home_renovation")
+                self.assertEqual(loaded["status"], "classified")
+
+
+class TestReadwiseSyncClient(unittest.TestCase):
+    def _with_clean_env(self, fn):
+        """Run fn with both READWISE env vars removed and load_local_env mocked out."""
+        import src.project_router.readwise_client as rwc
+        saved = {}
+        for key in ("READWISE_ACCESS_TOKEN", "READWISE_TOKEN"):
+            if key in os.environ:
+                saved[key] = os.environ.pop(key)
+        with mock.patch.object(rwc, "load_local_env"):
+            try:
+                return fn()
+            finally:
+                os.environ.update(saved)
+
+    def test_require_readwise_token_raises_when_missing(self):
+        from src.project_router.readwise_client import require_access_token
+        def fn():
+            with self.assertRaises(SystemExit):
+                require_access_token()
+        self._with_clean_env(fn)
+
+    def test_require_readwise_token_primary(self):
+        from src.project_router.readwise_client import require_access_token
+        def fn():
+            os.environ["READWISE_ACCESS_TOKEN"] = "test_token"
+            self.assertEqual(require_access_token(), "test_token")
+        self._with_clean_env(fn)
+
+    def test_require_readwise_token_alias(self):
+        from src.project_router.readwise_client import require_access_token
+        def fn():
+            os.environ["READWISE_TOKEN"] = "alias_token"
+            self.assertEqual(require_access_token(), "alias_token")
+        self._with_clean_env(fn)
+
+    def test_readwise_note_filename(self):
+        from src.project_router.readwise_client import readwise_note_filename
+        doc = {"id": "abc123", "created_at": "2026-03-15T08:00:00Z"}
+        result = readwise_note_filename(doc)
+        self.assertIn("rw_abc123", result)
+        self.assertTrue(result.endswith(".json"))
+        self.assertIn("20260315", result)
+
+    def test_raw_export_payload_structure(self):
+        from src.project_router.readwise_client import raw_export_payload
+        doc = {"id": "abc123", "title": "Test", "parent_id": None}
+        result = raw_export_payload(doc)
+        self.assertEqual(result["source"], "readwise")
+        self.assertEqual(result["source_endpoint"], "reader/list")
+        self.assertEqual(result["source_item_type"], "reader_document")
+        self.assertIn("synced_at", result)
+        self.assertEqual(result["document"], doc)
+
+    def test_should_skip_child_highlight(self):
+        from src.project_router.readwise_client import should_skip_document
+        self.assertFalse(should_skip_document({"id": "abc", "parent_id": None}))
+        self.assertTrue(should_skip_document({"id": "def", "parent_id": "abc"}))
+
+    def test_should_skip_excluded_category(self):
+        from src.project_router.readwise_client import should_skip_document
+        rss_doc = {"id": "abc", "parent_id": None, "category": "rss"}
+        article_doc = {"id": "def", "parent_id": None, "category": "article"}
+        self.assertTrue(should_skip_document(rss_doc, exclude_categories={"rss"}))
+        self.assertFalse(should_skip_document(article_doc, exclude_categories={"rss"}))
+        self.assertFalse(should_skip_document(rss_doc, exclude_categories=None))
+
+    def test_merge_sync_state_advances_watermark(self):
+        from src.project_router.readwise_client import merge_sync_state
+        existing = {"last_synced_at": "2026-03-15T00:00:00Z", "last_synced_ids": ["rw_1"]}
+        result = merge_sync_state(existing, "2026-03-16T00:00:00Z", ["rw_2"])
+        self.assertEqual(result["last_synced_at"], "2026-03-16T00:00:00Z")
+        self.assertEqual(result["last_synced_ids"], ["rw_2"])
+
+    def test_merge_sync_state_appends_same_timestamp(self):
+        from src.project_router.readwise_client import merge_sync_state
+        existing = {"last_synced_at": "2026-03-15T00:00:00Z", "last_synced_ids": ["rw_1"]}
+        result = merge_sync_state(existing, "2026-03-15T00:00:00Z", ["rw_2"])
+        self.assertEqual(result["last_synced_at"], "2026-03-15T00:00:00Z")
+        self.assertIn("rw_1", result["last_synced_ids"])
+        self.assertIn("rw_2", result["last_synced_ids"])
+
+
+class TestReadwiseNormalize(unittest.TestCase):
+    READWISE_RAW = {
+        "source": "readwise",
+        "source_endpoint": "reader/list",
+        "source_item_type": "reader_document",
+        "synced_at": "2026-03-19T10:00:00Z",
+        "document": {
+            "id": "abc123",
+            "title": "Test Article",
+            "author": "Jane Doe",
+            "url": "https://reader.readwise.io/abc123",
+            "source_url": "https://example.com/article",
+            "category": "article",
+            "location": "archive",
+            "tags": {"python": "tag_1", "testing": "tag_2"},
+            "notes": "My notes on this",
+            "summary": "A test article summary.",
+            "word_count": 500,
+            "reading_progress": 0.8,
+            "site_name": "Example",
+            "published_date": "2026-03-01",
+            "created_at": "2026-03-15T08:00:00Z",
+            "updated_at": "2026-03-18T14:30:00Z",
+            "parent_id": None,
+        },
+    }
+
+    def test_normalize_readwise_creates_markdown(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_path = root / "data" / "raw" / "readwise" / "20260315T080000Z--rw_abc123.json"
+            raw_path.write_text(json.dumps(self.READWISE_RAW), encoding="utf-8")
+            with patch_cli_paths(root):
+                result = cli.main(["normalize", "--source", "readwise"])
+            self.assertEqual(result, 0)
+            md_files = list((root / "data" / "normalized" / "readwise").glob("*.md"))
+            self.assertEqual(len(md_files), 1)
+
+    def test_normalize_readwise_metadata_fields(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_path = root / "data" / "raw" / "readwise" / "20260315T080000Z--rw_abc123.json"
+            raw_path.write_text(json.dumps(self.READWISE_RAW), encoding="utf-8")
+            with patch_cli_paths(root):
+                cli.main(["normalize", "--source", "readwise"])
+            md_file = list((root / "data" / "normalized" / "readwise").glob("*.md"))[0]
+            metadata, body = cli.read_note(md_file)
+            self.assertEqual(metadata["source"], "readwise")
+            self.assertEqual(metadata["source_note_id"], "rw_abc123")
+            self.assertEqual(metadata["source_item_type"], "reader_document")
+            self.assertEqual(metadata["title"], "Test Article")
+            self.assertEqual(metadata["author"], "Jane Doe")
+            self.assertEqual(metadata["source_url"], "https://example.com/article")
+            self.assertIn("python", metadata["tags"])
+            self.assertIn("testing", metadata["tags"])
+            self.assertIsInstance(metadata["tags"], list)
+            self.assertEqual(metadata["reader_location"], "archive")
+            self.assertEqual(metadata["reader_category"], "article")
+            self.assertTrue(metadata["summary_available"])
+            self.assertEqual(metadata["summary_source"], "reader")
+
+    def test_normalize_readwise_body_content(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_path = root / "data" / "raw" / "readwise" / "20260315T080000Z--rw_abc123.json"
+            raw_path.write_text(json.dumps(self.READWISE_RAW), encoding="utf-8")
+            with patch_cli_paths(root):
+                cli.main(["normalize", "--source", "readwise"])
+            md_file = list((root / "data" / "normalized" / "readwise").glob("*.md"))[0]
+            _, body = cli.read_note(md_file)
+            self.assertIn("# Test Article", body)
+            self.assertIn("A test article summary.", body)
+            self.assertIn("My notes on this", body)
+            self.assertIn("https://example.com/article", body)
+            self.assertIn("Jane Doe", body)
 
 
 if __name__ == "__main__":

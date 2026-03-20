@@ -4,239 +4,126 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from functools import lru_cache
 import hashlib
 import json
 import os
 import shutil
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "data"
-RAW_DIR = DATA_DIR / "raw"
-NORMALIZED_DIR = DATA_DIR / "normalized"
-COMPILED_DIR = DATA_DIR / "compiled"
-REVIEW_DIR = DATA_DIR / "review"
-DISPATCHED_DIR = DATA_DIR / "dispatched"
-PROCESSED_DIR = DATA_DIR / "processed"
-STATE_DIR = ROOT / "state"
-DECISIONS_DIR = STATE_DIR / "decisions"
-DISCOVERIES_DIR = STATE_DIR / "discoveries"
-PROJECT_ROUTER_STATE_DIR = STATE_DIR / "project_router"
-OUTBOX_SCAN_STATE_PATH = PROJECT_ROUTER_STATE_DIR / "outbox_scan_state.json"
-OUTBOX_SCAN_LOCK_PATH = PROJECT_ROUTER_STATE_DIR / "scan.lock"
-REGISTRY_LOCAL_PATH = ROOT / "projects" / "registry.local.json"
-REGISTRY_SHARED_PATH = ROOT / "projects" / "registry.shared.json"
-REGISTRY_EXAMPLE_PATH = ROOT / "projects" / "registry.example.json"
-ENV_LOCAL_PATH = ROOT / ".env.local"
-ENV_PATH = ROOT / ".env"
-DISCOVERY_REPORT_PATH = DISCOVERIES_DIR / "pending_project_latest.json"
-LOCAL_ROUTER_DIR = ROOT / "router"
-LOCAL_ROUTER_ARCHIVE_DIR = LOCAL_ROUTER_DIR / "archive"
-INBOX_STATUS_DIR = PROJECT_ROUTER_STATE_DIR / "inbox_status"
-NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-VOICE_SOURCE = "voicenotes"
-PROJECT_ROUTER_SOURCE = "project_router"
-FILESYSTEM_SOURCE = "filesystem"
-KNOWN_SOURCES = frozenset({VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE})
-REVIEW_QUEUE_STATUSES = ("ambiguous", "needs_review", "pending_project")
-FILESYSTEM_REVIEW_STATUSES = ("parse_errors", "needs_extraction", "needs_review", "ambiguous", "pending_project")
-AMBIGUOUS_DIR = REVIEW_DIR / VOICE_SOURCE / "ambiguous"
-NEEDS_REVIEW_DIR = REVIEW_DIR / VOICE_SOURCE / "needs_review"
-PENDING_PROJECT_DIR = REVIEW_DIR / VOICE_SOURCE / "pending_project"
-PARSER_LANGUAGE_PROFILES_PATH = Path(__file__).resolve().with_name("parser_language_profiles.json")
-GENERIC_PARSER_STOPWORDS = frozenset(
-    {
-        "capture",
-        "meeting",
-        "note",
-        "notes",
-        "nota",
-        "notas",
-        "space",
-        "speaker",
-        "test",
-        "teste",
-        "uhum",
-        "voice",
-        "voicenotes",
-        "welcome",
-    }
+from .services.paths import (  # noqa: E402
+    ROOT, DATA_DIR, RAW_DIR, NORMALIZED_DIR, COMPILED_DIR, REVIEW_DIR,
+    DISPATCHED_DIR, PROCESSED_DIR, STATE_DIR, DECISIONS_DIR, DISCOVERIES_DIR,
+    PROJECT_ROUTER_STATE_DIR, OUTBOX_SCAN_STATE_PATH, OUTBOX_SCAN_LOCK_PATH,
+    ADOPTIONS_DIR, INBOX_STATUS_DIR, DISCOVERY_REPORT_PATH,
+    REGISTRY_LOCAL_PATH, REGISTRY_SHARED_PATH, REGISTRY_EXAMPLE_PATH,
+    ENV_LOCAL_PATH, ENV_PATH, LOCAL_ROUTER_DIR, LOCAL_ROUTER_ARCHIVE_DIR,
+    TEMPLATE_BASE_PATH, PRIVATE_META_PATH, TEMPLATE_META_PATH, VERSION_PATH,
+    NOTE_ID_PATTERN, VOICE_SOURCE, PROJECT_ROUTER_SOURCE, FILESYSTEM_SOURCE, READWISE_SOURCE,
+    KNOWN_SOURCES, REVIEW_QUEUE_STATUSES, FILESYSTEM_REVIEW_STATUSES, READWISE_REVIEW_STATUSES,
+    AMBIGUOUS_DIR, NEEDS_REVIEW_DIR, PENDING_PROJECT_DIR,
+    normalize_source_name,
 )
-PROFILE_TERM_FIELDS = (
-    "stopwords",
-    "summary_terms",
-    "follow_up_terms",
-    "calendar_terms",
-    "project_idea_terms",
-    "task_terms",
-    "purchase_terms",
-    "journal_terms",
-    "task_capture_terms",
-    "project_idea_capture_terms",
-    "task_triggers",
-    "decision_triggers",
-    "open_question_triggers",
-    "follow_up_triggers",
-    "timeline_terms",
-    "fact_terms",
+from .services.notes import (  # noqa: E402
+    parse_scalar, read_note, dump_value, write_note,
+    ensure_note_metadata_defaults, apply_note_annotations,
+    remove_review_copies, iso_now, list_markdown_files, list_raw_files,
+    review_dir_for, review_queue_directories,
 )
-
-
-def _normalize_term_list(values: Any, *, field: str, profile: str) -> tuple[str, ...]:
-    if values is None:
-        return ()
-    if not isinstance(values, list):
-        raise SystemExit(f"Parser language profile '{profile}' field '{field}' must be a list.")
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        term = str(value).strip().lower()
-        if not term or term in seen:
-            continue
-        seen.add(term)
-        normalized.append(term)
-    return tuple(normalized)
-
-
-@lru_cache(maxsize=1)
-def load_parser_language_profiles() -> dict[str, Any]:
-    try:
-        raw = json.loads(PARSER_LANGUAGE_PROFILES_PATH.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Missing parser language profile config at {PARSER_LANGUAGE_PROFILES_PATH}.") from exc
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"Invalid parser language profile config at {PARSER_LANGUAGE_PROFILES_PATH}: {exc}") from exc
-
-    profiles = raw.get("profiles")
-    if not isinstance(profiles, dict) or not profiles:
-        raise SystemExit("Parser language profile config must define a non-empty 'profiles' object.")
-
-    normalized_profiles: dict[str, dict[str, tuple[str, ...]]] = {}
-    for raw_key, raw_profile in profiles.items():
-        profile_key = str(raw_key).strip().lower()
-        if not profile_key:
-            raise SystemExit("Parser language profile keys cannot be empty.")
-        if not isinstance(raw_profile, dict):
-            raise SystemExit(f"Parser language profile '{profile_key}' must be an object.")
-        normalized_profiles[profile_key] = {
-            field: _normalize_term_list(raw_profile.get(field, []), field=field, profile=profile_key)
-            for field in PROFILE_TERM_FIELDS
-        }
-
-    enabled_profiles_raw = raw.get("enabled_profiles") or sorted(normalized_profiles)
-    if not isinstance(enabled_profiles_raw, list) or not enabled_profiles_raw:
-        raise SystemExit("Parser language profile config must define a non-empty 'enabled_profiles' list.")
-
-    enabled_profiles: list[str] = []
-    for value in enabled_profiles_raw:
-        key = str(value).strip().lower()
-        if key not in normalized_profiles:
-            raise SystemExit(f"Enabled parser language profile '{key}' is not defined in {PARSER_LANGUAGE_PROFILES_PATH.name}.")
-        if key not in enabled_profiles:
-            enabled_profiles.append(key)
-
-    return {"enabled_profiles": tuple(enabled_profiles), "profiles": normalized_profiles}
-
-
-def active_parser_profile_keys() -> tuple[str, ...]:
-    return load_parser_language_profiles()["enabled_profiles"]
-
-
-def active_parser_profiles() -> dict[str, dict[str, tuple[str, ...]]]:
-    config = load_parser_language_profiles()
-    profiles = config["profiles"]
-    return {key: profiles[key] for key in config["enabled_profiles"]}
-
-
-def active_parser_terms(field: str) -> tuple[str, ...]:
-    if field not in PROFILE_TERM_FIELDS:
-        raise SystemExit(f"Unsupported parser language profile field '{field}'.")
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for profile in active_parser_profiles().values():
-        for value in profile.get(field, ()):
-            if value in seen:
-                continue
-            seen.add(value)
-            ordered.append(value)
-    return tuple(ordered)
-
-
-def active_parser_stopwords() -> set[str]:
-    return set(GENERIC_PARSER_STOPWORDS) | set(active_parser_terms("stopwords"))
-
-
-def contains_any_term(text: str, terms: tuple[str, ...]) -> bool:
-    return any(term in text for term in terms)
-
-
-def detect_note_languages(metadata: dict[str, Any], body: str) -> dict[str, Any]:
-    sample_parts = [str(metadata.get("title") or "")]
-    sample_parts.extend(str(tag).strip() for tag in metadata.get("tags", []) if str(tag).strip())
-    sample_parts.append(body_excerpt(body, limit=1200))
-    sample = " ".join(part for part in sample_parts if part).lower()
-    sample_tokens = re.findall(r"[a-z0-9à-ÿ][a-z0-9à-ÿ_-]{1,}", sample)
-    if not sample_tokens:
-        return {
-            "source_language": "unknown",
-            "language_confidence": 0.0,
-            "matched_languages": [],
-            "mixed_languages": False,
-            "active_parser_languages": list(active_parser_profile_keys()),
-        }
-
-    scores: list[tuple[str, int]] = []
-    for profile_key, profile in active_parser_profiles().items():
-        stopword_hits = sum(1 for token in sample_tokens if token in profile.get("stopwords", ()))
-        phrase_hits = 0
-        for field in PROFILE_TERM_FIELDS:
-            if field == "stopwords":
-                continue
-            phrase_hits += sum(1 for term in profile.get(field, ()) if term and term in sample)
-        score = stopword_hits + (2 * phrase_hits)
-        if score > 0:
-            scores.append((profile_key, score))
-
-    if not scores:
-        return {
-            "source_language": "unknown",
-            "language_confidence": 0.0,
-            "matched_languages": [],
-            "mixed_languages": False,
-            "active_parser_languages": list(active_parser_profile_keys()),
-        }
-
-    scores.sort(key=lambda item: item[1], reverse=True)
-    total = sum(score for _, score in scores)
-    top_language, top_score = scores[0]
-    second_score = scores[1][1] if len(scores) > 1 else 0
-    confidence = round(min(0.95, top_score / max(1, total)), 2)
-    mixed_languages = len(scores) > 1 and second_score >= max(2, int(top_score * 0.6))
-    matched_languages = [language for language, _ in scores]
-    return {
-        "source_language": top_language,
-        "language_confidence": confidence,
-        "matched_languages": matched_languages,
-        "mixed_languages": mixed_languages,
-        "active_parser_languages": list(active_parser_profile_keys()),
-    }
-
-
-@dataclass
-class ProjectRule:
-    key: str
-    display_name: str
-    language: str
-    inbox_path: Path | None
-    router_root_path: Path | None
-    note_type: str
-    keywords: list[str]
+from .services.projects import (  # noqa: E402
+    ProjectRule, load_registry, read_registry_config, read_json_if_exists,
+    has_placeholder_path, merge_registry_configs,
+)
+from .services.classification import (  # noqa: E402
+    PARSER_LANGUAGE_PROFILES_PATH,
+    PARSER_ENABLED_LANGUAGES_DEFAULTS_KEY,
+    GENERIC_PARSER_STOPWORDS,
+    PROFILE_TERM_FIELDS,
+    _normalize_term_list,
+    _normalize_profile_key_list,
+    registry_enabled_parser_profiles_override,
+    load_parser_language_profiles,
+    active_parser_profile_keys,
+    active_parser_profiles,
+    active_parser_terms,
+    active_parser_stopwords,
+    contains_any_term,
+    detect_note_languages,
+    body_excerpt,
+    keyword_tokens,
+    extract_keywords,
+    note_keyword_set,
+    extract_signal_list,
+    classify_capture_kind,
+    classify_intent,
+    derive_outputs,
+    enrich_note_metadata,
+    route_note,
+)
+from .services.decisions import (  # noqa: E402
+    slugify,
+    require_valid_note_id,
+    relative_or_absolute,
+    source_project_key,
+    note_identity,
+    identity_slug,
+    decision_packet_path_for_metadata,
+    decision_packet_paths_for_note_id,
+    resolve_unique_decision_packet_path,
+    load_decision_packet_for_metadata,
+    load_decision_packet_by_path,
+    save_decision_packet_for_metadata,
+    candidate_scores,
+    build_decision_packet,
+    build_review_entry,
+    _raw_payload_path_from_packet,
+    count_pending_review_entries,
+    find_normalized_note_paths,
+    resolve_unique_normalized_note_path,
+)
+from .services.compilation import (  # noqa: E402
+    existing_artifact_path,
+    note_id_from_metadata,
+    transcript_text,
+    sentence_chunks,
+    unique_preserve,
+    extract_entities,
+    extract_facts,
+    extract_tasks,
+    extract_decisions,
+    extract_open_questions,
+    extract_follow_ups,
+    extract_timeline,
+    compile_summary,
+    build_confidence_by_field,
+    build_evidence_spans,
+    build_ambiguities,
+    format_bullet_section,
+    format_evidence_section,
+    compiled_filename_from_metadata,
+    compiled_note_path,
+    canonical_compile_signature,
+    compiled_artifact_state,
+    compile_note_artifact,
+)
+from .services.status import (  # noqa: E402
+    list_project_router_keys_for_artifacts,
+    list_filesystem_inbox_keys,
+    list_filesystem_manifests,
+    iter_source_dirs,
+    count_markdown,
+    count_raw,
+    count_manifests,
+    _count_inbox_states,
+    compute_pipeline_status,
+)
 
 
 def ensure_layout() -> None:
@@ -262,6 +149,12 @@ def ensure_layout() -> None:
         REVIEW_DIR / FILESYSTEM_SOURCE / "needs_review",
         REVIEW_DIR / FILESYSTEM_SOURCE / "ambiguous",
         REVIEW_DIR / FILESYSTEM_SOURCE / "pending_project",
+        RAW_DIR / READWISE_SOURCE,
+        NORMALIZED_DIR / READWISE_SOURCE,
+        COMPILED_DIR / READWISE_SOURCE,
+        REVIEW_DIR / READWISE_SOURCE / "ambiguous",
+        REVIEW_DIR / READWISE_SOURCE / "needs_review",
+        REVIEW_DIR / READWISE_SOURCE / "pending_project",
         DISPATCHED_DIR,
         PROCESSED_DIR,
         DECISIONS_DIR,
@@ -274,22 +167,6 @@ def ensure_layout() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def normalize_source_name(raw: str | None) -> str | None:
-    if raw is None:
-        return None
-    cleaned = str(raw).strip().lower()
-    aliases = {
-        "voice_notes": VOICE_SOURCE,
-        "voice-notes": VOICE_SOURCE,
-        "project-router": PROJECT_ROUTER_SOURCE,
-        "filesystem": FILESYSTEM_SOURCE,
-        "fs": FILESYSTEM_SOURCE,
-        "local-inbox": FILESYSTEM_SOURCE,
-        "inbox": FILESYSTEM_SOURCE,
-    }
-    return aliases.get(cleaned, cleaned)
-
-
 def parse_source_filter(raw: str | None) -> set[str]:
     source = normalize_source_name(raw)
     if source is None or source in {"all", "*"}:
@@ -298,27 +175,6 @@ def parse_source_filter(raw: str | None) -> set[str]:
         raise SystemExit(f"Unsupported --source '{raw}'. Use one of: {', '.join(sorted(KNOWN_SOURCES))}, all.")
     return {source}
 
-
-def source_project_key(metadata: dict[str, Any]) -> str | None:
-    value = metadata.get("source_project")
-    if value in (None, "", "null"):
-        return None
-    return str(value)
-
-
-def note_identity(metadata: dict[str, Any]) -> tuple[str, str | None, str]:
-    source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
-    source_project = source_project_key(metadata)
-    note_id = require_valid_note_id(metadata.get("source_note_id"))
-    return source, source_project, note_id
-
-
-def identity_slug(source: str, source_project: str | None, note_id: str) -> str:
-    parts = [normalize_source_name(source) or source]
-    if source_project:
-        parts.append(source_project)
-    parts.append(note_id)
-    return "--".join(slugify(part) or part for part in parts)
 
 
 def raw_dir_for(source: str, source_project: str | None = None) -> Path:
@@ -331,6 +187,8 @@ def raw_dir_for(source: str, source_project: str | None = None) -> Path:
         return RAW_DIR / PROJECT_ROUTER_SOURCE / source_project
     if source == FILESYSTEM_SOURCE:
         return RAW_DIR / FILESYSTEM_SOURCE
+    if source == READWISE_SOURCE:
+        return RAW_DIR / READWISE_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -344,6 +202,8 @@ def normalized_dir_for(source: str, source_project: str | None = None) -> Path:
         return NORMALIZED_DIR / PROJECT_ROUTER_SOURCE / source_project
     if source == FILESYSTEM_SOURCE:
         return NORMALIZED_DIR / FILESYSTEM_SOURCE
+    if source == READWISE_SOURCE:
+        return NORMALIZED_DIR / READWISE_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -357,23 +217,8 @@ def compiled_dir_for(source: str, source_project: str | None = None) -> Path:
         return COMPILED_DIR / PROJECT_ROUTER_SOURCE / source_project
     if source == FILESYSTEM_SOURCE:
         return COMPILED_DIR / FILESYSTEM_SOURCE
-    raise SystemExit(f"Unsupported source '{source}'.")
-
-
-def review_dir_for(source: str, status: str) -> Path:
-    source = normalize_source_name(source) or source
-    if source == VOICE_SOURCE:
-        if status not in REVIEW_QUEUE_STATUSES:
-            raise SystemExit(f"Unsupported review status '{status}'.")
-        return REVIEW_DIR / VOICE_SOURCE / status
-    if source == PROJECT_ROUTER_SOURCE:
-        if status not in {"parse_errors", "needs_review", "pending_project"}:
-            raise SystemExit(f"Unsupported review status '{status}'.")
-        return REVIEW_DIR / PROJECT_ROUTER_SOURCE / status
-    if source == FILESYSTEM_SOURCE:
-        if status not in FILESYSTEM_REVIEW_STATUSES:
-            raise SystemExit(f"Unsupported review status '{status}'.")
-        return REVIEW_DIR / FILESYSTEM_SOURCE / status
+    if source == READWISE_SOURCE:
+        return COMPILED_DIR / READWISE_SOURCE
     raise SystemExit(f"Unsupported source '{source}'.")
 
 
@@ -387,68 +232,6 @@ def inbox_path_for_project(project: ProjectRule) -> Path | None:
     if project.router_root_path is not None:
         return project.router_root_path / "inbox"
     return project.inbox_path
-
-
-def list_project_router_keys_for_artifacts(directory: Path) -> list[str]:
-    if not directory.exists():
-        return []
-    return sorted(path.name for path in directory.iterdir() if path.is_dir())
-
-
-def list_filesystem_inbox_keys() -> list[str]:
-    """Return sorted inbox keys found under data/raw/filesystem/."""
-    fs_root = RAW_DIR / FILESYSTEM_SOURCE
-    if not fs_root.exists():
-        return []
-    return sorted(p.name for p in fs_root.iterdir() if p.is_dir())
-
-
-def list_filesystem_manifests(directory: Path | None = None) -> list[Path]:
-    """Walk filesystem manifest directories for .manifest.json files."""
-    output: list[Path] = []
-    if directory is not None:
-        if directory.exists():
-            output.extend(
-                f for f in sorted(directory.iterdir())
-                if f.is_file() and f.name.endswith(".manifest.json")
-            )
-        return output
-    for inbox_key in list_filesystem_inbox_keys():
-        manifests_dir = RAW_DIR / FILESYSTEM_SOURCE / inbox_key / "manifests"
-        if manifests_dir.exists():
-            output.extend(
-                f for f in sorted(manifests_dir.iterdir())
-                if f.is_file() and f.name.endswith(".manifest.json")
-            )
-    return sorted(output)
-
-
-def iter_source_dirs(kind: str, sources: set[str]) -> list[Path]:
-    if kind == "raw":
-        voice_dir = raw_dir_for(VOICE_SOURCE)
-        project_root = RAW_DIR / PROJECT_ROUTER_SOURCE
-    elif kind == "normalized":
-        voice_dir = normalized_dir_for(VOICE_SOURCE)
-        project_root = NORMALIZED_DIR / PROJECT_ROUTER_SOURCE
-    elif kind == "compiled":
-        voice_dir = compiled_dir_for(VOICE_SOURCE)
-        project_root = COMPILED_DIR / PROJECT_ROUTER_SOURCE
-    else:
-        raise SystemExit(f"Unknown artifact kind '{kind}'.")
-    output: list[Path] = []
-    if VOICE_SOURCE in sources:
-        output.append(voice_dir)
-    if PROJECT_ROUTER_SOURCE in sources:
-        output.extend(project_root / key for key in list_project_router_keys_for_artifacts(project_root))
-    if FILESYSTEM_SOURCE in sources:
-        if kind == "raw":
-            for inbox_key in list_filesystem_inbox_keys():
-                output.append(RAW_DIR / FILESYSTEM_SOURCE / inbox_key / "manifests")
-        elif kind == "normalized":
-            output.append(NORMALIZED_DIR / FILESYSTEM_SOURCE)
-        elif kind == "compiled":
-            output.append(COMPILED_DIR / FILESYSTEM_SOURCE)
-    return output
 
 
 def iter_raw_files_by_source(sources: set[str]) -> list[Path]:
@@ -476,17 +259,6 @@ def iter_compiled_files_by_source(sources: set[str]) -> list[Path]:
     return sorted(output)
 
 
-def review_queue_directories(sources: set[str]) -> list[Path]:
-    output: list[Path] = []
-    if VOICE_SOURCE in sources:
-        output.extend(review_dir_for(VOICE_SOURCE, status) for status in REVIEW_QUEUE_STATUSES)
-    if PROJECT_ROUTER_SOURCE in sources:
-        output.extend(review_dir_for(PROJECT_ROUTER_SOURCE, status) for status in ("parse_errors", "needs_review", "pending_project"))
-    if FILESYSTEM_SOURCE in sources:
-        output.extend(review_dir_for(FILESYSTEM_SOURCE, status) for status in FILESYSTEM_REVIEW_STATUSES)
-    return output
-
-
 def load_env_file(path: Path) -> None:
     if not path.exists():
         return
@@ -503,10 +275,6 @@ def load_env_file(path: Path) -> None:
 def load_local_env() -> None:
     load_env_file(ENV_PATH)
     load_env_file(ENV_LOCAL_PATH)
-
-
-def has_placeholder_path(path: Path) -> bool:
-    return "/ABSOLUTE/PATH/" in str(path)
 
 
 def load_filesystem_inboxes(config: dict[str, Any]) -> dict[str, Path]:
@@ -532,15 +300,6 @@ def load_filesystem_inboxes(config: dict[str, Any]) -> dict[str, Path]:
     return result
 
 
-def require_valid_note_id(raw: Any, *, field: str = "source_note_id") -> str:
-    note_id = str(raw or "").strip()
-    if not note_id:
-        raise SystemExit(f"{field} is required.")
-    if not NOTE_ID_PATTERN.fullmatch(note_id):
-        raise SystemExit(f"Invalid {field} '{note_id}'. Only letters, numbers, underscores, and hyphens are allowed.")
-    return note_id
-
-
 def ensure_safe_inbox_path(path: Path, *, project_key: str, registry_path: Path) -> None:
     if has_placeholder_path(path):
         raise SystemExit(f"Project '{project_key}' still has a placeholder inbox path in {registry_path}.")
@@ -550,258 +309,351 @@ def ensure_safe_inbox_path(path: Path, *, project_key: str, registry_path: Path)
         raise SystemExit(f"Project '{project_key}' contains an unsafe inbox path in {registry_path}.")
 
 
-def read_registry_config(path: Path) -> dict[str, Any]:
+def write_json(path: Path, payload: dict[str, Any]) -> None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"Failed to parse {path}: {exc}")
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except OSError as exc:
-        raise SystemExit(f"Failed to read {path}: {exc}")
+        raise SystemExit(f"Failed to write {path}: {exc}") from exc
 
 
-def merge_registry_configs(shared: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
-    defaults = dict(shared.get("defaults", {}))
-    defaults.update(local.get("defaults", {}))
+def read_text_if_exists(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        return path.read_text(encoding="utf-8").strip() or None
+    except OSError as exc:
+        raise SystemExit(f"Failed to read {path}: {exc}") from exc
 
-    shared_projects = shared.get("projects") or {}
-    local_projects = local.get("projects") or {}
-    merged_projects: dict[str, dict[str, Any]] = {}
-    for key in sorted(set(shared_projects) | set(local_projects)):
-        merged = dict(shared_projects.get(key) or {})
-        merged.update(local_projects.get(key) or {})
-        merged_projects[key] = merged
 
-    shared_sources = shared.get("sources") or {}
-    local_sources = local.get("sources") or {}
-    merged_sources: dict[str, Any] = {}
-    for key in sorted(set(shared_sources) | set(local_sources)):
-        shared_val = shared_sources.get(key) or {}
-        local_val = local_sources.get(key) or {}
-        if isinstance(shared_val, dict) and isinstance(local_val, dict):
-            merged_val = dict(shared_val)
-            merged_val.update(local_val)
-            merged_sources[key] = merged_val
-        else:
-            merged_sources[key] = local_val if local_val else shared_val
+SEMVER_PATTERN = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?!\d)")
 
-    return {
-        "defaults": defaults,
-        "projects": merged_projects,
-        "sources": merged_sources,
+
+def extract_template_version(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match: re.Match[str] | None = None
+    for candidate in SEMVER_PATTERN.finditer(raw):
+        match = candidate
+    return match.group(1) if match else None
+
+
+def git_output(*args: str) -> str | None:
+    try:
+        output = subprocess.check_output(["git", *args], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError):
+        return None
+    return output or None
+
+
+def build_template_release_tag(template_name: str | None, version: str) -> str:
+    normalized_name = str(template_name or "").strip()
+    if normalized_name:
+        return f"{normalized_name}-v{version}"
+    return f"v{version}"
+
+
+def resolve_template_repo(
+    template_base: dict[str, Any] | None,
+    private_meta: dict[str, Any] | None,
+    template_meta: dict[str, Any] | None,
+) -> str:
+    return str(
+        (template_base or {}).get("template_repo")
+        or (private_meta or {}).get("template_repo")
+        or (template_meta or {}).get("template_repo")
+        or ""
+    ).strip()
+
+
+def resolve_recorded_template_version(template_base: dict[str, Any] | None) -> str | None:
+    candidates = (
+        (template_base or {}).get("template_base_version"),
+        (template_base or {}).get("template_base_tag"),
+    )
+    for candidate in candidates:
+        version = extract_template_version(candidate)
+        if version:
+            return version
+    return None
+
+
+def resolve_local_template_version(template_meta: dict[str, Any] | None) -> str | None:
+    candidates = (
+        (template_meta or {}).get("version"),
+        read_text_if_exists(VERSION_PATH),
+    )
+    for candidate in candidates:
+        version = extract_template_version(candidate)
+        if version:
+            return version
+    return None
+
+
+def resolve_template_base_commit(
+    *,
+    version: str,
+    tag: str,
+    template_name: str | None,
+    existing_commit: str | None,
+) -> str | None:
+    tag_candidates = [tag, f"refs/tags/{tag}", f"v{version}", f"refs/tags/v{version}"]
+    for candidate in tag_candidates:
+        if not candidate:
+            continue
+        commit = git_output("rev-parse", f"{candidate}^{{commit}}")
+        if commit:
+            return commit
+    version_commit = git_output(
+        "log",
+        "--format=%H",
+        "-n",
+        "1",
+        "-G",
+        re.escape(version),
+        "--",
+        "version.txt",
+        "template.meta.json",
+        ".release-please-manifest.json",
+    )
+    if version_commit:
+        return version_commit
+    if template_name:
+        release_commit = git_output("log", "--format=%H", "-n", "1", "--grep", f"release {template_name} {version}")
+        if release_commit:
+            return release_commit
+    return existing_commit
+
+
+def detect_repo_role(private_meta: dict[str, Any] | None, template_meta: dict[str, Any] | None) -> str:
+    repo_role = str((private_meta or {}).get("repo_role") or "").strip()
+    if repo_role:
+        return repo_role
+    if template_meta:
+        return "template"
+    return "unknown"
+
+
+def resolve_current_template_version(template_base: dict[str, Any] | None, template_meta: dict[str, Any] | None) -> str | None:
+    return resolve_local_template_version(template_meta) or resolve_recorded_template_version(template_base)
+
+
+def fetch_latest_template_release(upstream_repo: str) -> dict[str, Any]:
+    token = (os.environ.get("TEMPLATE_UPSTREAM_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "project-router-template-update-status",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib_request.Request(
+        f"https://api.github.com/repos/{upstream_repo}/releases/latest",
+        headers=headers,
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=10) as response:
+            payload = json.load(response)
+    except urllib_error.HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace").strip()
+        message = details or str(exc)
+        raise RuntimeError(f"GitHub release lookup failed for {upstream_repo}: HTTP {exc.code} {message}") from exc
+    except urllib_error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"GitHub release lookup failed for {upstream_repo}: {reason}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"GitHub release lookup for {upstream_repo} returned a non-object payload.")
+    return payload
+
+
+def template_update_status_command(args: argparse.Namespace) -> int:
+    private_meta = read_json_if_exists(PRIVATE_META_PATH)
+    template_base = read_json_if_exists(TEMPLATE_BASE_PATH)
+    template_meta = read_json_if_exists(TEMPLATE_META_PATH)
+
+    repo_role = detect_repo_role(private_meta, template_meta)
+    template_repo = resolve_template_repo(template_base, private_meta, template_meta)
+    recorded_version = resolve_recorded_template_version(template_base)
+    current_version = resolve_current_template_version(template_base, template_meta)
+    local_repo_version = resolve_local_template_version(template_meta)
+    current_tag = str((template_base or {}).get("template_base_tag") or "").strip() or None
+    last_sync_at = str((template_base or {}).get("last_template_sync_at") or "").strip() or None
+    metadata_needs_sync = bool(local_repo_version and current_version and recorded_version != current_version)
+
+    payload: dict[str, Any] = {
+        "status": "local_metadata_only",
+        "repo_role": repo_role,
+        "template_repo": template_repo or None,
+        "current_version": current_version,
+        "recorded_version": recorded_version,
+        "current_tag": current_tag,
+        "local_repo_version": local_repo_version,
+        "last_template_sync_at": last_sync_at,
+        "metadata_needs_sync": metadata_needs_sync,
+        "check_remote": bool(getattr(args, "check_remote", False)),
+        "update_required": None,
+        "should_prompt_user": False,
+        "latest_version": None,
+        "latest_tag": None,
+        "release_published_at": None,
+        "release_url": None,
+        "message": "",
     }
 
+    if not template_repo:
+        payload["status"] = "not_configured"
+        payload["message"] = "No template_repo is configured in template-base.json, private.meta.json, or template.meta.json."
+        print(json.dumps(payload, indent=2))
+        return 0
 
-def load_registry(*, require_local: bool = False) -> tuple[dict[str, Any], dict[str, ProjectRule]]:
-    if require_local and not REGISTRY_LOCAL_PATH.exists():
-        raise SystemExit(
-            "projects/registry.local.json is required for dispatch. "
-            "Run: python3 scripts/bootstrap_local.py"
-        )
+    if not payload["check_remote"]:
+        if metadata_needs_sync:
+            payload["status"] = "metadata_stale"
+            payload["message"] = (
+                f"Local template files resolve to {current_version}, but template-base.json still records "
+                f"{recorded_version or 'unknown'}. Run `python3 scripts/project_router.py template-sync-metadata`."
+            )
+        else:
+            payload["message"] = "Local template metadata loaded. Re-run with --check-remote to compare against GitHub releases."
+        print(json.dumps(payload, indent=2))
+        return 0
 
-    if REGISTRY_SHARED_PATH.exists():
-        shared_config = read_registry_config(REGISTRY_SHARED_PATH)
-        local_config = read_registry_config(REGISTRY_LOCAL_PATH) if REGISTRY_LOCAL_PATH.exists() else {}
-        config = merge_registry_configs(shared_config, local_config)
-        registry_path = REGISTRY_LOCAL_PATH if REGISTRY_LOCAL_PATH.exists() else REGISTRY_SHARED_PATH
-    else:
-        registry_path = REGISTRY_LOCAL_PATH if REGISTRY_LOCAL_PATH.exists() else REGISTRY_EXAMPLE_PATH
-        config = read_registry_config(registry_path)
-
-    defaults = config.get("defaults", {})
-    projects: dict[str, ProjectRule] = {}
-    for key, raw in (config.get("projects") or {}).items():
-        inbox_path_raw = raw.get("inbox_path")
-        router_root_path_raw = raw.get("router_root_path")
-        projects[key] = ProjectRule(
-            key=key,
-            display_name=raw["display_name"],
-            language=raw["language"],
-            inbox_path=Path(inbox_path_raw) if inbox_path_raw else None,
-            router_root_path=Path(router_root_path_raw) if router_root_path_raw else None,
-            note_type=raw["note_type"],
-            keywords=list(raw.get("keywords", [])),
-        )
-    return defaults, projects
-
-
-def parse_scalar(raw: str) -> Any:
-    raw = raw.strip()
-    if raw == "null":
-        return None
-    if raw == "true":
-        return True
-    if raw == "false":
-        return False
-    if raw.startswith("[") or raw.startswith("{") or raw.startswith('"'):
-        return json.loads(raw)
     try:
-        if "." in raw:
-            return float(raw)
-        return int(raw)
-    except ValueError:
-        return raw
+        latest_release = fetch_latest_template_release(template_repo)
+    except RuntimeError as exc:
+        payload["status"] = "check_failed"
+        payload["message"] = str(exc)
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    latest_tag = str(latest_release.get("tag_name") or "").strip() or None
+    latest_version = extract_template_version(latest_tag) or extract_template_version(latest_release.get("name"))
+    payload["latest_tag"] = latest_tag
+    payload["latest_version"] = latest_version
+    payload["release_published_at"] = str(latest_release.get("published_at") or "").strip() or None
+    payload["release_url"] = str(latest_release.get("html_url") or "").strip() or None
+
+    if not latest_version:
+        payload["status"] = "check_failed"
+        payload["message"] = f"Could not extract a semantic version from upstream release tag {latest_tag!r}."
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    update_required = current_version != latest_version
+    payload["update_required"] = update_required
+    payload["should_prompt_user"] = update_required and repo_role == "private-derived"
+    if metadata_needs_sync and not update_required:
+        payload["status"] = "metadata_stale"
+        payload["message"] = (
+            f"Local template files already match {latest_version}, but template-base.json still records "
+            f"{recorded_version or 'unknown'}. Run `python3 scripts/project_router.py template-sync-metadata`."
+        )
+    elif update_required:
+        payload["status"] = "update_available"
+        payload["message"] = (
+            f"Template update available: current={current_version or 'unknown'} latest={latest_version}. "
+            "Ask the user whether to review/update before continuing."
+        )
+    else:
+        payload["status"] = "up_to_date"
+        payload["message"] = f"Template is up to date at {latest_version}."
+
+    print(json.dumps(payload, indent=2))
+    return 0
 
 
-def read_note(path: Path) -> tuple[dict[str, Any], str]:
-    text = path.read_text(encoding="utf-8")
-    if not text.startswith("---\n"):
-        return {}, text
+def template_sync_metadata_command(args: argparse.Namespace) -> int:
+    private_meta = read_json_if_exists(PRIVATE_META_PATH)
+    template_base = read_json_if_exists(TEMPLATE_BASE_PATH) or {}
+    template_meta = read_json_if_exists(TEMPLATE_META_PATH)
 
-    lines = text.splitlines()
-    metadata: dict[str, Any] = {}
-    end_index = None
-    for index in range(1, len(lines)):
-        line = lines[index]
-        if line == "---":
-            end_index = index
-            break
-        if not line.strip():
-            continue
-        if ":" not in line:
-            sys.stderr.write(f"Warning: {path} has unparseable frontmatter line: {line!r}\n")
-            continue
-        key, _, value = line.partition(":")
-        metadata[key.strip()] = parse_scalar(value)
-
-    if end_index is None:
-        sys.stderr.write(f"Warning: {path} has unclosed frontmatter. Treating as plain text.\n")
-        return {}, text
-
-    body = "\n".join(lines[end_index + 1 :]).lstrip("\n")
-    return metadata, body
-
-
-def dump_value(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    if isinstance(value, list):
-        return json.dumps(value, ensure_ascii=False)
-    return json.dumps(str(value), ensure_ascii=False)
-
-
-def write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
-    ordered_keys = [
-        "source",
-        "source_project",
-        "source_note_id",
-        "source_item_type",
-        "source_endpoint",
-        "title",
-        "created_at",
-        "recorded_at",
-        "recording_type",
-        "duration",
-        "tags",
-        "capture_kind",
-        "intent",
-        "destination",
-        "destination_reason",
-        "user_keywords",
-        "inferred_keywords",
-        "source_language",
-        "language_confidence",
-        "matched_languages",
-        "mixed_languages",
-        "active_parser_languages",
-        "transcript_format",
-        "summary_available",
-        "summary_source",
-        "audio_available",
-        "audio_local_path",
-        "classification_basis",
-        "derived_outputs",
-        "thread_id",
-        "continuation_of",
-        "related_note_ids",
-        "compiled_at",
-        "compiled_version",
-        "compiled_from_path",
-        "compiled_from_signature",
-        "compiled_from_status",
-        "brief_summary",
-        "entities",
-        "facts",
-        "tasks",
-        "decisions",
-        "open_questions",
-        "follow_ups",
-        "timeline",
-        "ambiguities",
-        "confidence_by_field",
-        "evidence_spans",
-        "status",
-        "project",
-        "candidate_projects",
-        "confidence",
-        "routing_reason",
-        "review_status",
-        "requires_user_confirmation",
-        "content_hash",
-        "canonical_path",
-        "raw_payload_path",
-        "dispatched_at",
-        "dispatched_to",
-        "note_type",
-    ]
-    rendered: list[str] = []
-    seen = set()
-    for key in ordered_keys:
-        if key in metadata:
-            rendered.append(f"{key}: {dump_value(metadata[key])}")
-            seen.add(key)
-    for key in sorted(k for k in metadata if k not in seen):
-        rendered.append(f"{key}: {dump_value(metadata[key])}")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"---\n" + "\n".join(rendered) + f"\n---\n\n{body.rstrip()}\n", encoding="utf-8")
-
-
-def list_markdown_files(path: Path) -> list[Path]:
-    if not path.exists():
-        return []
-    return sorted(file for file in path.iterdir() if file.is_file() and file.suffix == ".md")
-
-
-def list_raw_files(path: Path) -> list[Path]:
-    if not path.exists():
-        return []
-    return sorted(
-        file
-        for file in path.iterdir()
-        if file.is_file() and file.name != ".gitkeep" and file.suffix in {".json", ".md"}
+    template_repo = str(getattr(args, "template_repo", "") or "").strip() or resolve_template_repo(
+        template_base, private_meta, template_meta
     )
+    if not template_repo:
+        raise SystemExit("No template_repo is configured in template-base.json, private.meta.json, or template.meta.json.")
 
+    version_override = str(getattr(args, "template_version", "") or "").strip()
+    version = extract_template_version(version_override) or resolve_local_template_version(template_meta)
+    if not version:
+        raise SystemExit("Could not determine the local template version from template.meta.json or version.txt.")
 
-def remove_review_copies(note_name: str) -> None:
-    for review_dir in review_queue_directories(KNOWN_SOURCES):
-        review_copy = review_dir / note_name
-        if review_copy.exists():
-            review_copy.unlink()
-
-
-def iso_now() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def existing_artifact_path(directory: Path, note_id: str, suffix: str) -> Path | None:
-    safe_note_id = require_valid_note_id(note_id)
-    matches = sorted(
-        path
-        for path in directory.glob(f"*--{safe_note_id}{suffix}")
-        if path.is_file()
+    template_name = str((template_meta or {}).get("template_name") or ROOT.name).strip() or None
+    tag_override = str(getattr(args, "template_tag", "") or "").strip()
+    tag = tag_override or build_template_release_tag(template_name, version)
+    commit_override = str(getattr(args, "template_commit", "") or "").strip()
+    existing_commit = str(template_base.get("template_base_commit") or "").strip() or None
+    commit = commit_override or resolve_template_base_commit(
+        version=version,
+        tag=tag,
+        template_name=template_name,
+        existing_commit=existing_commit,
     )
-    if len(matches) > 1:
-        rendered = ", ".join(str(path) for path in matches)
-        raise SystemExit(f"Multiple canonical artifacts found for note '{safe_note_id}': {rendered}")
-    return matches[0] if matches else None
+    if not commit:
+        raise SystemExit(
+            "Could not determine the template base commit. Pass --template-commit explicitly or fetch the release refs locally."
+        )
+
+    explicit_synced_at = str(getattr(args, "synced_at", "") or "").strip() or None
+    metadata_changed = any(
+        [
+            template_base.get("template_repo") != template_repo,
+            template_base.get("template_base_version") != version,
+            template_base.get("template_base_tag") != tag,
+            template_base.get("template_base_commit") != commit,
+        ]
+    )
+    existing_synced_at = str(template_base.get("last_template_sync_at") or "").strip() or None
+    synced_at = explicit_synced_at or (iso_now() if metadata_changed or not existing_synced_at else existing_synced_at)
+    desired_payload = dict(template_base)
+    desired_payload.update(
+        {
+            "template_repo": template_repo,
+            "template_base_version": version,
+            "template_base_tag": tag,
+            "template_base_commit": commit,
+            "last_template_sync_at": synced_at,
+        }
+    )
+    changed = desired_payload != template_base
+    status = "drift" if changed else "ok"
+
+    if getattr(args, "check", False):
+        print(
+            json.dumps(
+                {
+                    "status": status,
+                    "changed": changed,
+                    "template_base_path": str(TEMPLATE_BASE_PATH),
+                    "template_repo": template_repo,
+                    "template_base_version": version,
+                    "template_base_tag": tag,
+                    "template_base_commit": commit,
+                    "last_template_sync_at": synced_at,
+                },
+                indent=2,
+            )
+        )
+        return 1 if changed else 0
+
+    if changed:
+        write_json(TEMPLATE_BASE_PATH, desired_payload)
+
+    print(
+        json.dumps(
+            {
+                "status": "updated" if changed else "already_current",
+                "changed": changed,
+                "template_base_path": str(TEMPLATE_BASE_PATH),
+                "template_repo": template_repo,
+                "template_base_version": version,
+                "template_base_tag": tag,
+                "template_base_commit": commit,
+                "last_template_sync_at": synced_at,
+            },
+            indent=2,
+        )
+    )
+    return 0
 
 
 def generate_filesystem_note_id() -> str:
@@ -1179,229 +1031,6 @@ def extract_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def decision_packet_path_for_metadata(metadata: dict[str, Any]) -> Path:
-    source, source_project, note_id = note_identity(metadata)
-    return DECISIONS_DIR / f"{identity_slug(source, source_project, note_id)}.json"
-
-
-def decision_packet_paths_for_note_id(source_note_id: str) -> list[Path]:
-    safe_note_id = require_valid_note_id(source_note_id)
-    return sorted(path for path in DECISIONS_DIR.glob("*.json") if path.is_file() and path.stem.endswith(f"--{safe_note_id}"))
-
-
-def resolve_unique_decision_packet_path(source_note_id: str, *, sources: set[str] | None = None) -> Path:
-    matches = decision_packet_paths_for_note_id(source_note_id)
-    if sources is not None:
-        matches = [path for path in matches if normalize_source_name(str(load_decision_packet_by_path(path).get("source") or VOICE_SOURCE)) in sources]
-    if not matches:
-        raise SystemExit(f"No decision packet found for {source_note_id}.")
-    if len(matches) > 1:
-        rendered = ", ".join(str(path) for path in matches)
-        raise SystemExit(f"Multiple decision packets found for {source_note_id}. Narrow the source scope first: {rendered}")
-    return matches[0]
-
-
-def load_decision_packet_for_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    path = decision_packet_path_for_metadata(metadata)
-    if not path.exists():
-        return {"reviews": []}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def load_decision_packet_by_path(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {"reviews": []}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_decision_packet_for_metadata(metadata: dict[str, Any], packet: dict[str, Any]) -> None:
-    path = decision_packet_path_for_metadata(metadata)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(packet, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-
-def candidate_scores(details: dict[str, float]) -> list[dict[str, Any]]:
-    confidence = details.get("confidence")
-    items = []
-    for project, score in sorted(((k, v) for k, v in details.items() if k != "confidence"), key=lambda item: item[1], reverse=True):
-        items.append({"project": project, "score": score})
-    if confidence is not None:
-        for item in items:
-            if item["project"] == items[0]["project"]:
-                item["confidence"] = confidence
-                break
-    return items
-
-
-def body_excerpt(body: str, limit: int = 240) -> str:
-    compact = re.sub(r"\s+", " ", body).strip()
-    return compact[:limit]
-
-
-def keyword_tokens(text: str) -> list[str]:
-    lowered = text.lower()
-    tokens = re.findall(r"[a-z0-9à-ÿ][a-z0-9à-ÿ_-]{2,}", lowered)
-    stopwords = active_parser_stopwords()
-    return [token for token in tokens if token not in stopwords and not token.isdigit()]
-
-
-def extract_keywords(metadata: dict[str, Any], body: str, *, limit: int = 8) -> list[str]:
-    counter: Counter[str] = Counter()
-    capture_kind = metadata.get("capture_kind") or classify_capture_kind(metadata, body)[0]
-    title_tokens = keyword_tokens(str(metadata.get("title") or ""))
-    body_source = body_excerpt(body, limit=600) if capture_kind in {"meeting_recording", "meeting_summary"} else body
-    body_tokens = keyword_tokens(body_source)
-    tag_tokens = [str(tag).strip().lower() for tag in metadata.get("tags", []) if str(tag).strip()]
-    stopwords = active_parser_stopwords()
-
-    for token in title_tokens:
-        counter[token] += 4 if capture_kind in {"meeting_recording", "meeting_summary"} else 3
-    for token in body_tokens:
-        counter[token] += 1
-    for token in tag_tokens:
-        if token not in stopwords:
-            counter[token] += 4
-
-    return [token for token, _ in counter.most_common(limit)]
-
-
-def ensure_note_metadata_defaults(metadata: dict[str, Any]) -> dict[str, Any]:
-    metadata.setdefault("source", VOICE_SOURCE)
-    metadata.setdefault("source_project", None)
-    metadata.setdefault("tags", [])
-    metadata.setdefault("capture_kind", None)
-    metadata.setdefault("intent", None)
-    metadata.setdefault("destination", None)
-    metadata.setdefault("destination_reason", "")
-    metadata.setdefault("user_keywords", [])
-    metadata.setdefault("inferred_keywords", [])
-    metadata.setdefault("source_language", "unknown")
-    metadata.setdefault("language_confidence", 0.0)
-    metadata.setdefault("matched_languages", [])
-    metadata.setdefault("mixed_languages", False)
-    metadata.setdefault("active_parser_languages", list(active_parser_profile_keys()))
-    metadata.setdefault("summary_available", False)
-    metadata.setdefault("summary_source", None)
-    metadata.setdefault("audio_available", False)
-    metadata.setdefault("audio_local_path", None)
-    metadata.setdefault("classification_basis", [])
-    metadata.setdefault("derived_outputs", [])
-    metadata.setdefault("thread_id", None)
-    metadata.setdefault("continuation_of", None)
-    metadata.setdefault("related_note_ids", [])
-    metadata.setdefault("candidate_projects", [])
-    metadata.setdefault("dispatched_to", [])
-    metadata.setdefault("content_hash", None)
-    return metadata
-
-
-def note_keyword_set(metadata: dict[str, Any]) -> set[str]:
-    values = []
-    values.extend(str(tag).strip().lower() for tag in metadata.get("tags", []))
-    values.extend(str(tag).strip().lower() for tag in metadata.get("user_keywords", []))
-    values.extend(str(tag).strip().lower() for tag in metadata.get("inferred_keywords", []))
-    stopwords = active_parser_stopwords()
-    return {value for value in values if value and value not in stopwords}
-
-
-def extract_signal_list(metadata: dict[str, Any], body: str) -> list[str]:
-    signals: list[str] = []
-    recording_type = metadata.get("recording_type")
-    if recording_type is not None:
-        signals.append(f"recording_type:{recording_type}")
-    for tag in metadata.get("tags", []):
-        cleaned = str(tag).strip().lower()
-        if cleaned:
-            signals.append(f"tag:{cleaned}")
-    title = str(metadata.get("title") or "").lower()
-    if contains_any_term(title, active_parser_terms("summary_terms")):
-        signals.append("title:summary")
-    if contains_any_term(title, active_parser_terms("follow_up_terms")):
-        signals.append("title:follow_up")
-    if contains_any_term(title, active_parser_terms("calendar_terms")):
-        signals.append("title:calendar")
-    if contains_any_term(title, active_parser_terms("project_idea_terms")):
-        signals.append("title:project_idea")
-    if contains_any_term(title, active_parser_terms("task_terms")):
-        signals.append("title:task")
-    if contains_any_term(title, active_parser_terms("purchase_terms")):
-        signals.append("title:purchase")
-    compact_body = body.lower()
-    if "speaker 1" in compact_body or "speaker 2" in compact_body:
-        signals.append("body:speaker_markers")
-    if "[00:" in body:
-        signals.append("body:timestamps")
-    return signals
-
-
-def classify_capture_kind(metadata: dict[str, Any], body: str) -> tuple[str, list[str]]:
-    signals = extract_signal_list(metadata, body)
-    signal_set = set(signals)
-    title = str(metadata.get("title") or "").lower()
-    compact_body = body.lower()
-    project_idea_terms = active_parser_terms("project_idea_terms")
-    calendar_terms = active_parser_terms("calendar_terms")
-    purchase_terms = active_parser_terms("purchase_terms")
-    task_capture_terms = active_parser_terms("task_capture_terms")
-    project_idea_capture_terms = active_parser_terms("project_idea_capture_terms")
-    journal_terms = active_parser_terms("journal_terms")
-
-    if "tag:meeting" in signal_set or "recording_type:2" in signal_set or "body:speaker_markers" in signal_set:
-        if "title:summary" in signal_set:
-            return "meeting_summary", signals
-        return "meeting_recording", signals
-    if any(token in title for token in ("automation", "integration", "codex", "obsidian")) or contains_any_term(title, project_idea_terms):
-        return "project_idea", signals
-    if "title:calendar" in signal_set or contains_any_term(compact_body, calendar_terms):
-        return "calendar_change", signals
-    if "title:purchase" in signal_set or contains_any_term(compact_body, purchase_terms):
-        return "purchase_record", signals
-    if "title:task" in signal_set or contains_any_term(compact_body, task_capture_terms):
-        return "task_capture", signals
-    if "title:project_idea" in signal_set or contains_any_term(compact_body, project_idea_capture_terms):
-        return "project_idea", signals
-    if contains_any_term(title, journal_terms) or contains_any_term(compact_body, journal_terms):
-        return "journal", signals
-    if metadata.get("recording_type") == 3:
-        return "voice_memo", signals
-    return "reference", signals
-
-
-def classify_intent(metadata: dict[str, Any]) -> str:
-    if metadata.get("continuation_of") or metadata.get("related_note_ids"):
-        return "follow_up"
-
-    capture_kind = metadata.get("capture_kind")
-    if capture_kind in {"task_capture", "calendar_change", "purchase_record", "project_idea"}:
-        return "actionable"
-    if capture_kind in {"meeting_recording", "meeting_summary"}:
-        return "decision_log"
-    return "reference"
-
-
-def derive_outputs(capture_kind: str) -> list[str]:
-    if capture_kind == "meeting_recording":
-        return ["summary", "decisions", "tasks", "open_questions", "follow_ups"]
-    if capture_kind == "meeting_summary":
-        return ["decisions", "tasks", "open_questions", "follow_ups"]
-    return []
-
-
-def enrich_note_metadata(metadata: dict[str, Any], body: str) -> dict[str, Any]:
-    metadata = ensure_note_metadata_defaults(metadata)
-    metadata.update(detect_note_languages(metadata, body))
-    capture_kind, signals = classify_capture_kind(metadata, body)
-    metadata["capture_kind"] = capture_kind
-    metadata["classification_basis"] = signals
-    metadata["derived_outputs"] = derive_outputs(capture_kind)
-    metadata["intent"] = classify_intent(metadata)
-    metadata.setdefault("summary_available", False)
-    metadata.setdefault("summary_source", None)
-    metadata.setdefault("audio_available", False)
-    metadata.setdefault("audio_local_path", None)
-    return metadata
-
-
 def parse_note_datetime(value: str | None) -> Any:
     if not value:
         return None
@@ -1444,72 +1073,6 @@ def is_system_note(metadata: dict[str, Any], body: str) -> bool:
     )
 
 
-def build_decision_packet(
-    note_path: Path,
-    metadata: dict[str, Any],
-    body: str,
-    *,
-    route: str,
-    details: dict[str, float],
-    reason: str,
-) -> dict[str, Any]:
-    source_note_id = str(metadata.get("source_note_id") or note_path.stem)
-    packet = load_decision_packet_for_metadata(metadata)
-    candidates = candidate_scores(details)
-    proposed_project = metadata.get("project")
-    proposed_type = metadata.get("note_type")
-    action = "propose_dispatch" if route not in ("ambiguous", "needs_review", "pending_project") else route
-    packet.update(
-        {
-            "source_note_id": source_note_id,
-            "source": metadata.get("source", VOICE_SOURCE),
-            "source_project": metadata.get("source_project"),
-            "canonical_path": relative_or_absolute(note_path),
-            "raw_payload_path": metadata.get("raw_payload_path"),
-            "title": metadata.get("title"),
-            "created_at": metadata.get("created_at"),
-            "tags": metadata.get("tags", []),
-            "capture_kind": metadata.get("capture_kind"),
-            "intent": metadata.get("intent"),
-            "destination": metadata.get("destination"),
-            "destination_reason": metadata.get("destination_reason"),
-            "user_keywords": metadata.get("user_keywords", []),
-            "inferred_keywords": metadata.get("inferred_keywords", []),
-            "source_language": metadata.get("source_language"),
-            "language_confidence": metadata.get("language_confidence"),
-            "matched_languages": metadata.get("matched_languages", []),
-            "mixed_languages": metadata.get("mixed_languages", False),
-            "active_parser_languages": metadata.get("active_parser_languages", []),
-            "summary_available": metadata.get("summary_available", False),
-            "summary_source": metadata.get("summary_source"),
-            "audio_available": metadata.get("audio_available", False),
-            "audio_local_path": metadata.get("audio_local_path"),
-            "classification_basis": metadata.get("classification_basis", []),
-            "derived_outputs": metadata.get("derived_outputs", []),
-            "thread": {
-                "thread_id": metadata.get("thread_id"),
-                "continuation_of": metadata.get("continuation_of"),
-                "related_note_ids": metadata.get("related_note_ids", []),
-            },
-            "proposal": {
-                "status": metadata.get("status"),
-                "review_status": metadata.get("review_status", "pending"),
-                "proposed_project": proposed_project,
-                "proposed_type": proposed_type,
-                "confidence": metadata.get("confidence", 0.0),
-                "reason": reason,
-                "candidates": candidates,
-                "action": action,
-                "requires_user_confirmation": metadata.get("requires_user_confirmation", True),
-                "excerpt": body_excerpt(body),
-                "updated_at": iso_now(),
-            },
-        }
-    )
-    packet.setdefault("reviews", [])
-    return packet
-
-
 def strip_html(text: str | None) -> str:
     if not text:
         return ""
@@ -1534,12 +1097,6 @@ def normalized_filename_from_recording(recording: dict[str, Any]) -> str:
     return f"{timestamp}--{note_id}.md"
 
 
-def compiled_filename_from_metadata(metadata: dict[str, Any]) -> str:
-    timestamp = normalize_timestamp(str(metadata.get("created_at") or metadata.get("recorded_at") or "unknown-time"))
-    note_id = require_valid_note_id(metadata.get("source_note_id"))
-    return f"{timestamp}--{note_id}.md"
-
-
 def load_raw_recording(path: Path) -> tuple[dict[str, Any], str]:
     if path.name.endswith(".manifest.json"):
         manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -1548,6 +1105,8 @@ def load_raw_recording(path: Path) -> tuple[dict[str, Any], str]:
         payload = json.loads(path.read_text(encoding="utf-8"))
         if payload.get("source") == PROJECT_ROUTER_SOURCE:
             return payload, "project-router-json"
+        if payload.get("source") == READWISE_SOURCE:
+            return payload, "readwise-json"
         if "recording" in payload:
             return payload, "json"
         # tolerate direct recording payloads too
@@ -1706,6 +1265,97 @@ def normalized_note_from_raw(raw_path: Path, raw_payload: dict[str, Any], raw_fo
         }
         return normalized_path, enrich_note_metadata(metadata, body), body
 
+    if source == READWISE_SOURCE:
+        document = dict(raw_payload.get("document") or {})
+        raw_id = str(document.get("id") or "").strip()
+        note_id = require_valid_note_id(f"rw_{raw_id}" if raw_id else "")
+        title = document.get("title") or f"Readwise {raw_id}"
+        created_at = document.get("created_at")
+        note_dir = normalized_dir_for(READWISE_SOURCE)
+        normalized_path = existing_artifact_path(note_dir, note_id, ".md") or (
+            note_dir / f"{normalize_timestamp(created_at)}--{note_id}.md"
+        )
+
+        raw_tags = document.get("tags") or {}
+        tags = sorted(raw_tags.keys()) if isinstance(raw_tags, dict) else list(raw_tags)
+
+        has_summary = bool(document.get("summary"))
+        metadata = {
+            "source": READWISE_SOURCE,
+            "source_project": None,
+            "source_note_id": note_id,
+            "source_item_type": raw_payload.get("source_item_type", "reader_document"),
+            "source_endpoint": raw_payload.get("source_endpoint", "reader/list"),
+            "title": title,
+            "created_at": created_at,
+            "recorded_at": document.get("updated_at"),
+            "recording_type": None,
+            "duration": None,
+            "tags": tags,
+            "capture_kind": None,
+            "intent": None,
+            "destination": None,
+            "destination_reason": "",
+            "user_keywords": [],
+            "inferred_keywords": [],
+            "transcript_format": "markdown",
+            "summary_available": has_summary,
+            "summary_source": "reader" if has_summary else None,
+            "audio_available": False,
+            "audio_local_path": None,
+            "classification_basis": [],
+            "derived_outputs": [],
+            "thread_id": None,
+            "continuation_of": None,
+            "related_note_ids": [],
+            "status": "normalized",
+            "project": None,
+            "candidate_projects": [],
+            "confidence": 0.0,
+            "routing_reason": "",
+            "review_status": "pending",
+            "requires_user_confirmation": True,
+            "content_hash": None,
+            "canonical_path": relative_or_absolute(normalized_path),
+            "raw_payload_path": relative_or_absolute(raw_path),
+            "dispatched_to": [],
+            "author": document.get("author"),
+            "source_url": document.get("source_url"),
+            "reader_category": document.get("category"),
+            "reader_location": document.get("location"),
+            "word_count": document.get("word_count"),
+            "reading_progress": document.get("reading_progress"),
+            "site_name": document.get("site_name"),
+            "published_date": document.get("published_date"),
+        }
+
+        parts = [f"# {title}\n"]
+        source_url = document.get("source_url")
+        author = document.get("author")
+        category = document.get("category")
+        if source_url:
+            parts.append(f"**Source:** {source_url}")
+        if author:
+            parts.append(f"**Author:** {author}")
+        if category:
+            parts.append(f"**Category:** {category}")
+        if parts[-1] != f"# {title}\n":
+            parts.append("")
+
+        summary = document.get("summary")
+        if summary:
+            parts.append(summary.strip())
+            parts.append("")
+
+        notes = document.get("notes")
+        if notes and notes.strip():
+            parts.append("## Notes")
+            parts.append(notes.strip())
+            parts.append("")
+
+        body = "\n".join(parts) + "\n"
+        return normalized_path, enrich_note_metadata(metadata, body), body
+
     recording = dict(raw_payload.get("recording") or {})
     note_id = require_valid_note_id(recording.get("id") or recording.get("uuid"))
     title = recording.get("title") or f"VoiceNotes {recording.get('id') or recording.get('uuid')}"
@@ -1799,325 +1449,6 @@ def merge_normalized_metadata(existing: dict[str, Any], fresh: dict[str, Any]) -
     return ensure_note_metadata_defaults(merged)
 
 
-def transcript_text(body: str) -> str:
-    lines = body.strip().splitlines()
-    if lines and lines[0].startswith("# "):
-        lines = lines[1:]
-    return "\n".join(lines).strip()
-
-
-def sentence_chunks(text: str) -> list[str]:
-    compact = re.sub(r"\s+", " ", text).strip()
-    if not compact:
-        return []
-    chunks = re.split(r"(?<=[.!?])\s+|\s*\n+\s*", compact)
-    cleaned: list[str] = []
-    for chunk in chunks:
-        value = chunk.strip(" -")
-        if len(value) >= 8:
-            cleaned.append(value)
-    return cleaned
-
-
-def unique_preserve(values: list[str], *, limit: int | None = None) -> list[str]:
-    seen: set[str] = set()
-    output: list[str] = []
-    for raw in values:
-        value = raw.strip()
-        if not value:
-            continue
-        key = value.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append(value)
-        if limit is not None and len(output) >= limit:
-            break
-    return output
-
-
-def extract_entities(metadata: dict[str, Any], body: str) -> list[str]:
-    entities: list[str] = []
-    if metadata.get("project"):
-        entities.append(f"project:{metadata['project']}")
-    if metadata.get("note_type"):
-        entities.append(f"type:{metadata['note_type']}")
-    for tag in metadata.get("tags", []):
-        cleaned = str(tag).strip()
-        if cleaned:
-            entities.append(f"tag:{cleaned}")
-    for keyword in metadata.get("user_keywords", []):
-        entities.append(f"user_keyword:{keyword}")
-    for keyword in metadata.get("inferred_keywords", []):
-        entities.append(f"inferred_keyword:{keyword}")
-    title_tokens = re.findall(r"\b[A-ZÀ-Ý][A-Za-zÀ-ÿ0-9_-]{2,}\b", str(metadata.get("title") or "") + " " + body_excerpt(body, limit=320))
-    entities.extend(title_tokens)
-    return unique_preserve(entities, limit=12)
-
-
-def extract_facts(metadata: dict[str, Any], sentences: list[str]) -> list[str]:
-    facts: list[str] = []
-    fact_terms = active_parser_terms("fact_terms")
-    timeline_terms = active_parser_terms("timeline_terms")
-    if metadata.get("created_at"):
-        facts.append(f"captured_at: {metadata['created_at']}")
-    if metadata.get("recorded_at") and metadata.get("recorded_at") != metadata.get("created_at"):
-        facts.append(f"recorded_at: {metadata['recorded_at']}")
-    if metadata.get("duration") not in (None, ""):
-        raw_duration = metadata["duration"]
-        try:
-            duration_value = float(raw_duration)
-        except (TypeError, ValueError):
-            facts.append(f"duration_raw: {raw_duration}")
-        else:
-            if duration_value >= 1000:
-                milliseconds = int(duration_value)
-                seconds = round(duration_value / 1000, 2)
-                facts.append(f"duration_ms: {milliseconds}")
-                facts.append(f"duration_seconds_approx: {seconds}")
-            else:
-                facts.append(f"duration_seconds: {duration_value:g}")
-    for sentence in sentences:
-        lowered = sentence.lower()
-        if re.search(r"\b\d[\d.,]*\b", sentence) or "202" in lowered or contains_any_term(lowered, fact_terms) or contains_any_term(lowered, timeline_terms):
-            facts.append(sentence)
-    return unique_preserve(facts, limit=8)
-
-
-def extract_tasks(sentences: list[str]) -> list[str]:
-    triggers = active_parser_terms("task_triggers")
-    return unique_preserve([sentence for sentence in sentences if any(trigger in sentence.lower() for trigger in triggers)], limit=8)
-
-
-def extract_decisions(sentences: list[str]) -> list[str]:
-    triggers = active_parser_terms("decision_triggers")
-    return unique_preserve([sentence for sentence in sentences if any(trigger in sentence.lower() for trigger in triggers)], limit=6)
-
-
-def extract_open_questions(sentences: list[str]) -> list[str]:
-    triggers = active_parser_terms("open_question_triggers")
-    return unique_preserve([sentence for sentence in sentences if sentence.endswith("?") or any(trigger in sentence.lower() for trigger in triggers)], limit=6)
-
-
-def extract_follow_ups(metadata: dict[str, Any], sentences: list[str]) -> list[str]:
-    follow_ups: list[str] = []
-    if metadata.get("continuation_of"):
-        follow_ups.append(f"Continuation of note {metadata['continuation_of']}.")
-    if metadata.get("related_note_ids"):
-        follow_ups.append(f"Related notes: {', '.join(metadata['related_note_ids'])}.")
-    triggers = active_parser_terms("follow_up_triggers")
-    for sentence in sentences:
-        if any(trigger in sentence.lower() for trigger in triggers):
-            follow_ups.append(sentence)
-    return unique_preserve(follow_ups, limit=8)
-
-
-def extract_timeline(metadata: dict[str, Any], sentences: list[str]) -> list[str]:
-    timeline: list[str] = []
-    if metadata.get("created_at"):
-        timeline.append(f"captured:{metadata['created_at']}")
-    patterns = (
-        r"\b20\d{2}-\d{2}-\d{2}\b",
-        r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
-    )
-    timeline_terms = active_parser_terms("timeline_terms")
-    for sentence in sentences:
-        lowered = sentence.lower()
-        if any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in patterns) or contains_any_term(lowered, timeline_terms):
-            timeline.append(sentence)
-    return unique_preserve(timeline, limit=6)
-
-
-def compile_summary(metadata: dict[str, Any], sentences: list[str]) -> str:
-    title = str(metadata.get("title") or f"Voice note {metadata.get('source_note_id')}")
-    capture_kind = str(metadata.get("capture_kind") or "reference")
-    intent = str(metadata.get("intent") or "reference")
-    destination = str(metadata.get("destination") or metadata.get("project") or "unrouted")
-    lead = f"{title} is a {capture_kind} note with {intent} intent currently targeting {destination}."
-    supporting = " ".join(sentences[:2]).strip()
-    return f"{lead} {supporting}".strip()
-
-
-def build_confidence_by_field(
-    metadata: dict[str, Any],
-    *,
-    facts: list[str],
-    tasks: list[str],
-    decisions: list[str],
-    open_questions: list[str],
-    follow_ups: list[str],
-    timeline: list[str],
-) -> dict[str, float]:
-    base = float(metadata.get("confidence") or 0.0)
-    return {
-        "summary": round(max(0.45, min(0.95, 0.45 + (0.1 * min(3, len(facts))))), 2),
-        "routing": round(base, 2),
-        "facts": round(max(0.3, min(0.9, 0.3 + (0.08 * len(facts)))), 2),
-        "tasks": round(max(0.25, min(0.9, 0.25 + (0.1 * len(tasks)))), 2),
-        "decisions": round(max(0.25, min(0.9, 0.25 + (0.1 * len(decisions)))), 2),
-        "open_questions": round(max(0.25, min(0.85, 0.25 + (0.1 * len(open_questions)))), 2),
-        "follow_ups": round(max(0.25, min(0.85, 0.25 + (0.08 * len(follow_ups)))), 2),
-        "timeline": round(max(0.25, min(0.85, 0.25 + (0.08 * len(timeline)))), 2),
-    }
-
-
-def build_evidence_spans(
-    *,
-    sentences: list[str],
-    facts: list[str],
-    tasks: list[str],
-    decisions: list[str],
-    open_questions: list[str],
-    follow_ups: list[str],
-) -> list[dict[str, str]]:
-    spans: list[dict[str, str]] = []
-    field_map = {
-        "facts": facts,
-        "tasks": tasks,
-        "decisions": decisions,
-        "open_questions": open_questions,
-        "follow_ups": follow_ups,
-    }
-    for field, values in field_map.items():
-        for value in values[:3]:
-            excerpt = next((sentence for sentence in sentences if value[:48].lower() in sentence.lower()), value)
-            spans.append({"field": field, "excerpt": excerpt[:240]})
-    return spans
-
-
-def build_ambiguities(metadata: dict[str, Any], *, open_questions: list[str], facts: list[str]) -> list[str]:
-    ambiguities: list[str] = []
-    if metadata.get("status") in {"pending_project", "needs_review", "ambiguous"}:
-        ambiguities.append(str(metadata.get("destination_reason") or metadata.get("routing_reason") or "Routing still needs human confirmation."))
-    if not facts:
-        ambiguities.append("No strong factual extraction was found beyond the raw transcript.")
-    if open_questions:
-        ambiguities.append("The note contains unresolved questions that may affect downstream processing.")
-    if metadata.get("audio_available") and not metadata.get("audio_local_path"):
-        ambiguities.append("Audio is marked as available, but no local audio path is stored yet.")
-    return unique_preserve(ambiguities, limit=6)
-
-
-def compiled_note_path(metadata: dict[str, Any]) -> Path:
-    source, source_project, note_id = note_identity(metadata)
-    directory = compiled_dir_for(source, source_project)
-    return existing_artifact_path(directory, note_id, ".md") or (directory / compiled_filename_from_metadata(metadata))
-
-
-def format_bullet_section(title: str, values: list[str]) -> str:
-    if not values:
-        return f"## {title}\n\n- None extracted.\n"
-    lines = "\n".join(f"- {value}" for value in values)
-    return f"## {title}\n\n{lines}\n"
-
-
-def format_evidence_section(spans: list[dict[str, str]]) -> str:
-    if not spans:
-        return "## Evidence spans\n\n- No direct evidence spans captured.\n"
-    lines = "\n".join(f"- {item['field']}: {item['excerpt']}" for item in spans)
-    return f"## Evidence spans\n\n{lines}\n"
-
-
-def compile_note_artifact(metadata: dict[str, Any], body: str, note_path: Path) -> tuple[Path, dict[str, Any], str]:
-    metadata = ensure_note_metadata_defaults(dict(metadata))
-    compile_signature = canonical_compile_signature(metadata, body)
-    transcript = transcript_text(body)
-    sentences = sentence_chunks(transcript)
-    entities = extract_entities(metadata, transcript)
-    facts = extract_facts(metadata, sentences)
-    tasks = extract_tasks(sentences)
-    decisions = extract_decisions(sentences)
-    open_questions = extract_open_questions(sentences)
-    follow_ups = extract_follow_ups(metadata, sentences)
-    timeline = extract_timeline(metadata, sentences)
-    brief_summary = compile_summary(metadata, sentences)
-    confidence_by_field = build_confidence_by_field(
-        metadata,
-        facts=facts,
-        tasks=tasks,
-        decisions=decisions,
-        open_questions=open_questions,
-        follow_ups=follow_ups,
-        timeline=timeline,
-    )
-    evidence_spans = build_evidence_spans(
-        sentences=sentences,
-        facts=facts,
-        tasks=tasks,
-        decisions=decisions,
-        open_questions=open_questions,
-        follow_ups=follow_ups,
-    )
-    ambiguities = build_ambiguities(metadata, open_questions=open_questions, facts=facts)
-    compiled_metadata = {
-        "source": metadata.get("source", VOICE_SOURCE),
-        "source_note_id": metadata.get("source_note_id"),
-        "title": metadata.get("title"),
-        "created_at": metadata.get("created_at"),
-        "capture_kind": metadata.get("capture_kind"),
-        "intent": metadata.get("intent"),
-        "destination": metadata.get("destination"),
-        "destination_reason": metadata.get("destination_reason"),
-        "status": metadata.get("status"),
-        "project": metadata.get("project"),
-        "note_type": metadata.get("note_type"),
-        "confidence": metadata.get("confidence"),
-        "review_status": metadata.get("review_status"),
-        "tags": metadata.get("tags", []),
-        "user_keywords": metadata.get("user_keywords", []),
-        "inferred_keywords": metadata.get("inferred_keywords", []),
-        "source_language": metadata.get("source_language"),
-        "language_confidence": metadata.get("language_confidence"),
-        "matched_languages": metadata.get("matched_languages", []),
-        "mixed_languages": metadata.get("mixed_languages", False),
-        "active_parser_languages": metadata.get("active_parser_languages", []),
-        "thread_id": metadata.get("thread_id"),
-        "continuation_of": metadata.get("continuation_of"),
-        "related_note_ids": metadata.get("related_note_ids", []),
-        "summary_available": metadata.get("summary_available", False),
-        "summary_source": metadata.get("summary_source"),
-        "audio_available": metadata.get("audio_available", False),
-        "audio_local_path": metadata.get("audio_local_path"),
-        "classification_basis": metadata.get("classification_basis", []),
-        "derived_outputs": metadata.get("derived_outputs", []),
-        "canonical_path": relative_or_absolute(note_path),
-        "raw_payload_path": metadata.get("raw_payload_path"),
-        "compiled_at": iso_now(),
-        "compiled_version": 1,
-        "compiled_from_path": relative_or_absolute(note_path),
-        "compiled_from_signature": compile_signature,
-        "compiled_from_status": metadata.get("status"),
-        "brief_summary": brief_summary,
-        "entities": entities,
-        "facts": facts,
-        "tasks": tasks,
-        "decisions": decisions,
-        "open_questions": open_questions,
-        "follow_ups": follow_ups,
-        "timeline": timeline,
-        "ambiguities": ambiguities,
-        "confidence_by_field": confidence_by_field,
-        "evidence_spans": evidence_spans,
-    }
-    compiled_title = str(metadata.get("title") or f"Voice note {metadata.get('source_note_id')}")
-    compiled_body = (
-        f"# {compiled_title}\n\n"
-        f"## Project-ready brief\n\n{brief_summary}\n\n"
-        f"{format_bullet_section('Entities', entities)}\n"
-        f"{format_bullet_section('Facts', facts)}\n"
-        f"{format_bullet_section('Tasks', tasks)}\n"
-        f"{format_bullet_section('Decisions', decisions)}\n"
-        f"{format_bullet_section('Open questions', open_questions)}\n"
-        f"{format_bullet_section('Follow-ups', follow_ups)}\n"
-        f"{format_bullet_section('Timeline', timeline)}\n"
-        f"{format_bullet_section('Ambiguities', ambiguities)}\n"
-        f"## Confidence by field\n\n```json\n{json.dumps(confidence_by_field, indent=2, ensure_ascii=False)}\n```\n\n"
-        f"{format_evidence_section(evidence_spans)}\n"
-        f"## Source transcript\n\n{transcript or '(empty transcript)'}\n"
-    )
-    return compiled_note_path(metadata), compiled_metadata, compiled_body
-
-
 def compile_command(args: argparse.Namespace) -> int:
     ensure_layout()
     note_filter = set(args.note_ids or [])
@@ -2204,16 +1535,6 @@ def compile_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def compiled_artifact_state(metadata: dict[str, Any], body: str) -> tuple[Path, bool, dict[str, Any] | None, str | None]:
-    path = compiled_note_path(metadata)
-    if not path.exists():
-        return path, False, None, None
-    compiled_metadata, _ = read_note(path)
-    current_signature = canonical_compile_signature(metadata, body)
-    is_fresh = compiled_metadata.get("compiled_from_signature") == current_signature
-    return path, is_fresh, compiled_metadata, current_signature
-
-
 def normalize_command(args: argparse.Namespace) -> int:
     ensure_layout()
     sources = parse_source_filter(getattr(args, "source", None))
@@ -2228,6 +1549,11 @@ def normalize_command(args: argparse.Namespace) -> int:
             note_id = packet.get("packet_id") or packet.get("source_note_id")
         elif detected_source == FILESYSTEM_SOURCE:
             note_id = raw_payload.get("source_note_id")
+        elif detected_source == READWISE_SOURCE:
+            document = raw_payload.get("document") or {}
+            note_id = document.get("id")
+            if note_id:
+                note_id = f"rw_{note_id}"
         else:
             recording = raw_payload.get("recording") or {}
             note_id = recording.get("id") or recording.get("uuid")
@@ -2262,90 +1588,24 @@ def normalize_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def slugify(value: str | None) -> str:
-    if not value:
-        return ""
-    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:60]
-
-
-def note_id_from_metadata(path: Path, metadata: dict[str, Any]) -> str:
-    return require_valid_note_id(metadata.get("source_note_id") or path.stem)
-
-
-def canonical_compile_signature(metadata: dict[str, Any], body: str) -> str:
-    canonical = {
-        "title": metadata.get("title"),
-        "created_at": metadata.get("created_at"),
-        "recorded_at": metadata.get("recorded_at"),
-        "recording_type": metadata.get("recording_type"),
-        "duration": metadata.get("duration"),
-        "tags": metadata.get("tags", []),
-        "capture_kind": metadata.get("capture_kind"),
-        "intent": metadata.get("intent"),
-        "destination": metadata.get("destination"),
-        "destination_reason": metadata.get("destination_reason"),
-        "user_keywords": metadata.get("user_keywords", []),
-        "inferred_keywords": metadata.get("inferred_keywords", []),
-        "summary_available": metadata.get("summary_available", False),
-        "summary_source": metadata.get("summary_source"),
-        "audio_available": metadata.get("audio_available", False),
-        "audio_local_path": metadata.get("audio_local_path"),
-        "classification_basis": metadata.get("classification_basis", []),
-        "derived_outputs": metadata.get("derived_outputs", []),
-        "thread_id": metadata.get("thread_id"),
-        "continuation_of": metadata.get("continuation_of"),
-        "related_note_ids": metadata.get("related_note_ids", []),
-        "status": metadata.get("status"),
-        "project": metadata.get("project"),
-        "candidate_projects": metadata.get("candidate_projects", []),
-        "confidence": metadata.get("confidence"),
-        "routing_reason": metadata.get("routing_reason"),
-        "review_status": metadata.get("review_status"),
-        "requires_user_confirmation": metadata.get("requires_user_confirmation"),
-        "note_type": metadata.get("note_type"),
-        "body": body,
-    }
-    payload = json.dumps(canonical, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def route_note(body: str, metadata: dict[str, Any], defaults: dict[str, Any], projects: dict[str, ProjectRule]) -> tuple[str, dict[str, float], str]:
-    routing_parts = [
-        str(metadata.get("title") or ""),
-        " ".join(str(tag) for tag in metadata.get("tags", [])),
-        " ".join(str(tag) for tag in metadata.get("user_keywords", [])),
-        " ".join(str(tag) for tag in metadata.get("inferred_keywords", [])),
-    ]
-    if metadata.get("capture_kind") not in {"meeting_recording", "meeting_summary"}:
-        routing_parts.append(body_excerpt(body, limit=600))
-    combined = " ".join(filter(None, routing_parts)).lower()
-    score_map: dict[str, float] = {}
-    for key, project in projects.items():
-        hits = 0
-        for keyword in project.keywords:
-            if keyword.lower() in combined:
-                hits += 1
-        if hits:
-            score_map[key] = float(hits)
-
-    if not score_map:
-        return "pending_project", {}, "No configured project keywords matched this note. Keep it pending until a project or routing rule exists."
-
-    ranked = sorted(score_map.items(), key=lambda item: item[1], reverse=True)
-    top_project, top_score = ranked[0]
-    min_keyword_hits = int(defaults.get("min_keyword_hits", 2))
-    if top_score < min_keyword_hits:
-        return "needs_review", score_map, "Some keywords matched, but not enough evidence to route safely."
-
-    ties = [project for project, score in ranked if score == top_score]
-    if len(ties) > 1:
-        return "ambiguous", score_map, f"Multiple projects matched equally: {', '.join(ties)}."
-
-    total = sum(score_map.values())
-    confidence = round(top_score / total if total else 0.0, 2)
-    basis = str(metadata.get("capture_kind") or "note")
-    reason = f"Matched {int(top_score)} routing keywords for {top_project} using {basis} signals."
-    return top_project, {"confidence": confidence, **score_map}, reason
+def _ensure_dashboard_running(view: str = "", port: int = 8420) -> None:
+    """Start dashboard server if not running and open browser."""
+    import socket
+    import subprocess as _sp
+    import webbrowser
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(("localhost", port)) != 0:
+            _sp.Popen(
+                [sys.executable, str(ROOT / "scripts" / "dashboard.py"), "--no-browser", "--port", str(port)],
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                start_new_session=True,
+            )
+            import time
+            time.sleep(2)
+    url = f"http://localhost:{port}"
+    if view:
+        url += f"/{view}"
+    webbrowser.open(url)
 
 
 def triage_command(args: argparse.Namespace) -> int:
@@ -2430,6 +1690,8 @@ def triage_command(args: argparse.Namespace) -> int:
         triaged += 1
 
     print(json.dumps({"triaged": triaged, "mode": "all" if args.all else "default", "sources": sorted(sources)}, indent=2, ensure_ascii=False))
+    if getattr(args, "dashboard", False):
+        _ensure_dashboard_running(view="triage")
     return 0
 
 
@@ -2851,6 +2113,8 @@ def review_command(args: argparse.Namespace) -> int:
         if normalize_source_name(str(packet.get("source") or VOICE_SOURCE)) not in sources:
             raise SystemExit(f"Decision packet {args.note_id} exists outside the current --source filter.")
         print(json.dumps(build_review_entry(packet, packet_path), indent=2, ensure_ascii=False))
+        if getattr(args, "dashboard", False):
+            _ensure_dashboard_running(view="notes")
         return 0
 
     output = []
@@ -2863,132 +2127,9 @@ def review_command(args: argparse.Namespace) -> int:
             continue
         output.append(entry)
     print(json.dumps(output, indent=2, ensure_ascii=False))
+    if getattr(args, "dashboard", False):
+        _ensure_dashboard_running(view="notes")
     return 0
-
-
-def build_review_entry(packet: dict[str, Any], packet_path: Path) -> dict[str, Any]:
-    proposal = packet.get("proposal", {})
-    compiled = packet.get("compiled") or {}
-    note_metadata: dict[str, Any] = {}
-    note_body = ""
-    canonical_path_raw = packet.get("canonical_path")
-    canonical_path = str(ROOT / canonical_path_raw) if canonical_path_raw and not Path(canonical_path_raw).is_absolute() else canonical_path_raw
-    if canonical_path and Path(canonical_path).exists():
-        note_metadata, note_body = read_note(Path(canonical_path))
-        note_metadata = ensure_note_metadata_defaults(note_metadata)
-        if not note_metadata.get("inferred_keywords"):
-            note_metadata["inferred_keywords"] = extract_keywords(note_metadata, note_body)
-    thread = packet.get("thread") or {}
-    note_status = note_metadata.get("status") or proposal.get("status")
-    note_project = note_metadata.get("project")
-    note_type = note_metadata.get("note_type")
-    note_review_status = note_metadata.get("review_status") or proposal.get("review_status")
-    note_confidence = note_metadata.get("confidence") if "confidence" in note_metadata else proposal.get("confidence")
-    compiled_path = compiled.get("path") or (str(compiled_note_path(note_metadata)) if note_metadata.get("source_note_id") else None)
-    compiled_summary = compiled.get("brief_summary")
-    compiled_is_fresh = None
-    compiled_ready = False
-    if canonical_path and Path(canonical_path).exists():
-        compiled_artifact_path, fresh, compiled_metadata, _ = compiled_artifact_state(note_metadata, note_body)
-        compiled_ready = compiled_metadata is not None
-        if compiled_artifact_path.exists():
-            compiled_path = str(compiled_artifact_path)
-            compiled_is_fresh = fresh
-        if compiled_metadata:
-            compiled_summary = compiled_metadata.get("brief_summary") or compiled_summary
-    note_action = "propose_dispatch" if note_status == "classified" and note_project else note_status
-    if note_status == "classified" and note_project:
-        if not compiled_ready:
-            note_action = "compile_required"
-        elif compiled_is_fresh is False:
-            note_action = "recompile_required"
-    return {
-        "source_note_id": packet.get("source_note_id"),
-        "title": note_metadata.get("title") or packet.get("title"),
-        "project": note_project if note_project is not None else proposal.get("proposed_project"),
-        "type": note_type if note_type is not None else proposal.get("proposed_type"),
-        "confidence": note_confidence,
-        "action": note_action,
-        "review_status": note_review_status,
-        "capture_kind": note_metadata.get("capture_kind") or packet.get("capture_kind"),
-        "intent": note_metadata.get("intent") or packet.get("intent"),
-        "destination": note_metadata.get("destination") or packet.get("destination"),
-        "destination_reason": note_metadata.get("destination_reason") or packet.get("destination_reason"),
-        "user_keywords": note_metadata.get("user_keywords", []) or packet.get("user_keywords", []),
-        "inferred_keywords": note_metadata.get("inferred_keywords", []) or packet.get("inferred_keywords", []),
-        "summary_available": note_metadata.get("summary_available", packet.get("summary_available", False)),
-        "audio_available": note_metadata.get("audio_available", packet.get("audio_available", False)),
-        "classification_basis": note_metadata.get("classification_basis", []) or packet.get("classification_basis", []),
-        "thread_id": note_metadata.get("thread_id") or thread.get("thread_id"),
-        "continuation_of": note_metadata.get("continuation_of") or thread.get("continuation_of"),
-        "related_note_ids": note_metadata.get("related_note_ids", []) or thread.get("related_note_ids", []),
-        "compiled_summary": compiled_summary,
-        "compiled_ready": compiled_ready,
-        "compiled_is_fresh": compiled_is_fresh,
-        "normalized_path": canonical_path,
-        "compiled_path": compiled_path,
-        "raw_payload_path": _raw_payload_path_from_packet(packet),
-        "decision_packet_path": str(packet_path),
-    }
-
-
-def _raw_payload_path_from_packet(packet: dict[str, Any]) -> str | None:
-    return packet.get("raw_payload_path")
-
-
-def count_pending_review_entries(*, sources: set[str]) -> dict[str, int]:
-    counts = {source: 0 for source in sources}
-    for path in sorted(DECISIONS_DIR.glob("*.json")):
-        packet = load_decision_packet_by_path(path)
-        source = normalize_source_name(str(packet.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
-        if source not in sources:
-            continue
-        entry = build_review_entry(packet, path)
-        if entry.get("review_status") != "pending" and entry.get("action") not in {"compile_required", "recompile_required"}:
-            continue
-        counts[source] = counts.get(source, 0) + 1
-    return counts
-
-
-def find_normalized_note_paths(note_id: str, *, sources: set[str] | None = None) -> list[Path]:
-    matches: list[Path] = []
-    for path in iter_normalized_files_by_source(sources or set(KNOWN_SOURCES)):
-        metadata, _ = read_note(path)
-        if str(metadata.get("source_note_id")) == note_id:
-            matches.append(path)
-    return matches
-
-
-def resolve_unique_normalized_note_path(note_id: str, *, sources: set[str] | None = None) -> Path:
-    matches = find_normalized_note_paths(note_id, sources=sources)
-    if not matches:
-        raise SystemExit(f"No normalized note found for {note_id}.")
-    if len(matches) > 1:
-        rendered = ", ".join(str(path) for path in matches)
-        raise SystemExit(f"Multiple normalized notes found for {note_id}. Narrow the source scope first: {rendered}")
-    return matches[0]
-
-
-def apply_note_annotations(metadata: dict[str, Any], args: argparse.Namespace, note_id: str) -> None:
-    metadata = ensure_note_metadata_defaults(metadata)
-    if getattr(args, "user_keywords", None):
-        merged = {str(value).strip().lower() for value in metadata.get("user_keywords", []) if str(value).strip()}
-        merged.update(str(value).strip().lower() for value in args.user_keywords if str(value).strip())
-        metadata["user_keywords"] = sorted(merged)
-    if getattr(args, "related_note_ids", None):
-        merged_ids = {str(value).strip() for value in metadata.get("related_note_ids", []) if str(value).strip()}
-        merged_ids.update(str(value).strip() for value in args.related_note_ids if str(value).strip())
-        merged_ids.discard(note_id)
-        metadata["related_note_ids"] = sorted(merged_ids)
-    if getattr(args, "thread_id", None):
-        metadata["thread_id"] = args.thread_id
-    if getattr(args, "continuation_of", None):
-        continuation_of = str(args.continuation_of).strip()
-        metadata["continuation_of"] = continuation_of or None
-        if continuation_of and continuation_of != note_id:
-            merged_ids = {str(value).strip() for value in metadata.get("related_note_ids", []) if str(value).strip()}
-            merged_ids.add(continuation_of)
-            metadata["related_note_ids"] = sorted(merged_ids)
 
 
 def decide_command(args: argparse.Namespace) -> int:
@@ -3012,6 +2153,8 @@ def decide_command(args: argparse.Namespace) -> int:
         metadata["destination"] = final_project
         metadata["note_type"] = args.final_type or metadata.get("note_type") or projects[final_project].note_type
         metadata["review_status"] = "approved"
+        metadata["user_suggested_project"] = None
+        metadata["user_suggestion_timestamp"] = None
         metadata["requires_user_confirmation"] = False
         metadata["intent"] = classify_intent(metadata)
         remove_review_copies(note_path.name)
@@ -3073,7 +2216,7 @@ def decide_command(args: argparse.Namespace) -> int:
             "continuation_of": metadata.get("continuation_of"),
             "related_note_ids": metadata.get("related_note_ids", []),
             "user_keywords": metadata.get("user_keywords", []),
-            "notes": args.notes or "",
+            "notes": args.reviewer_notes or "",
         }
     )
     packet["final_decision"] = packet["reviews"][-1]
@@ -3184,13 +2327,6 @@ def acquire_scan_lock() -> None:
 
 def release_scan_lock() -> None:
     OUTBOX_SCAN_LOCK_PATH.unlink(missing_ok=True)
-
-
-def relative_or_absolute(path: Path) -> str:
-    try:
-        return str(path.relative_to(ROOT))
-    except ValueError:
-        return str(path)
 
 
 def packet_content_hash(metadata: dict[str, Any], body: str) -> str:
@@ -3359,6 +2495,21 @@ def convert_brief_to_packet(metadata: dict[str, Any], body: str) -> tuple[dict[s
     converted["language"] = language
     converted["status"] = "open"
     return converted, body
+
+
+def is_compiled_brief_metadata(metadata: dict[str, Any]) -> bool:
+    if metadata.get("packet_id"):
+        return False
+    if metadata.get("source") != PROJECT_ROUTER_SOURCE:
+        return False
+    brief_markers = (
+        "source_note_id",
+        "classification",
+        "brief_summary",
+        "compiled_path",
+        "canonical_path",
+    )
+    return any(metadata.get(field) not in (None, "", []) for field in brief_markers)
 
 
 def build_project_router_raw_payload(
@@ -3616,8 +2767,6 @@ def init_router_root_command(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 #  adopt-router-root — transaction-style migration
 # ---------------------------------------------------------------------------
-
-ADOPTIONS_DIR = PROJECT_ROUTER_STATE_DIR / "adoptions"
 
 
 @dataclass
@@ -4443,105 +3592,12 @@ def migrate_source_layout_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def count_markdown(path: Path) -> int:
-    return len(list_markdown_files(path))
-
-
-def count_raw(path: Path) -> int:
-    return len(list_raw_files(path))
-
-
-def count_manifests(directory: Path | None = None) -> int:
-    return len(list_filesystem_manifests(directory))
-
-
 def status_command(args: argparse.Namespace) -> int:
     ensure_layout()
     sources = parse_source_filter(getattr(args, "source", None))
-    voicenotes_raw = count_raw(raw_dir_for(VOICE_SOURCE)) if VOICE_SOURCE in sources else 0
-    voicenotes_normalized = count_markdown(normalized_dir_for(VOICE_SOURCE)) if VOICE_SOURCE in sources else 0
-    voicenotes_compiled = count_markdown(compiled_dir_for(VOICE_SOURCE)) if VOICE_SOURCE in sources else 0
-    project_router_raw = sum(count_raw(path) for path in iter_source_dirs("raw", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
-    project_router_normalized = sum(count_markdown(path) for path in iter_source_dirs("normalized", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
-    project_router_compiled = sum(count_markdown(path) for path in iter_source_dirs("compiled", {PROJECT_ROUTER_SOURCE})) if PROJECT_ROUTER_SOURCE in sources else 0
-    filesystem_raw = count_manifests() if FILESYSTEM_SOURCE in sources else 0
-    filesystem_normalized = count_markdown(normalized_dir_for(FILESYSTEM_SOURCE)) if FILESYSTEM_SOURCE in sources else 0
-    filesystem_compiled = count_markdown(compiled_dir_for(FILESYSTEM_SOURCE)) if FILESYSTEM_SOURCE in sources else 0
-    scan_state = load_outbox_scan_state() if PROJECT_ROUTER_SOURCE in sources else None
-    legacy_backlog = len(legacy_source_layout_operations())
-
-    summary: dict[str, Any] = {
-        "sources": sorted(sources),
-        "raw": {
-            "voicenotes": voicenotes_raw,
-            "project_router": project_router_raw,
-            "filesystem": filesystem_raw,
-        },
-        "normalized": {
-            "voicenotes": voicenotes_normalized,
-            "project_router": project_router_normalized,
-            "filesystem": filesystem_normalized,
-        },
-        "compiled": {
-            "voicenotes": voicenotes_compiled,
-            "project_router": project_router_compiled,
-            "filesystem": filesystem_compiled,
-        },
-        "review": {
-            "voicenotes": {
-                "ambiguous": count_markdown(review_dir_for(VOICE_SOURCE, "ambiguous")) if VOICE_SOURCE in sources else 0,
-                "pending_project": count_markdown(review_dir_for(VOICE_SOURCE, "pending_project")) if VOICE_SOURCE in sources else 0,
-                "needs_review": count_markdown(review_dir_for(VOICE_SOURCE, "needs_review")) if VOICE_SOURCE in sources else 0,
-            },
-            "project_router": {
-                "parse_errors": count_active_scan_state_errors(scan_state) if PROJECT_ROUTER_SOURCE in sources else 0,
-                "pending_project": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "pending_project")) if PROJECT_ROUTER_SOURCE in sources else 0,
-                "needs_review": count_markdown(review_dir_for(PROJECT_ROUTER_SOURCE, "needs_review")) if PROJECT_ROUTER_SOURCE in sources else 0,
-            },
-            "filesystem": {
-                "parse_errors": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "parse_errors")) if FILESYSTEM_SOURCE in sources else 0,
-                "needs_extraction": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "needs_extraction")) if FILESYSTEM_SOURCE in sources else 0,
-                "ambiguous": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "ambiguous")) if FILESYSTEM_SOURCE in sources else 0,
-                "pending_project": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "pending_project")) if FILESYSTEM_SOURCE in sources else 0,
-                "needs_review": count_markdown(review_dir_for(FILESYSTEM_SOURCE, "needs_review")) if FILESYSTEM_SOURCE in sources else 0,
-            },
-        },
-        "dispatched": sum(count_markdown(path) for path in DISPATCHED_DIR.glob("*") if path.is_dir()),
-        "processed": count_markdown(PROCESSED_DIR),
-        "decision_packets": len(list(DECISIONS_DIR.glob("*.json"))),
-        "inbox": _count_inbox_states(),
-        "legacy_backlog": legacy_backlog,
-        "scan_state_path": str(OUTBOX_SCAN_STATE_PATH),
-    }
+    summary = compute_pipeline_status(sources)
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
-
-
-def _count_inbox_states() -> dict[str, int]:
-    """Count inbox packets by status for the status command."""
-    counts: dict[str, int] = {}
-    if INBOX_STATUS_DIR.exists():
-        for state_path in INBOX_STATUS_DIR.glob("*.json"):
-            try:
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-                status = state.get("status", "unknown")
-                counts[status] = counts.get(status, 0) + 1
-            except (json.JSONDecodeError, OSError):
-                counts["error"] = counts.get("error", 0) + 1
-    inbox = LOCAL_ROUTER_DIR / "inbox"
-    unprocessed = 0
-    if inbox.exists():
-        for p in inbox.iterdir():
-            if p.is_file() and p.suffix == ".md" and p.name != ".gitkeep":
-                try:
-                    pid = extract_packet_id(p)
-                except SystemExit:
-                    continue
-                if load_inbox_packet_state(pid) is None:
-                    unprocessed += 1
-    if unprocessed:
-        counts["unprocessed"] = unprocessed
-    return counts
 
 
 def inbox_intake_command(args: argparse.Namespace) -> int:
@@ -4565,7 +3621,10 @@ def inbox_intake_command(args: argparse.Namespace) -> int:
             skipped += 1
             continue
 
-        is_brief = (metadata.get("capture_kind") or metadata.get("inferred_keywords")) and not metadata.get("packet_id")
+        is_brief = (
+            (metadata.get("capture_kind") or metadata.get("inferred_keywords"))
+            and not metadata.get("packet_id")
+        ) or is_compiled_brief_metadata(metadata)
         if is_brief:
             converted_meta, body = convert_brief_to_packet(metadata, body)
             if not dry_run:
@@ -4983,6 +4042,7 @@ def build_parser() -> argparse.ArgumentParser:
     triage = subparsers.add_parser("triage", help="Classify normalized notes conservatively.")
     add_source_argument(triage)
     triage.add_argument("--all", action="store_true", help="Label the output JSON mode as 'all' instead of 'default'. Does not change triage behaviour.")
+    triage.add_argument("--dashboard", action="store_true", help="Open dashboard after triage")
     triage.set_defaults(func=triage_command)
 
     compile_parser = subparsers.add_parser("compile", help="Generate project-ready compiled note packages from canonical notes.")
@@ -5005,6 +4065,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_source_argument(review)
     review.add_argument("--all", action="store_true", help="Include already reviewed packets.")
     review.add_argument("--note-id", help="Show the full decision packet for one source_note_id.")
+    review.add_argument("--dashboard", action="store_true", help="Open dashboard after review")
     review.set_defaults(func=review_command)
 
     discover = subparsers.add_parser("discover", help="Analyze pending-project notes and suggest emerging buckets.")
@@ -5014,14 +4075,14 @@ def build_parser() -> argparse.ArgumentParser:
     decide = subparsers.add_parser("decide", help="Record the user's review decision for one note.")
     add_source_argument(decide)
     decide.add_argument("--note-id", required=True, help="source_note_id to review.")
-    decide.add_argument("--decision", required=True, choices=("approve", "reject", "needs-review", "ambiguous", "pending-project"))
+    decide.add_argument("--decision", required=True, choices=("approve", "reject", "defer", "needs-review", "ambiguous", "pending-project"))
     decide.add_argument("--final-project", help="Override the final project when approving.")
     decide.add_argument("--final-type", help="Override the final note type when approving.")
     decide.add_argument("--user-keyword", dest="user_keywords", action="append", help="Add a curated keyword to the note metadata.")
     decide.add_argument("--related-note-id", dest="related_note_ids", action="append", help="Link another note as related context.")
     decide.add_argument("--thread-id", help="Assign or override the note thread identifier.")
     decide.add_argument("--continuation-of", help="Mark this note as a continuation of another source_note_id.")
-    decide.add_argument("--notes", help="Optional reviewer note.")
+    decide.add_argument("--notes", dest="reviewer_notes", help="Optional reviewer note.")
     decide.set_defaults(func=decide_command)
 
     scan_outboxes = subparsers.add_parser("scan-outboxes", help="Read downstream project outboxes without mutating them.")
@@ -5048,6 +4109,29 @@ def build_parser() -> argparse.ArgumentParser:
     context = subparsers.add_parser("context", help="Generate a live project briefing from repo state.")
     add_source_argument(context)
     context.set_defaults(func=context_command)
+
+    template_update_status = subparsers.add_parser(
+        "template-update-status",
+        help="Compare the current template metadata with the latest upstream release.",
+    )
+    template_update_status.add_argument(
+        "--check-remote",
+        action="store_true",
+        help="Query GitHub Releases for the configured template_repo before reporting status.",
+    )
+    template_update_status.set_defaults(func=template_update_status_command)
+
+    template_sync_metadata = subparsers.add_parser(
+        "template-sync-metadata",
+        help="Reconcile template-base.json with the installed template version.",
+    )
+    template_sync_metadata.add_argument("--check", action="store_true", help="Exit non-zero when template-base.json is stale.")
+    template_sync_metadata.add_argument("--template-repo", help="Override the upstream template repository slug.")
+    template_sync_metadata.add_argument("--template-version", help="Override the template version to record.")
+    template_sync_metadata.add_argument("--template-tag", help="Override the template tag to record.")
+    template_sync_metadata.add_argument("--template-commit", help="Override the template base commit to record.")
+    template_sync_metadata.add_argument("--synced-at", help="Override the sync timestamp (UTC ISO-8601).")
+    template_sync_metadata.set_defaults(func=template_sync_metadata_command)
 
     ingest = subparsers.add_parser("ingest", help="Ingest files from a configured filesystem inbox.")
     ingest.add_argument("--integration", required=True, help="Integration type (currently: filesystem).")

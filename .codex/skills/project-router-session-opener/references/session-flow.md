@@ -7,29 +7,31 @@ For a broader orientation, see `Knowledge/ContextPack.md`.
 
 ## Safe Session Opener Sequence
 
-1. `python3 scripts/project_router.py status`
-2. If the machine is new, run `python3 scripts/bootstrap_local.py`.
-3. Check whether `.env.local` and `projects/registry.local.json` exist.
-4. If `.env.local` exists, fetch fresh notes by default:
+1. If `private.meta.json` exists, run `python3 scripts/project_router.py template-update-status --check-remote`.
+2. If the command reports `update_available`, ask the user whether they want to review/update the template before continuing. Do not auto-run the sync workflow or merge anything.
+3. `python3 scripts/project_router.py status`
+4. If the machine is new, run `python3 scripts/bootstrap_local.py`.
+5. Check whether `.env.local` and `projects/registry.local.json` exist.
+6. If `.env.local` exists, fetch fresh notes by default:
    - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
    - `python3 scripts/project_router.py normalize`
    - `python3 scripts/project_router.py triage`
    - `python3 scripts/project_router.py compile`
    - this refresh path should preserve manual approvals when the computed route does not change
-5. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
+7. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
    - `python3 scripts/project_router.py ingest --integration filesystem`
    - `python3 scripts/project_router.py normalize --source filesystem`
    - `python3 scripts/project_router.py extract` (list pending, then extract each)
    - `python3 scripts/project_router.py triage --source filesystem`
    - `python3 scripts/project_router.py compile --source filesystem`
-6. Show pending packets:
+8. Show pending packets:
    - `python3 scripts/project_router.py review`
-7. If `pending_project` is not zero, inspect clusters:
+9. If `pending_project` is not zero, inspect clusters:
    - `python3 scripts/project_router.py discover`
-8. If router inbox packets exist, consume them:
+10. If router inbox packets exist, consume them:
    - `python3 scripts/project_router.py inbox-intake`
    - `python3 scripts/project_router.py inbox-status`
-9. Stop there and ask the user what to approve, reject, or refine.
+11. Stop there and ask the user what to approve, reject, or refine.
 
 ## Required Reporting Shape
 

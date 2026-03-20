@@ -1,0 +1,646 @@
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { getNotes, getProjects, getStatus, suggestProject, decideNote, batchDecide, noteIdentityParams, noteKey, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
+import { StatusBadge } from '../components/StatusBadge';
+import { ConfidenceBar } from '../components/ConfidenceBar';
+import { NoteDetail } from '../components/notes/NoteDetail';
+import { useKeyboard } from '../hooks/useKeyboard';
+import { SourceIcon } from '../components/SourceIcon';
+import { triggerUndo } from '../components/layout/undoEvents';
+
+function formatAge(seconds: number | undefined): string {
+  if (seconds === undefined || seconds === null) return '--';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
+
+function ageColor(seconds: number | undefined): string {
+  if (seconds === undefined || seconds === null) return 'text-zinc-500';
+  if (seconds < 3600) return 'text-zinc-400';
+  if (seconds < 86400) return 'text-amber-500';
+  return 'text-rose-500';
+}
+
+export function NotesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [notes, setNotes] = useState<NoteListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [sources, setSources] = useState<string[]>([]);
+
+  const [filterStatus, setFilterStatus] = useState(searchParams.get('status') ?? '');
+  const [filterSource, setFilterSource] = useState(searchParams.get('source') ?? '');
+  const [filterProject, setFilterProject] = useState(searchParams.get('project') ?? '');
+  const [search, setSearch] = useState(searchParams.get('search') ?? '');
+  const [sortBy, setSortBy] = useState('created_at_desc');
+
+  const selectedId = searchParams.get('id');
+  const selectedSource = searchParams.get('source') ?? '';
+  const selectedSourceProject = searchParams.get('source_project') ?? '';
+  const selectedKey = selectedId ? noteKey(selectedSource, selectedId, selectedSourceProject) : '';
+
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+
+  // Batch selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const lastSelectedIndex = useRef<number | null>(null);
+
+  const perPage = 25;
+
+  const loadNotes = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params: Record<string, string> = {
+        page: String(page),
+        per_page: String(perPage),
+        sort: sortBy,
+      };
+      if (filterStatus) params.status = filterStatus;
+      if (filterSource) params.source = filterSource;
+      if (filterProject) params.project = filterProject;
+      if (search) params.search = search;
+
+      const res = await getNotes(params);
+      setNotes(res.notes ?? []);
+      setTotal(res.total ?? 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, [page, filterStatus, filterSource, filterProject, search, sortBy]);
+
+  useEffect(() => {
+    loadNotes();
+  }, [loadNotes]);
+
+  useEffect(() => {
+    async function loadMeta() {
+      try {
+        const [p, s] = await Promise.all([getProjects(), getStatus()]);
+        setProjects(p.projects ?? []);
+        setSources((s as StatusResponse).sources ?? []);
+      } catch {
+        // silent
+      }
+    }
+    loadMeta();
+  }, []);
+
+  const selectNote = useCallback((note: NoteListItem) => {
+    setSearchParams(noteIdentityParams(note));
+  }, [setSearchParams]);
+
+  const closeDetail = useCallback(() => {
+    const params: Record<string, string> = {};
+    if (filterStatus) params.status = filterStatus;
+    if (filterSource) params.source = filterSource;
+    if (filterProject) params.project = filterProject;
+    if (search) params.search = search;
+    setSearchParams(params);
+  }, [filterStatus, filterSource, filterProject, search, setSearchParams]);
+
+  const handleProjectSuggested = (
+    noteId: string,
+    source: string,
+    sourceProject: string | undefined,
+    project: string,
+  ) => {
+    setNotes((prev) =>
+      prev.map((n) =>
+        noteKey(n.source, n.source_note_id, n.source_project)
+          === noteKey(source, noteId, sourceProject)
+          ? { ...n, user_suggested_project: project }
+          : n,
+      ),
+    );
+  };
+
+  const [fadingKey, setFadingKey] = useState<string | null>(null);
+
+  const handleDecided = useCallback((noteId: string, source: string, sourceProject?: string) => {
+    const key = noteKey(source, noteId, sourceProject);
+    const currentIdx = notes.findIndex(n => noteKey(n.source, n.source_note_id, n.source_project) === key);
+    setFadingKey(key);
+
+    setTimeout(() => {
+      setNotes(prev => {
+        const updated = prev.filter(n => noteKey(n.source, n.source_note_id, n.source_project) !== key);
+        // Auto-advance: select the note that slides into the current position
+        const nextIdx = Math.min(currentIdx, updated.length - 1);
+        if (nextIdx >= 0 && updated[nextIdx]) {
+          const next = updated[nextIdx];
+          setTimeout(() => selectNote(next), 50);
+        } else {
+          closeDetail();
+        }
+        return updated;
+      });
+      setTotal(prev => Math.max(0, prev - 1));
+      setFadingKey(null);
+    }, 1200);
+  }, [notes, selectNote, closeDetail]);
+
+  // Reset focused index and selection when notes change
+  useEffect(() => {
+    setFocusedIndex(-1);
+    setSelectedIds(new Set());
+    lastSelectedIndex.current = null;
+  }, [notes]);
+
+  // Batch selection handlers
+  const toggleSelect = useCallback((idx: number, shiftKey: boolean) => {
+    const note = notes[idx];
+    if (!note) return;
+    const key = noteKey(note.source, note.source_note_id, note.source_project);
+
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastSelectedIndex.current !== null) {
+        const lo = Math.min(lastSelectedIndex.current, idx);
+        const hi = Math.max(lastSelectedIndex.current, idx);
+        for (let i = lo; i <= hi; i++) {
+          next.add(noteKey(notes[i].source, notes[i].source_note_id, notes[i].source_project));
+        }
+      } else if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+    lastSelectedIndex.current = idx;
+  }, [notes]);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === notes.length) return new Set();
+      return new Set(notes.map((n) => noteKey(n.source, n.source_note_id, n.source_project)));
+    });
+  }, [notes]);
+
+  const handleBulkSuggest = useCallback(async (project: string) => {
+    if (!project) return;
+    const selected = notes.filter((n) => selectedIds.has(noteKey(n.source, n.source_note_id, n.source_project)));
+    for (const note of selected) {
+      await suggestProject(note.source_note_id, note.source, project, note.source_project);
+    }
+    setSelectedIds(new Set());
+    lastSelectedIndex.current = null;
+    loadNotes();
+  }, [selectedIds, notes, loadNotes]);
+
+  const handleBatchDecide = useCallback(async (decision: string) => {
+    const selected = notes.filter(n => selectedIds.has(noteKey(n.source, n.source_note_id, n.source_project)));
+
+    // Approve requires all selected to have a project
+    if (decision === 'approve') {
+      const missing = selected.filter(n => !n.user_suggested_project && !n.project);
+      if (missing.length > 0) {
+        alert(`${missing.length} note(s) have no project assigned. Suggest a project first.`);
+        return;
+      }
+    }
+
+    const items = selected.map(n => ({
+      note_id: n.source_note_id,
+      source: n.source,
+      source_project: n.source_project,
+      decision,
+      final_project: decision === 'approve' ? (n.user_suggested_project || n.project) : undefined,
+    }));
+
+    try {
+      const res = await batchDecide(items);
+      const failures = res.results.filter(r => !r.ok);
+      if (failures.length > 0) {
+        alert(`${failures.length} note(s) failed: ${failures.map(f => f.error).join(', ')}`);
+      }
+    } catch {
+      // silent
+    }
+
+    setSelectedIds(new Set());
+    lastSelectedIndex.current = null;
+    loadNotes();
+  }, [selectedIds, notes, loadNotes]);
+
+  const keyboardHandlers = useMemo(() => ({
+    'j': () => {
+      setFocusedIndex((prev) => Math.min(prev + 1, notes.length - 1));
+    },
+    'k': () => {
+      setFocusedIndex((prev) => Math.max(prev - 1, 0));
+    },
+    'enter': () => {
+      if (focusedIndex >= 0 && focusedIndex < notes.length) {
+        selectNote(notes[focusedIndex]);
+      }
+    },
+    'escape': () => {
+      if (selectedId) {
+        closeDetail();
+      } else {
+        setFocusedIndex(-1);
+      }
+    },
+    'p': () => {
+      if (focusedIndex >= 0 && focusedIndex < notes.length && !selectedId) {
+        selectNote(notes[focusedIndex]);
+      }
+    },
+    'a': () => {
+      if (!selectedId || !selectedSource) return;
+      const note = notes.find(
+        n => noteKey(n.source, n.source_note_id, n.source_project) === selectedKey,
+      );
+      const project = note?.user_suggested_project || note?.project;
+      if (!project) return;
+      const capturedId = selectedId;
+      const capturedSource = selectedSource;
+      const capturedSourceProject = selectedSourceProject;
+      const capturedTitle = note?.title || capturedId;
+      decideNote(capturedId, capturedSource, 'approve', project, capturedSourceProject).then(() => {
+        handleDecided(capturedId, capturedSource, capturedSourceProject);
+        triggerUndo(`Approved: ${capturedTitle}`, async () => {
+          await decideNote(capturedId, capturedSource, 'needs-review', undefined, capturedSourceProject);
+          loadNotes();
+        });
+      });
+    },
+    'x': () => {
+      if (!selectedId || !selectedSource) return;
+      const capturedId = selectedId;
+      const capturedSource = selectedSource;
+      const capturedSourceProject = selectedSourceProject;
+      const note = notes.find(
+        n => noteKey(n.source, n.source_note_id, n.source_project) === selectedKey,
+      );
+      const capturedTitle = note?.title || capturedId;
+      decideNote(capturedId, capturedSource, 'reject', undefined, capturedSourceProject).then(() => {
+        handleDecided(capturedId, capturedSource, capturedSourceProject);
+        triggerUndo(`Rejected: ${capturedTitle}`, async () => {
+          await decideNote(capturedId, capturedSource, 'needs-review', undefined, capturedSourceProject);
+          loadNotes();
+        });
+      });
+    },
+    'd': () => {
+      if (!selectedId || !selectedSource) return;
+      const capturedId = selectedId;
+      const capturedSource = selectedSource;
+      const capturedSourceProject = selectedSourceProject;
+      const note = notes.find(
+        n => noteKey(n.source, n.source_note_id, n.source_project) === selectedKey,
+      );
+      const capturedTitle = note?.title || capturedId;
+      decideNote(capturedId, capturedSource, 'defer', undefined, capturedSourceProject).then(() => {
+        handleDecided(capturedId, capturedSource, capturedSourceProject);
+        triggerUndo(`Deferred: ${capturedTitle}`, async () => {
+          await decideNote(capturedId, capturedSource, 'needs-review', undefined, capturedSourceProject);
+          loadNotes();
+        });
+      });
+    },
+    'm': () => {
+      if (!selectedId || !selectedSource) return;
+      const capturedId = selectedId;
+      const capturedSource = selectedSource;
+      const capturedSourceProject = selectedSourceProject;
+      const note = notes.find(
+        n => noteKey(n.source, n.source_note_id, n.source_project) === selectedKey,
+      );
+      const capturedTitle = note?.title || capturedId;
+      decideNote(capturedId, capturedSource, 'ambiguous', undefined, capturedSourceProject).then(() => {
+        handleDecided(capturedId, capturedSource, capturedSourceProject);
+        triggerUndo(`Marked ambiguous: ${capturedTitle}`, async () => {
+          await decideNote(capturedId, capturedSource, 'needs-review', undefined, capturedSourceProject);
+          loadNotes();
+        });
+      });
+    },
+  }), [notes, focusedIndex, selectedId, selectedKey, selectedSource, selectedSourceProject, selectNote, closeDetail, handleDecided, loadNotes]);
+
+  useKeyboard(keyboardHandlers);
+
+  const totalPages = Math.ceil(total / perPage);
+
+  const statuses = [
+    'normalized', 'classified', 'needs_review', 'ambiguous',
+    'pending_project', 'dispatched', 'processed',
+  ];
+
+  const selectStyle: React.CSSProperties = {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    padding: '6px 12px',
+    fontSize: 13,
+    color: '#e4e4e7',
+    outline: 'none',
+  };
+
+  return (
+    <div>
+      {/* Table section */}
+      <div style={{ marginRight: selectedId ? 480 : 0, transition: 'margin-right 0.2s ease' }}>
+        {/* Filter bar */}
+        <div
+          className="sticky z-30 backdrop-blur-sm"
+          style={{ top: 56, padding: '12px 0', background: 'rgba(10,10,11,0.9)' }}
+        >
+          <div
+            className="card flex items-center gap-3 flex-wrap"
+            style={{ padding: 14 }}
+          >
+            <select
+              value={filterStatus}
+              onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
+              style={selectStyle}
+            >
+              <option value="">All statuses</option>
+              {statuses.map((s) => (
+                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+
+            <select
+              value={filterSource}
+              onChange={(e) => { setFilterSource(e.target.value); setPage(1); }}
+              style={selectStyle}
+            >
+              <option value="">All sources</option>
+              {sources.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+
+            <select
+              value={filterProject}
+              onChange={(e) => { setFilterProject(e.target.value); setPage(1); }}
+              style={selectStyle}
+            >
+              <option value="">All projects</option>
+              {projects.map((p) => (
+                <option key={p.key} value={p.key}>{p.display_name || p.key}</option>
+              ))}
+            </select>
+
+            <select
+              value={sortBy}
+              onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
+              style={selectStyle}
+            >
+              <option value="created_at_desc">Newest first</option>
+              <option value="created_at_asc">Oldest first</option>
+              <option value="confidence_desc">Confidence (high)</option>
+              <option value="confidence_asc">Confidence (low)</option>
+            </select>
+
+            <div className="flex-1" style={{ minWidth: 200, position: 'relative' }}>
+              <svg
+                className="absolute text-zinc-600"
+                style={{ left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14 }}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); loadNotes(); } }}
+                placeholder="Search notes..."
+                style={{
+                  ...selectStyle,
+                  width: '100%',
+                  paddingLeft: 32,
+                }}
+              />
+            </div>
+
+            <span className="text-zinc-500 font-medium tabular-nums" style={{ fontSize: 11 }}>
+              {total} note{total !== 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div>
+          <div className="card overflow-hidden">
+            {loading ? (
+              <div style={{ padding: 24 }} className="space-y-2">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="animate-pulse rounded-lg"
+                    style={{ height: 44, background: 'rgba(255,255,255,0.03)' }}
+                  />
+                ))}
+              </div>
+            ) : error ? (
+              <div className="text-center text-zinc-500" style={{ padding: 48 }}>{error}</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <th style={{ padding: '12px 0 12px 20px', width: 36 }}>
+                      <input
+                        type="checkbox"
+                        checked={notes.length > 0 && selectedIds.size === notes.length}
+                        ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < notes.length; }}
+                        onChange={toggleSelectAll}
+                        className="accent-blue-500 cursor-pointer"
+                        style={{ width: 15, height: 15 }}
+                      />
+                    </th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Title</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Status</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Project</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Confidence</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Source</th>
+                    <th className="text-left font-semibold uppercase tracking-widest text-zinc-500" style={{ fontSize: 10, letterSpacing: '0.12em', padding: '12px 20px' }}>Age</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {notes.map((note, idx) => (
+                    <tr
+                      key={noteKey(note.source, note.source_note_id, note.source_project)}
+                        onClick={() => { setFocusedIndex(idx); selectNote(note); }}
+                        className={`table-row-hover cursor-pointer ${
+                        fadingKey === noteKey(note.source, note.source_note_id, note.source_project) ? 'note-fade-out' : ''
+                      } ${selectedKey === noteKey(note.source, note.source_note_id, note.source_project) ? 'bg-blue-500/5' : ''
+                      } ${focusedIndex === idx && selectedKey !== noteKey(note.source, note.source_note_id, note.source_project) ? 'bg-zinc-800/40' : ''}`}
+                      style={{
+                        borderTop: '1px solid rgba(255,255,255,0.04)',
+                        boxShadow:
+                          selectedKey === noteKey(note.source, note.source_note_id, note.source_project)
+                            ? 'inset 3px 0 0 0 #3b82f6'
+                            : focusedIndex === idx
+                              ? 'inset 3px 0 0 0 rgba(161,161,170,0.4)'
+                              : `inset 3px 0 0 0 ${note.confidence >= 0.85 ? 'rgba(52,211,153,0.4)' : note.confidence >= 0.60 ? 'rgba(251,191,36,0.4)' : 'rgba(248,113,113,0.4)'}`,
+                      }}
+                    >
+                      <td style={{ padding: '14px 0 14px 20px', width: 36 }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(noteKey(note.source, note.source_note_id, note.source_project))}
+                          onChange={() => {/* handled by onClick */}}
+                          onClick={(e) => { toggleSelect(idx, e.shiftKey); }}
+                          className="accent-blue-500 cursor-pointer"
+                          style={{ width: 15, height: 15 }}
+                        />
+                      </td>
+                      <td style={{ padding: '14px 20px', minWidth: 300 }} className="text-zinc-100">
+                        <div className="flex items-center gap-2.5">
+                          <SourceIcon source={note.source} />
+                          <span className="truncate block" style={{ maxWidth: 380 }}>
+                            {note.title || note.source_note_id}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '14px 20px' }}>
+                        <StatusBadge status={note.status} />
+                      </td>
+                      <td style={{ padding: '14px 20px', fontSize: 12 }}>
+                        {note.user_suggested_project && note.user_suggested_project !== note.project ? (
+                          <span className="text-violet-400">
+                            Suggested: {note.user_suggested_project}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-400">{note.project || '--'}</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '14px 20px' }}>
+                        <ConfidenceBar value={note.confidence ?? 0} />
+                      </td>
+                      <td className="font-mono text-zinc-500" style={{ padding: '14px 20px', fontSize: 12 }}>
+                        {note.source}
+                      </td>
+                      <td className={`tabular-nums ${ageColor(note.queue_age_seconds)}`} style={{ padding: '14px 20px', fontSize: 12 }}>
+                        {formatAge(note.queue_age_seconds)}
+                      </td>
+                    </tr>
+                  ))}
+                  {notes.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="text-center text-zinc-500" style={{ padding: '64px 20px' }}>
+                        No notes found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div
+                className="flex items-center justify-between"
+                style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.04)' }}
+              >
+                <span className="text-zinc-500 tabular-nums" style={{ fontSize: 11 }}>
+                  Showing {(page - 1) * perPage + 1}--{Math.min(page * perPage, total)} of {total}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(Math.max(1, page - 1))}
+                    disabled={page <= 1}
+                    className="font-medium text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: 12,
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: 8,
+                    }}
+                  >
+                    Previous
+                  </button>
+                  <span className="text-zinc-500 tabular-nums" style={{ fontSize: 12, padding: '0 8px' }}>
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(Math.min(totalPages, page + 1))}
+                    disabled={page >= totalPages}
+                    className="font-medium text-zinc-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: 12,
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: 8,
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Detail panel — fixed to right edge */}
+      {selectedId && (
+        <div className="fixed top-0 right-0 z-50 overflow-y-auto" style={{ width: 480, top: 56, height: 'calc(100vh - 56px)' }}>
+          <NoteDetail
+            noteId={selectedId}
+            source={selectedSource}
+            sourceProject={selectedSourceProject || undefined}
+            onClose={closeDetail}
+            onProjectSuggested={handleProjectSuggested}
+            onDecided={handleDecided}
+          />
+        </div>
+      )}
+
+      {/* Floating batch action bar */}
+      {selectedIds.size > 0 && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 rounded-xl border border-white/[0.08] backdrop-blur-xl shadow-2xl"
+          style={{ background: 'linear-gradient(135deg, rgba(24,24,27,0.95), rgba(39,39,42,0.9))', marginLeft: 120 }}
+        >
+          <span className="text-sm text-zinc-300 font-medium">{selectedIds.size} selected</span>
+          <select
+            className="bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-zinc-200 px-3 py-1.5"
+            onChange={async (e) => {
+              await handleBulkSuggest(e.target.value);
+            }}
+            value=""
+          >
+            <option value="">Suggest project...</option>
+            {projects.map(p => <option key={p.key} value={p.key}>{p.display_name || p.key}</option>)}
+          </select>
+          <button
+            onClick={() => handleBatchDecide('approve')}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+          >
+            Approve All
+          </button>
+          <button
+            onClick={() => handleBatchDecide('reject')}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+          >
+            Reject All
+          </button>
+          <button
+            onClick={() => handleBatchDecide('defer')}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
+          >
+            Defer All
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+            Clear
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

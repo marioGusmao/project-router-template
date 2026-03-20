@@ -80,6 +80,28 @@
       "validator_hooks": ["check_agent_surface_parity"]
     },
     {
+      "pattern": "src/project_router/services/**",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "src/project_router/web/**",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
       "pattern": "src/**",
       "ownership": "template_owned",
       "sync_policy": "template_sync",
@@ -91,9 +113,42 @@
       "validator_hooks": []
     },
     {
+      "pattern": "scripts/dashboard.py",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
       "pattern": "scripts/**",
       "ownership": "template_owned",
       "sync_policy": "template_sync",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "tests/test_services.py",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
+      "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "tests/test_dashboard_api.py",
+      "ownership": "shared_review",
+      "sync_policy": "review_required",
       "customization_model": "overwrite",
       "private_overlay": null,
       "bootstrap_source": null,
@@ -469,6 +524,17 @@
       "ownership": "template_owned",
       "sync_policy": "template_sync",
       "customization_model": "overwrite",
+      "private_overlay": null,
+      "bootstrap_source": null,
+      "agent_load_rule": null,
+      "migration_policy": "silent_ok",
+      "validator_hooks": []
+    },
+    {
+      "pattern": "dashboard/**",
+      "ownership": "private_owned",
+      "sync_policy": "blocked",
+      "customization_model": "skip",
       "private_overlay": null,
       "bootstrap_source": null,
       "agent_load_rule": null,

@@ -1,6 +1,6 @@
 ---
 name: project-router-session-opener
-description: Start a Project Router session for VoiceNotes captures by checking local config, fetching new notes from VoiceNotes when local auth is available, updating the local triage queues, and surfacing the exact items that need review. Use at the beginning of a session when you want Codex to know the safe operating flow for this project without dispatching anything automatically.
+description: Start a Project Router session for VoiceNotes and Readwise captures by checking local config, fetching new notes when local auth is available, updating the local triage queues, and surfacing the exact items that need review. Use at the beginning of a session when you want Codex to know the safe operating flow for this project without dispatching anything automatically.
 ---
 
 # Project Router Session Opener
@@ -25,30 +25,40 @@ If the repository is unfamiliar, run `python3 scripts/project_router.py context`
 
 ## Session Opening Flow
 
-1. Confirm the repository state with:
+1. If `private.meta.json` exists, check the template version first:
+   - `python3 scripts/project_router.py template-update-status --check-remote`
+2. If the command reports `update_available`, ask the user whether they want to review/update the template before continuing. Do not auto-run the sync workflow or merge anything on the user's behalf.
+3. Confirm the repository state with:
    - `python3 scripts/project_router.py status`
-2. Confirm local config exists:
+4. Confirm local config exists:
    - `.env.local`
    - `projects/registry.local.json`
-3. If `.env.local` exists, fetch new notes from VoiceNotes as part of the default opener:
+5. If `.env.local` exists and `VOICENOTES_API_KEY` is configured (not the placeholder), fetch new notes from VoiceNotes:
    - `python3 scripts/project_router_client.py sync --output-dir ./data/raw/voicenotes`
-   - `python3 scripts/project_router.py normalize`
-   - `python3 scripts/project_router.py triage`
-   - `python3 scripts/project_router.py compile`
-4. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
+   - `python3 scripts/project_router.py normalize --source voicenotes`
+   - `python3 scripts/project_router.py triage --source voicenotes`
+   - `python3 scripts/project_router.py compile --source voicenotes`
+   If `VOICENOTES_API_KEY` is missing or still set to the placeholder, explain: "VoiceNotes sync skipped: VOICENOTES_API_KEY not configured in .env.local".
+5b. If `READWISE_ACCESS_TOKEN` is configured in `.env.local` (not the placeholder value), fetch Reader documents:
+   - `python3 scripts/readwise_client.py sync --output-dir ./data/raw/readwise`
+   - `python3 scripts/project_router.py normalize --source readwise`
+   - `python3 scripts/project_router.py triage --source readwise`
+   - `python3 scripts/project_router.py compile --source readwise`
+   If `READWISE_ACCESS_TOKEN` is missing or still set to the placeholder, explain: "Readwise sync skipped: READWISE_ACCESS_TOKEN not configured in .env.local".
+6. If filesystem inboxes are configured (check `registry.local.json` for `sources.filesystem_inboxes`), run:
    - `python3 scripts/project_router.py ingest --integration filesystem`
    - `python3 scripts/project_router.py normalize --source filesystem`
    - `python3 scripts/project_router.py extract` (list pending, then extract each)
    - `python3 scripts/project_router.py triage --source filesystem`
    - `python3 scripts/project_router.py compile --source filesystem`
-5. Surface the decision queue with:
+7. Surface the decision queue with:
    - `python3 scripts/project_router.py review`
-6. If `pending_project` is non-zero, analyze emerging themes with:
+8. If `pending_project` is non-zero, analyze emerging themes with:
    - `python3 scripts/project_router.py discover`
-7. Ingest and check router inbox packets:
+9. Ingest and check router inbox packets:
    - `python3 scripts/project_router.py inbox-intake`
    - `python3 scripts/project_router.py inbox-status`
-8. Stop there and ask the user what to approve, reject, or refine.
+10. Stop there and ask the user what to approve, reject, or refine.
 
 ## Downstream Setup
 
@@ -60,6 +70,7 @@ If a project needs a new downstream scaffold, use `init-router-root`. If a proje
 ## Default Behavior
 
 If the user says “start the session” or invokes this skill without further detail:
+- If `private.meta.json` exists, run `template-update-status --check-remote` first and surface any available update before the rest of the opener
 - Run `status`
 - Inspect whether local config files exist
 - If `.env.local` exists, run `sync -> normalize -> triage -> compile`

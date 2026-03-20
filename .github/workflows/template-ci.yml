@@ -81,6 +81,13 @@ jobs:
           if errors:
               raise SystemExit("\n".join(errors))
           PY
+      - name: Check private template sync metadata drift
+        run: |
+          if [ -f private.meta.json ] || [ -f template-base.json ]; then
+            python3 scripts/project_router.py template-sync-metadata --check
+          else
+            echo "No private-derived template metadata present; skipping drift check."
+          fi
 
   managed-blocks:
     runs-on: ubuntu-latest

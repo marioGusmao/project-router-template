@@ -127,6 +127,14 @@ The promotion bootstrap:
 
 See [docs/private-derived-bootstrap.md](docs/private-derived-bootstrap.md) for the full promotion contract.
 
+If template-owned files move ahead of the recorded sync metadata, reconcile the local record with:
+
+```bash
+python3 scripts/project_router.py template-sync-metadata
+```
+
+`template-ci` now checks this drift automatically in private-derived repos, and `template-update-status --check-remote` reports stale metadata separately from a real upstream update.
+
 Run the bootstrap on a new machine:
 
 ```bash
@@ -164,7 +172,8 @@ Classification can run from the shared registry alone. Real dispatch requires th
 
 Parsing and extraction language support is configured separately from downstream project language:
 
-- `src/project_router/parser_language_profiles.json`: committed parser profiles, active languages, stopwords, and heuristic trigger terms
+- `src/project_router/parser_language_profiles.json`: committed parser profiles, default active languages, stopwords, and heuristic trigger terms
+- `projects/registry.shared.json -> defaults.enabled_parser_languages` or `projects/registry.local.json -> defaults.enabled_parser_languages`: optional repo-specific override for the active parser language subset
 - `projects/registry.shared.json -> projects.<key>.language`: downstream/output language for that project
 - `router/router-contract.json -> default_language`: downstream packet default for a specific router root
 
