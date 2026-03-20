@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import sqlite3
 import time
 from datetime import datetime
@@ -344,8 +345,16 @@ class DashboardIndex:
         # Load full body from file
         from ..services.notes import read_note
 
-        _, body = read_note(Path(row["file_path"]))
+        metadata, body = read_note(Path(row["file_path"]))
         result["body"] = body
+        result["attachments"] = [
+            {
+                "name": attachment["name"],
+                "kind": attachment["kind"],
+                "content_type": attachment["content_type"],
+            }
+            for attachment in self._note_attachment_records(metadata)
+        ]
         # Load compiled info if available
         compiled = self.conn.execute(
             "SELECT * FROM compiled WHERE source_note_id = ? AND source = ? AND COALESCE(source_project, '') = ?",
@@ -361,6 +370,33 @@ class DashboardIndex:
         if decision:
             result["decision"] = json.loads(decision["data"])
         return result
+
+    def get_note_attachment(
+        self,
+        note_id: str,
+        source: str,
+        attachment_name: str,
+        source_project: str | None = None,
+    ) -> dict[str, Any] | None:
+        if source_project:
+            row = self.conn.execute(
+                "SELECT * FROM notes WHERE source_note_id = ? AND source = ? AND COALESCE(source_project, '') = ?",
+                (note_id, source, source_project),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT * FROM notes WHERE source_note_id = ? AND source = ? ORDER BY source_project",
+                (note_id, source),
+            ).fetchone()
+        if not row:
+            return None
+        from ..services.notes import read_note
+
+        metadata, _ = read_note(Path(row["file_path"]))
+        for attachment in self._note_attachment_records(metadata):
+            if attachment["name"] == attachment_name:
+                return attachment
+        return None
 
     def query_triage_items(self) -> list[dict[str, Any]]:
         """All items needing operator attention across all sources."""
@@ -429,6 +465,70 @@ class DashboardIndex:
                 except (json.JSONDecodeError, TypeError):
                     pass
         return d
+
+    @staticmethod
+    def _resolve_repo_path(raw_path: str | None) -> Path | None:
+        if not raw_path:
+            return None
+        from ..services.paths import ROOT
+
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = ROOT / candidate
+        candidate = candidate.resolve()
+        root = ROOT.resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            return None
+        return candidate
+
+    @staticmethod
+    def _attachment_kind(path: Path, content_type: str | None) -> str:
+        ct = (content_type or "").lower()
+        if ct.startswith("image/"):
+            return "image"
+        if ct.startswith("audio/"):
+            return "audio"
+        if ct == "application/pdf" or path.suffix.lower() == ".pdf":
+            return "pdf"
+        return "file"
+
+    def _note_attachment_records(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
+        attachments: list[dict[str, Any]] = []
+        seen_paths: set[str] = set()
+
+        def add_attachment(path_value: str | None) -> None:
+            resolved = self._resolve_repo_path(path_value)
+            if resolved is None or not resolved.exists() or not resolved.is_file():
+                return
+            resolved_key = str(resolved)
+            if resolved_key in seen_paths:
+                return
+            seen_paths.add(resolved_key)
+            content_type = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
+            attachments.append(
+                {
+                    "name": resolved.name,
+                    "path": resolved_key,
+                    "content_type": content_type,
+                    "kind": self._attachment_kind(resolved, content_type),
+                }
+            )
+
+        add_attachment(metadata.get("audio_local_path"))
+
+        raw_payload_path = self._resolve_repo_path(metadata.get("raw_payload_path"))
+        if raw_payload_path and raw_payload_path.suffix == ".json" and raw_payload_path.name.endswith(".manifest.json"):
+            try:
+                manifest = json.loads(raw_payload_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                manifest = {}
+            canonical_blob_ref = manifest.get("evidence", {}).get("canonical_blob_ref")
+            if canonical_blob_ref:
+                add_attachment(str(raw_payload_path.parent.parent / canonical_blob_ref))
+
+        return attachments
 
     def close(self):
         self.conn.close()

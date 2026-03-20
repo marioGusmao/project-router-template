@@ -23,6 +23,12 @@ function formatDate(iso: string | undefined): string {
   }
 }
 
+function attachmentUrl(note: NoteDetailType, name: string): string {
+  const params = new URLSearchParams({ source: note.source });
+  if (note.source_project) params.set('source_project', note.source_project);
+  return `/api/notes/${note.source_note_id}/file/${encodeURIComponent(name)}?${params.toString()}`;
+}
+
 export function NoteDetail({ noteId, source, sourceProject, onClose, onProjectSuggested, onDecided }: Props) {
   const [note, setNote] = useState<NoteDetailType | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -383,20 +389,9 @@ export function NoteDetail({ noteId, source, sourceProject, onClose, onProjectSu
 
         {/* Files */}
         {(() => {
-          const filePath = note.file_path;
-          if (!filePath) return null;
-
-          const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-          const filename = filePath.split('/').pop() ?? '';
-          const fileParams = new URLSearchParams({ source: note.source });
-          if (note.source_project) fileParams.set('source_project', note.source_project);
-          const fileUrl = `/api/notes/${note.source_note_id}/file/${encodeURIComponent(filename)}?${fileParams.toString()}`;
-
-          const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext);
-          const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'webm'].includes(ext);
-          const isPdf = ext === 'pdf';
-
-          if (!isImage && !isAudio && !isPdf) return null;
+          const attachments = note.attachments ?? [];
+          const previewable = attachments.filter((attachment) => attachment.kind !== 'file');
+          if (previewable.length === 0) return null;
 
           return (
             <div
@@ -413,40 +408,49 @@ export function NoteDetail({ noteId, source, sourceProject, onClose, onProjectSu
               >
                 Files
               </span>
-              {isImage && (
-                <img
-                  src={fileUrl}
-                  alt={filename}
-                  className="rounded-lg"
-                  style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }}
-                />
-              )}
-              {isAudio && (
-                <audio controls style={{ width: '100%' }}>
-                  <source src={fileUrl} />
-                  Your browser does not support the audio element.
-                </audio>
-              )}
-              {isPdf && (
-                <div>
-                  <embed
-                    src={fileUrl}
-                    type="application/pdf"
-                    style={{ width: '100%', height: 400, borderRadius: 8 }}
-                  />
-                  <a
-                    href={fileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 transition-colors"
-                    style={{ fontSize: 12, marginTop: 8, display: 'inline-block' }}
-                  >
-                    Open PDF in new tab
-                  </a>
-                </div>
-              )}
-              <div className="font-mono text-zinc-500" style={{ fontSize: 11, marginTop: 8 }}>
-                {filename}
+              <div className="space-y-4">
+                {previewable.map((attachment) => {
+                  const fileUrl = attachmentUrl(note, attachment.name);
+                  return (
+                    <div key={attachment.name}>
+                      {attachment.kind === 'image' && (
+                        <img
+                          src={fileUrl}
+                          alt={attachment.name}
+                          className="rounded-lg"
+                          style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }}
+                        />
+                      )}
+                      {attachment.kind === 'audio' && (
+                        <audio controls style={{ width: '100%' }}>
+                          <source src={fileUrl} type={attachment.content_type} />
+                          Your browser does not support the audio element.
+                        </audio>
+                      )}
+                      {attachment.kind === 'pdf' && (
+                        <div>
+                          <embed
+                            src={fileUrl}
+                            type="application/pdf"
+                            style={{ width: '100%', height: 400, borderRadius: 8 }}
+                          />
+                          <a
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-400 hover:text-blue-300 transition-colors"
+                            style={{ fontSize: 12, marginTop: 8, display: 'inline-block' }}
+                          >
+                            Open PDF in new tab
+                          </a>
+                        </div>
+                      )}
+                      <div className="font-mono text-zinc-500" style={{ fontSize: 11, marginTop: 8 }}>
+                        {attachment.name}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );

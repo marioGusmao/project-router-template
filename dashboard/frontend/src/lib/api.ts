@@ -43,8 +43,15 @@ export interface NoteListItem {
   file_path?: string;
 }
 
+export interface NoteAttachment {
+  name: string;
+  kind: 'image' | 'audio' | 'pdf' | 'file';
+  content_type?: string;
+}
+
 export interface NoteDetail extends NoteListItem {
   body: string;
+  attachments?: NoteAttachment[];
   compiled?: Record<string, unknown>;
   decision?: Record<string, unknown>;
 }

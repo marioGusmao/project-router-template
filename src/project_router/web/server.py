@@ -44,6 +44,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json_response({"note": note})
             else:
                 self._error_response("Note not found", "NOT_FOUND", 404)
+        elif path.startswith("/api/notes/") and "/file/" in path:
+            parts = path.split("/")
+            if len(parts) < 6:
+                self._error_response("Attachment not found", "NOT_FOUND", 404)
+                return
+            note_id = parts[3]
+            attachment_name = urllib.parse.unquote("/".join(parts[5:]))
+            source = params.get("source", "voicenotes")
+            source_project = params.get("source_project") or None
+            attachment = self.index.get_note_attachment(
+                note_id,
+                source,
+                attachment_name,
+                source_project,
+            )
+            if not attachment:
+                self._error_response("Attachment not found", "NOT_FOUND", 404)
+                return
+            self._serve_file(
+                Path(attachment["path"]),
+                attachment.get("content_type"),
+            )
         elif path == "/api/projects":
             self._json_response({"projects": self.index.query_projects()})
         elif path == "/api/triage":
@@ -322,20 +344,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _serve_static(self, path: str):
         if path == "/":
             path = "/index.html"
-        file_path = self.static_dir / path.lstrip("/")
+        file_path = self._safe_child_path(self.static_dir, path.lstrip("/"))
+        if file_path is None:
+            self.send_error(404)
+            return
         if not file_path.exists() or not file_path.is_file():
             # SPA fallback
             file_path = self.static_dir / "index.html"
         if not file_path.exists():
             self.send_error(404)
             return
+        self._serve_file(file_path)
+
+    def _serve_file(self, file_path: Path, content_type: str | None = None):
         content = file_path.read_bytes()
         self.send_response(200)
-        ct = self._guess_content_type(file_path.suffix)
+        ct = content_type or self._guess_content_type(file_path.suffix)
         self.send_header("Content-Type", ct)
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
+
+    @staticmethod
+    def _safe_child_path(base_dir: Path, relative_path: str) -> Path | None:
+        base = base_dir.resolve()
+        candidate = (base / relative_path).resolve()
+        try:
+            candidate.relative_to(base)
+        except ValueError:
+            return None
+        return candidate
 
     @staticmethod
     def _guess_content_type(ext: str) -> str:
@@ -346,11 +384,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ".json": "application/json",
             ".png": "image/png",
             ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
             ".svg": "image/svg+xml",
             ".ico": "image/x-icon",
             ".woff2": "font/woff2",
             ".woff": "font/woff",
             ".ttf": "font/ttf",
+            ".pdf": "application/pdf",
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+            ".ogg": "audio/ogg",
+            ".m4a": "audio/mp4",
+            ".aac": "audio/aac",
+            ".flac": "audio/flac",
+            ".webm": "audio/webm",
         }
         return types.get(ext, "application/octet-stream")
 

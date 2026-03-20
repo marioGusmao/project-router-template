@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import threading
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -152,6 +153,53 @@ class TestDashboardAPI(unittest.TestCase):
                             data["note"]["source_note_id"], "vn_single"
                         )
                         self.assertIn("body", data["note"])
+                finally:
+                    server.shutdown()
+                    server.server_close()
+
+    def test_single_note_endpoint_includes_attachment_metadata(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                note_dir = svc_paths.NORMALIZED_DIR / "voicenotes"
+                note_path = note_dir / "20260318T100000Z--vn_audio.md"
+                audio_path = root / "data" / "raw" / "voicenotes" / "audio" / "vn_audio.m4a"
+                audio_path.parent.mkdir(parents=True, exist_ok=True)
+                audio_path.write_bytes(b"fake-audio")
+                metadata = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "voicenotes",
+                        "source_note_id": "vn_audio",
+                        "title": "Audio note",
+                        "status": "classified",
+                        "project": "home_renovation",
+                        "audio_available": True,
+                        "audio_local_path": str(audio_path.relative_to(root)),
+                    }
+                )
+                cli.write_note(note_path, metadata, "Audio body")
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/api/notes/vn_audio?source=voicenotes"
+                    with urllib.request.urlopen(url, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                        self.assertEqual(data["note"]["attachments"][0]["name"], "vn_audio.m4a")
+                        self.assertEqual(data["note"]["attachments"][0]["kind"], "audio")
+
+                    file_url = f"http://localhost:{port}/api/notes/vn_audio/file/vn_audio.m4a?source=voicenotes"
+                    with urllib.request.urlopen(file_url, timeout=5) as resp:
+                        self.assertEqual(resp.status, 200)
+                        self.assertTrue(resp.headers.get_content_type().startswith("audio/"))
+                        self.assertEqual(resp.read(), b"fake-audio")
                 finally:
                     server.shutdown()
                     server.server_close()
@@ -526,6 +574,34 @@ class TestDashboardAPI(unittest.TestCase):
                         beta_updated.get("user_suggested_project"),
                         "operations",
                     )
+                finally:
+                    server.shutdown()
+                    server.server_close()
+
+    def test_static_server_rejects_parent_traversal(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                static_dir = root / "dashboard" / "frontend" / "dist"
+                static_dir.mkdir(parents=True, exist_ok=True)
+                (static_dir / "index.html").write_text("<html>ok</html>", encoding="utf-8")
+                secret_path = root / ".env.local"
+                secret_path.write_text("TOP_SECRET=1\n", encoding="utf-8")
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=static_dir)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    url = f"http://localhost:{port}/../../../.env.local"
+                    with self.assertRaises(urllib.error.HTTPError) as exc:
+                        urllib.request.urlopen(url, timeout=5)
+                    self.assertEqual(exc.exception.code, 404)
                 finally:
                     server.shutdown()
                     server.server_close()
