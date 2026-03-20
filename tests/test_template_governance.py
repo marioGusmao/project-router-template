@@ -69,6 +69,19 @@ def init_git_repo(root: Path) -> None:
 
 
 class TemplateGovernanceTests(unittest.TestCase):
+    def test_dashboard_build_artifacts_are_committed_for_fresh_clones(self) -> None:
+        dist_index = REPO_ROOT / "dashboard" / "frontend" / "dist" / "index.html"
+        gitattributes = REPO_ROOT / "dashboard" / "frontend" / ".gitattributes"
+        gitignore = REPO_ROOT / "dashboard" / "frontend" / ".gitignore"
+
+        self.assertTrue(dist_index.exists(), "dashboard/frontend/dist/index.html must be committed.")
+        self.assertTrue(gitattributes.exists(), "dashboard/frontend/.gitattributes must exist.")
+        self.assertIn(
+            "dist/** binary",
+            gitattributes.read_text(encoding="utf-8"),
+        )
+        self.assertNotIn("\ndist\n", f"\n{gitignore.read_text(encoding='utf-8')}\n")
+
     def test_shared_surfaces_state_downstream_read_only_default(self) -> None:
         agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         claude = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")

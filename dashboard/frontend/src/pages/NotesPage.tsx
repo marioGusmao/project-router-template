@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getNotes, getProjects, getStatus, suggestProject, decideNote, batchDecide, noteKey, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
+import { getNotes, getProjects, getStatus, suggestProject, decideNote, batchDecide, noteIdentityParams, noteKey, type NoteListItem, type Project, type StatusResponse } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfidenceBar } from '../components/ConfidenceBar';
 import { NoteDetail } from '../components/notes/NoteDetail';
@@ -41,6 +41,8 @@ export function NotesPage() {
 
   const selectedId = searchParams.get('id');
   const selectedSource = searchParams.get('source') ?? '';
+  const selectedSourceProject = searchParams.get('source_project') ?? '';
+  const selectedKey = selectedId ? noteKey(selectedSource, selectedId, selectedSourceProject) : '';
 
   const [focusedIndex, setFocusedIndex] = useState(-1);
 
@@ -92,7 +94,7 @@ export function NotesPage() {
   }, []);
 
   const selectNote = useCallback((note: NoteListItem) => {
-    setSearchParams({ id: note.source_note_id, source: note.source });
+    setSearchParams(noteIdentityParams(note));
   }, [setSearchParams]);
 
   const closeDetail = useCallback(() => {
@@ -104,24 +106,32 @@ export function NotesPage() {
     setSearchParams(params);
   }, [filterStatus, filterSource, filterProject, search, setSearchParams]);
 
-  const handleProjectSuggested = (noteId: string, source: string, project: string) => {
+  const handleProjectSuggested = (
+    noteId: string,
+    source: string,
+    sourceProject: string | undefined,
+    project: string,
+  ) => {
     setNotes((prev) =>
       prev.map((n) =>
-        n.source_note_id === noteId && n.source === source ? { ...n, user_suggested_project: project } : n,
+        noteKey(n.source, n.source_note_id, n.source_project)
+          === noteKey(source, noteId, sourceProject)
+          ? { ...n, user_suggested_project: project }
+          : n,
       ),
     );
   };
 
   const [fadingKey, setFadingKey] = useState<string | null>(null);
 
-  const handleDecided = useCallback((noteId: string, source: string) => {
-    const key = noteKey(source, noteId);
-    const currentIdx = notes.findIndex(n => noteKey(n.source, n.source_note_id) === key);
+  const handleDecided = useCallback((noteId: string, source: string, sourceProject?: string) => {
+    const key = noteKey(source, noteId, sourceProject);
+    const currentIdx = notes.findIndex(n => noteKey(n.source, n.source_note_id, n.source_project) === key);
     setFadingKey(key);
 
     setTimeout(() => {
       setNotes(prev => {
-        const updated = prev.filter(n => noteKey(n.source, n.source_note_id) !== key);
+        const updated = prev.filter(n => noteKey(n.source, n.source_note_id, n.source_project) !== key);
         // Auto-advance: select the note that slides into the current position
         const nextIdx = Math.min(currentIdx, updated.length - 1);
         if (nextIdx >= 0 && updated[nextIdx]) {
@@ -148,7 +158,7 @@ export function NotesPage() {
   const toggleSelect = useCallback((idx: number, shiftKey: boolean) => {
     const note = notes[idx];
     if (!note) return;
-    const key = noteKey(note.source, note.source_note_id);
+    const key = noteKey(note.source, note.source_note_id, note.source_project);
 
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -156,7 +166,7 @@ export function NotesPage() {
         const lo = Math.min(lastSelectedIndex.current, idx);
         const hi = Math.max(lastSelectedIndex.current, idx);
         for (let i = lo; i <= hi; i++) {
-          next.add(noteKey(notes[i].source, notes[i].source_note_id));
+          next.add(noteKey(notes[i].source, notes[i].source_note_id, notes[i].source_project));
         }
       } else if (next.has(key)) {
         next.delete(key);
@@ -171,15 +181,15 @@ export function NotesPage() {
   const toggleSelectAll = useCallback(() => {
     setSelectedIds((prev) => {
       if (prev.size === notes.length) return new Set();
-      return new Set(notes.map((n) => noteKey(n.source, n.source_note_id)));
+      return new Set(notes.map((n) => noteKey(n.source, n.source_note_id, n.source_project)));
     });
   }, [notes]);
 
   const handleBulkSuggest = useCallback(async (project: string) => {
     if (!project) return;
-    const selected = notes.filter((n) => selectedIds.has(noteKey(n.source, n.source_note_id)));
+    const selected = notes.filter((n) => selectedIds.has(noteKey(n.source, n.source_note_id, n.source_project)));
     for (const note of selected) {
-      await suggestProject(note.source_note_id, note.source, project);
+      await suggestProject(note.source_note_id, note.source, project, note.source_project);
     }
     setSelectedIds(new Set());
     lastSelectedIndex.current = null;
@@ -187,7 +197,7 @@ export function NotesPage() {
   }, [selectedIds, notes, loadNotes]);
 
   const handleBatchDecide = useCallback(async (decision: string) => {
-    const selected = notes.filter(n => selectedIds.has(noteKey(n.source, n.source_note_id)));
+    const selected = notes.filter(n => selectedIds.has(noteKey(n.source, n.source_note_id, n.source_project)));
 
     // Approve requires all selected to have a project
     if (decision === 'approve') {
@@ -201,6 +211,7 @@ export function NotesPage() {
     const items = selected.map(n => ({
       note_id: n.source_note_id,
       source: n.source,
+      source_project: n.source_project,
       decision,
       final_project: decision === 'approve' ? (n.user_suggested_project || n.project) : undefined,
     }));
@@ -246,16 +257,19 @@ export function NotesPage() {
     },
     'a': () => {
       if (!selectedId || !selectedSource) return;
-      const note = notes.find(n => n.source_note_id === selectedId && n.source === selectedSource);
+      const note = notes.find(
+        n => noteKey(n.source, n.source_note_id, n.source_project) === selectedKey,
+      );
       const project = note?.user_suggested_project || note?.project;
       if (!project) return;
       const capturedId = selectedId;
       const capturedSource = selectedSource;
+      const capturedSourceProject = selectedSourceProject;
       const capturedTitle = note?.title || capturedId;
-      decideNote(capturedId, capturedSource, 'approve', project).then(() => {
-        handleDecided(capturedId, capturedSource);
+      decideNote(capturedId, capturedSource, 'approve', project, capturedSourceProject).then(() => {
+        handleDecided(capturedId, capturedSource, capturedSourceProject);
         triggerUndo(`Approved: ${capturedTitle}`, async () => {
-          await decideNote(capturedId, capturedSource, 'needs-review');
+          await decideNote(capturedId, capturedSource, 'needs-review', undefined, capturedSourceProject);
           loadNotes();
         });
       });
@@ -264,12 +278,15 @@ export function NotesPage() {
       if (!selectedId || !selectedSource) return;
       const capturedId = selectedId;
       const capturedSource = selectedSource;
-      const note = notes.find(n => n.source_note_id === capturedId && n.source === capturedSource);
+      const capturedSourceProject = selectedSourceProject;
+      const note = notes.find(
+        n => noteKey(n.source, n.source_note_id, n.source_project) === selectedKey,
+      );
       const capturedTitle = note?.title || capturedId;
-      decideNote(capturedId, capturedSource, 'reject').then(() => {
-        handleDecided(capturedId, capturedSource);
+      decideNote(capturedId, capturedSource, 'reject', undefined, capturedSourceProject).then(() => {
+        handleDecided(capturedId, capturedSource, capturedSourceProject);
         triggerUndo(`Rejected: ${capturedTitle}`, async () => {
-          await decideNote(capturedId, capturedSource, 'needs-review');
+          await decideNote(capturedId, capturedSource, 'needs-review', undefined, capturedSourceProject);
           loadNotes();
         });
       });
@@ -278,12 +295,15 @@ export function NotesPage() {
       if (!selectedId || !selectedSource) return;
       const capturedId = selectedId;
       const capturedSource = selectedSource;
-      const note = notes.find(n => n.source_note_id === capturedId && n.source === capturedSource);
+      const capturedSourceProject = selectedSourceProject;
+      const note = notes.find(
+        n => noteKey(n.source, n.source_note_id, n.source_project) === selectedKey,
+      );
       const capturedTitle = note?.title || capturedId;
-      decideNote(capturedId, capturedSource, 'defer').then(() => {
-        handleDecided(capturedId, capturedSource);
+      decideNote(capturedId, capturedSource, 'defer', undefined, capturedSourceProject).then(() => {
+        handleDecided(capturedId, capturedSource, capturedSourceProject);
         triggerUndo(`Deferred: ${capturedTitle}`, async () => {
-          await decideNote(capturedId, capturedSource, 'needs-review');
+          await decideNote(capturedId, capturedSource, 'needs-review', undefined, capturedSourceProject);
           loadNotes();
         });
       });
@@ -292,17 +312,20 @@ export function NotesPage() {
       if (!selectedId || !selectedSource) return;
       const capturedId = selectedId;
       const capturedSource = selectedSource;
-      const note = notes.find(n => n.source_note_id === capturedId && n.source === capturedSource);
+      const capturedSourceProject = selectedSourceProject;
+      const note = notes.find(
+        n => noteKey(n.source, n.source_note_id, n.source_project) === selectedKey,
+      );
       const capturedTitle = note?.title || capturedId;
-      decideNote(capturedId, capturedSource, 'ambiguous').then(() => {
-        handleDecided(capturedId, capturedSource);
+      decideNote(capturedId, capturedSource, 'ambiguous', undefined, capturedSourceProject).then(() => {
+        handleDecided(capturedId, capturedSource, capturedSourceProject);
         triggerUndo(`Marked ambiguous: ${capturedTitle}`, async () => {
-          await decideNote(capturedId, capturedSource, 'needs-review');
+          await decideNote(capturedId, capturedSource, 'needs-review', undefined, capturedSourceProject);
           loadNotes();
         });
       });
     },
-  }), [notes, focusedIndex, selectedId, selectedSource, selectNote, closeDetail, handleDecided, loadNotes]);
+  }), [notes, focusedIndex, selectedId, selectedKey, selectedSource, selectedSourceProject, selectNote, closeDetail, handleDecided, loadNotes]);
 
   useKeyboard(keyboardHandlers);
 
@@ -448,16 +471,16 @@ export function NotesPage() {
                 <tbody>
                   {notes.map((note, idx) => (
                     <tr
-                      key={`${note.source}-${note.source_note_id}`}
-                      onClick={() => { setFocusedIndex(idx); selectNote(note); }}
-                      className={`table-row-hover cursor-pointer ${
-                        fadingKey === noteKey(note.source, note.source_note_id) ? 'note-fade-out' : ''
-                      } ${selectedId === note.source_note_id ? 'bg-blue-500/5' : ''
-                      } ${focusedIndex === idx && selectedId !== note.source_note_id ? 'bg-zinc-800/40' : ''}`}
+                      key={noteKey(note.source, note.source_note_id, note.source_project)}
+                        onClick={() => { setFocusedIndex(idx); selectNote(note); }}
+                        className={`table-row-hover cursor-pointer ${
+                        fadingKey === noteKey(note.source, note.source_note_id, note.source_project) ? 'note-fade-out' : ''
+                      } ${selectedKey === noteKey(note.source, note.source_note_id, note.source_project) ? 'bg-blue-500/5' : ''
+                      } ${focusedIndex === idx && selectedKey !== noteKey(note.source, note.source_note_id, note.source_project) ? 'bg-zinc-800/40' : ''}`}
                       style={{
                         borderTop: '1px solid rgba(255,255,255,0.04)',
                         boxShadow:
-                          selectedId === note.source_note_id
+                          selectedKey === noteKey(note.source, note.source_note_id, note.source_project)
                             ? 'inset 3px 0 0 0 #3b82f6'
                             : focusedIndex === idx
                               ? 'inset 3px 0 0 0 rgba(161,161,170,0.4)'
@@ -467,7 +490,7 @@ export function NotesPage() {
                       <td style={{ padding: '14px 0 14px 20px', width: 36 }} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
-                          checked={selectedIds.has(noteKey(note.source, note.source_note_id))}
+                          checked={selectedIds.has(noteKey(note.source, note.source_note_id, note.source_project))}
                           onChange={() => {/* handled by onClick */}}
                           onClick={(e) => { toggleSelect(idx, e.shiftKey); }}
                           className="accent-blue-500 cursor-pointer"
@@ -567,7 +590,14 @@ export function NotesPage() {
       {/* Detail panel — fixed to right edge */}
       {selectedId && (
         <div className="fixed top-0 right-0 z-50 overflow-y-auto" style={{ width: 480, top: 56, height: 'calc(100vh - 56px)' }}>
-          <NoteDetail noteId={selectedId} source={selectedSource} onClose={closeDetail} onProjectSuggested={handleProjectSuggested} onDecided={handleDecided} />
+          <NoteDetail
+            noteId={selectedId}
+            source={selectedSource}
+            sourceProject={selectedSourceProject || undefined}
+            onClose={closeDetail}
+            onProjectSuggested={handleProjectSuggested}
+            onDecided={handleDecided}
+          />
         </div>
       )}
 

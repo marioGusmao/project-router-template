@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getNotes, type NoteListItem } from '../../lib/api';
+import { getNotes, noteHref, noteKey, type NoteListItem } from '../../lib/api';
 
 interface Props {
   onClose: () => void;
@@ -35,10 +35,10 @@ export function CommandPalette({ onClose, onRefresh }: Props) {
   ], [navigate, onClose, onRefresh]);
 
   const noteCommands: Command[] = useMemo(() => noteResults.map((note) => ({
-    id: `note-${note.source}-${note.source_note_id}`,
+    id: `note-${noteKey(note.source, note.source_note_id, note.source_project)}`,
     label: note.title || note.source_note_id,
     action: () => {
-      navigate(`/notes?id=${encodeURIComponent(note.source_note_id)}&source=${encodeURIComponent(note.source)}`);
+      navigate(noteHref(note));
       onClose();
     },
   })), [noteResults, navigate, onClose]);

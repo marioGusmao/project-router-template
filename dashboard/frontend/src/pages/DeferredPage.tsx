@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getNotes, type NoteListItem } from '../lib/api';
+import { getNotes, noteHref, noteKey, type NoteListItem } from '../lib/api';
 import { SourceIcon } from '../components/SourceIcon';
 
 function formatDate(iso: string | undefined): string {
@@ -95,8 +95,8 @@ export function DeferredPage() {
             <tbody>
               {notes.map((note) => (
                 <tr
-                  key={`${note.source}-${note.source_note_id}`}
-                  onClick={() => navigate(`/notes?id=${encodeURIComponent(note.source_note_id)}&source=${encodeURIComponent(note.source)}`)}
+                  key={noteKey(note.source, note.source_note_id, note.source_project)}
+                  onClick={() => navigate(noteHref(note))}
                   className="table-row-hover cursor-pointer"
                   style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
                 >

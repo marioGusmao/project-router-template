@@ -51,6 +51,7 @@ class DashboardIndex:
             CREATE TABLE IF NOT EXISTS compiled (
                 source_note_id TEXT NOT NULL,
                 source TEXT NOT NULL,
+                source_project TEXT DEFAULT '',
                 brief_summary TEXT,
                 is_stale INTEGER,
                 compiled_age_seconds REAL,
@@ -60,6 +61,7 @@ class DashboardIndex:
             CREATE TABLE IF NOT EXISTS decisions (
                 source_note_id TEXT NOT NULL,
                 source TEXT NOT NULL,
+                source_project TEXT DEFAULT '',
                 packet_path TEXT NOT NULL,
                 reviews TEXT,
                 proposal TEXT,
@@ -70,10 +72,17 @@ class DashboardIndex:
                 value TEXT
             );
         """)
-        try:
-            self.conn.execute("ALTER TABLE notes ADD COLUMN user_keywords TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+        for table, column, definition in (
+            ("notes", "user_keywords", "TEXT"),
+            ("compiled", "source_project", "TEXT DEFAULT ''"),
+            ("decisions", "source_project", "TEXT DEFAULT ''"),
+        ):
+            try:
+                self.conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
         self.conn.commit()
 
     def rebuild(self) -> dict:
@@ -222,12 +231,13 @@ class DashboardIndex:
 
         self.conn.execute(
             """INSERT OR REPLACE INTO compiled
-               (source_note_id, source, brief_summary, is_stale,
+               (source_note_id, source, source_project, brief_summary, is_stale,
                 compiled_age_seconds, compiled_at, file_path)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 note_id,
                 source,
+                metadata.get("source_project") or "",
                 metadata.get("brief_summary"),
                 is_stale,
                 age,
@@ -242,11 +252,12 @@ class DashboardIndex:
         source = data.get("source", "voicenotes")
         self.conn.execute(
             """INSERT OR REPLACE INTO decisions
-               (source_note_id, source, packet_path, reviews, proposal, data)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (source_note_id, source, source_project, packet_path, reviews, proposal, data)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 note_id,
                 source,
+                data.get("source_project") or "",
                 str(file_path),
                 json.dumps(data.get("reviews", [])),
                 json.dumps(data.get("proposal", {})),
@@ -310,12 +321,23 @@ class DashboardIndex:
             "per_page": per_page,
         }
 
-    def get_note(self, note_id: str, source: str) -> dict[str, Any] | None:
+    def get_note(
+        self,
+        note_id: str,
+        source: str,
+        source_project: str | None = None,
+    ) -> dict[str, Any] | None:
         """Get single note. Source is required."""
-        row = self.conn.execute(
-            "SELECT * FROM notes WHERE source_note_id = ? AND source = ?",
-            (note_id, source),
-        ).fetchone()
+        if source_project:
+            row = self.conn.execute(
+                "SELECT * FROM notes WHERE source_note_id = ? AND source = ? AND COALESCE(source_project, '') = ?",
+                (note_id, source, source_project),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT * FROM notes WHERE source_note_id = ? AND source = ? ORDER BY source_project",
+                (note_id, source),
+            ).fetchone()
         if not row:
             return None
         result = self._row_to_dict(row)
@@ -326,15 +348,15 @@ class DashboardIndex:
         result["body"] = body
         # Load compiled info if available
         compiled = self.conn.execute(
-            "SELECT * FROM compiled WHERE source_note_id = ? AND source = ?",
-            (note_id, source),
+            "SELECT * FROM compiled WHERE source_note_id = ? AND source = ? AND COALESCE(source_project, '') = ?",
+            (note_id, source, result.get("source_project") or ""),
         ).fetchone()
         if compiled:
             result["compiled"] = dict(compiled)
         # Load decision packet
         decision = self.conn.execute(
-            "SELECT * FROM decisions WHERE source_note_id = ? AND source = ?",
-            (note_id, source),
+            "SELECT * FROM decisions WHERE source_note_id = ? AND source = ? AND COALESCE(source_project, '') = ?",
+            (note_id, source, result.get("source_project") or ""),
         ).fetchone()
         if decision:
             result["decision"] = json.loads(decision["data"])

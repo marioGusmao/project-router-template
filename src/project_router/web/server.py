@@ -38,7 +38,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/notes/") and path.count("/") == 3:
             note_id = path.split("/")[3]
             source = params.get("source", "voicenotes")
-            note = self.index.get_note(note_id, source)
+            source_project = params.get("source_project") or None
+            note = self.index.get_note(note_id, source, source_project)
             if note:
                 self._json_response({"note": note})
             else:
@@ -76,7 +77,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             parts = path.split("/")
             note_id = parts[3]
             source = body.get("source", "voicenotes")
-            note = self.index.get_note(note_id, source)
+            source_project = body.get("source_project") or None
+            note = self.index.get_note(note_id, source, source_project)
             if not note:
                 self._error_response("Note not found", "NOT_FOUND", 404)
                 return
@@ -90,7 +92,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             parts = path.split("/")
             note_id = parts[3]
             source = body.get("source", "voicenotes")
-            note = self.index.get_note(note_id, source)
+            source_project = body.get("source_project") or None
+            note = self.index.get_note(note_id, source, source_project)
             if not note:
                 self._error_response("Note not found", "NOT_FOUND", 404)
                 return
@@ -117,13 +120,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             for item in items:
                 note_id = item.get("note_id", "")
                 source = item.get("source", "voicenotes")
+                source_project = item.get("source_project") or None
                 decision = item.get("decision", "")
                 final_project = item.get("final_project")
                 valid_decisions = {"approve", "reject", "defer", "needs-review", "ambiguous", "pending-project"}
                 if decision not in valid_decisions:
                     results.append({"note_id": note_id, "ok": False, "error": f"Invalid decision '{decision}'"})
                     continue
-                note_record = self.index.get_note(note_id, source)
+                note_record = self.index.get_note(note_id, source, source_project)
                 if not note_record:
                     results.append({"note_id": note_id, "ok": False, "error": "Note not found"})
                     continue
@@ -138,6 +142,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             parts = path.split("/")
             note_id = parts[3]
             source = body.get("source", "voicenotes")
+            source_project = body.get("source_project") or None
             decision = body.get("decision", "")
             final_project = body.get("final_project")
             valid_decisions = {"approve", "reject", "defer", "needs-review", "ambiguous", "pending-project"}
@@ -148,7 +153,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     400,
                 )
                 return
-            note_record = self.index.get_note(note_id, source)
+            note_record = self.index.get_note(note_id, source, source_project)
             if not note_record:
                 self._error_response("Note not found", "NOT_FOUND", 404)
                 return

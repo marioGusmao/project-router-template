@@ -23,6 +23,7 @@ export interface StatusResponse {
 export interface NoteListItem {
   source_note_id: string;
   source: string;
+  source_project?: string;
   title: string;
   status: string;
   project: string;
@@ -68,6 +69,7 @@ export interface Project {
 export interface TriageItem {
   source_note_id: string;
   source: string;
+  source_project?: string;
   title: string;
   status: string;
   project?: string;
@@ -87,8 +89,14 @@ export const getNotes = (params?: Record<string, string>) => {
   return api<NotesResponse>(`/api/notes${qs}`);
 };
 
-export const getNote = async (id: string, source: string): Promise<NoteDetail> => {
-  const res = await api<{ note: NoteDetail }>(`/api/notes/${id}?source=${source}`);
+export const getNote = async (
+  id: string,
+  source: string,
+  sourceProject?: string,
+): Promise<NoteDetail> => {
+  const params = new URLSearchParams({ source });
+  if (sourceProject) params.set('source_project', sourceProject);
+  const res = await api<{ note: NoteDetail }>(`/api/notes/${id}?${params.toString()}`);
   return res.note;
 };
 
@@ -98,10 +106,19 @@ export const getTriageItems = () => api<{ items: TriageItem[] }>('/api/triage');
 
 export const getDecisions = () => api<{ decisions: unknown[] }>('/api/decisions');
 
-export const suggestProject = (id: string, source: string, project: string) =>
+export const suggestProject = (
+  id: string,
+  source: string,
+  project: string,
+  sourceProject?: string,
+) =>
   api<{ ok: boolean }>(`/api/notes/${id}/suggest`, {
     method: 'POST',
-    body: JSON.stringify({ source, user_suggested_project: project }),
+    body: JSON.stringify({
+      source,
+      source_project: sourceProject,
+      user_suggested_project: project,
+    }),
   });
 
 export const annotateNote = (
@@ -109,21 +126,39 @@ export const annotateNote = (
   source: string,
   reviewerNotes: string,
   userKeywords: string[],
+  sourceProject?: string,
 ) =>
   api<{ ok: boolean }>(`/api/notes/${id}/annotate`, {
     method: 'POST',
-    body: JSON.stringify({ source, reviewer_notes: reviewerNotes, user_keywords: userKeywords }),
+    body: JSON.stringify({
+      source,
+      source_project: sourceProject,
+      reviewer_notes: reviewerNotes,
+      user_keywords: userKeywords,
+    }),
   });
 
-export const decideNote = (id: string, source: string, decision: string, finalProject?: string) =>
+export const decideNote = (
+  id: string,
+  source: string,
+  decision: string,
+  finalProject?: string,
+  sourceProject?: string,
+) =>
   api<{ ok: boolean; decision: string; note_id: string }>(`/api/notes/${id}/decide`, {
     method: 'POST',
-    body: JSON.stringify({ source, decision, final_project: finalProject }),
+    body: JSON.stringify({
+      source,
+      source_project: sourceProject,
+      decision,
+      final_project: finalProject,
+    }),
   });
 
 export interface BatchDecideItem {
   note_id: string;
   source: string;
+  source_project?: string;
   decision: string;
   final_project?: string;
 }
@@ -142,4 +177,24 @@ export const batchDecide = (items: BatchDecideItem[]) =>
 
 export const refreshIndex = () => api<{ ok: boolean }>('/api/refresh', { method: 'POST' });
 
-export const noteKey = (source: string, id: string) => `${source}::${id}`;
+export const noteKey = (source: string, id: string, sourceProject?: string) =>
+  `${source}::${sourceProject ?? ''}::${id}`;
+
+export const noteIdentityParams = (note: {
+  source_note_id: string;
+  source: string;
+  source_project?: string;
+}) => {
+  const params: Record<string, string> = {
+    id: note.source_note_id,
+    source: note.source,
+  };
+  if (note.source_project) params.source_project = note.source_project;
+  return params;
+};
+
+export const noteHref = (note: {
+  source_note_id: string;
+  source: string;
+  source_project?: string;
+}) => `/notes?${new URLSearchParams(noteIdentityParams(note)).toString()}`;

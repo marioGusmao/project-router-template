@@ -26,7 +26,7 @@ export function TriagePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [selectedNote, setSelectedNote] = useState<{ id: string; source: string } | null>(null);
+  const [selectedNote, setSelectedNote] = useState<{ id: string; source: string; sourceProject?: string } | null>(null);
   const [sessionTriaged, setSessionTriaged] = useState(0);
   const [laneSort, setLaneSort] = useState<'confidence' | 'date'>('confidence');
 
@@ -54,10 +54,18 @@ export function TriagePage() {
   };
 
   const selectItem = (item: TriageItem) => {
-    if (selectedNote?.id === item.source_note_id && selectedNote?.source === item.source) {
+    if (
+      selectedNote?.id === item.source_note_id
+      && selectedNote?.source === item.source
+      && selectedNote?.sourceProject === item.source_project
+    ) {
       setSelectedNote(null);
     } else {
-      setSelectedNote({ id: item.source_note_id, source: item.source });
+      setSelectedNote({
+        id: item.source_note_id,
+        source: item.source,
+        sourceProject: item.source_project,
+      });
     }
   };
 
@@ -65,29 +73,48 @@ export function TriagePage() {
     setSelectedNote(null);
   };
 
-  const handleProjectSuggested = (noteId: string, source: string, project: string) => {
+  const handleProjectSuggested = (
+    noteId: string,
+    source: string,
+    sourceProject: string | undefined,
+    project: string,
+  ) => {
     setItems((prev) =>
       prev.map((it) =>
-        it.source_note_id === noteId && it.source === source ? { ...it, user_suggested_project: project } : it,
+        noteKey(it.source, it.source_note_id, it.source_project)
+          === noteKey(source, noteId, sourceProject)
+          ? { ...it, user_suggested_project: project }
+          : it,
       ),
     );
   };
 
   const [fadingKey, setFadingKey] = useState<string | null>(null);
 
-  const handleDecided = (noteId: string, source: string) => {
-    const key = noteKey(source, noteId);
-    const currentIdx = items.findIndex(it => noteKey(it.source, it.source_note_id) === key);
+  const handleDecided = (noteId: string, source: string, sourceProject?: string) => {
+    const key = noteKey(source, noteId, sourceProject);
+    const currentIdx = items.findIndex(
+      it => noteKey(it.source, it.source_note_id, it.source_project) === key,
+    );
     setFadingKey(key);
     setSessionTriaged(prev => prev + 1);
 
     setTimeout(() => {
       setItems(prev => {
-        const updated = prev.filter(it => noteKey(it.source, it.source_note_id) !== key);
+        const updated = prev.filter(
+          it => noteKey(it.source, it.source_note_id, it.source_project) !== key,
+        );
         const nextIdx = Math.min(currentIdx, updated.length - 1);
         if (nextIdx >= 0 && updated[nextIdx]) {
           const next = updated[nextIdx];
-          setTimeout(() => setSelectedNote({ id: next.source_note_id, source: next.source }), 50);
+          setTimeout(
+            () => setSelectedNote({
+              id: next.source_note_id,
+              source: next.source,
+              sourceProject: next.source_project,
+            }),
+            50,
+          );
         } else {
           setSelectedNote(null);
         }
@@ -235,12 +262,17 @@ export function TriagePage() {
                     if (laneSort === 'confidence') return (b.confidence ?? 0) - (a.confidence ?? 0);
                     return (b.created_at ?? '').localeCompare(a.created_at ?? '');
                   }).map((item) => {
-                    const isSelected = selectedNote?.id === item.source_note_id && selectedNote?.source === item.source;
-                    return (
-                      <div
-                        key={`${item.source}-${item.source_note_id}`}
-                        onClick={() => selectItem(item)}
-                        className={`rounded-xl transition-all duration-200 cursor-pointer ${fadingKey === noteKey(item.source, item.source_note_id) ? 'note-fade-out' : ''} ${isSelected ? 'bg-blue-500/5' : 'hover:bg-white/5'}`}
+                      const isSelected = noteKey(item.source, item.source_note_id, item.source_project)
+                        === noteKey(
+                          selectedNote?.source ?? '',
+                          selectedNote?.id ?? '',
+                          selectedNote?.sourceProject,
+                        );
+                      return (
+                        <div
+                          key={noteKey(item.source, item.source_note_id, item.source_project)}
+                          onClick={() => selectItem(item)}
+                          className={`rounded-xl transition-all duration-200 cursor-pointer ${fadingKey === noteKey(item.source, item.source_note_id, item.source_project) ? 'note-fade-out' : ''} ${isSelected ? 'bg-blue-500/5' : 'hover:bg-white/5'}`}
                         style={{
                           background: isSelected ? 'rgba(59,130,246,0.05)' : 'rgba(255,255,255,0.02)',
                           border: '1px solid rgba(255,255,255,0.04)',
@@ -312,6 +344,7 @@ export function TriagePage() {
           <NoteDetail
             noteId={selectedNote.id}
             source={selectedNote.source}
+            sourceProject={selectedNote.sourceProject}
             onClose={closeDetail}
             onProjectSuggested={handleProjectSuggested}
             onDecided={handleDecided}

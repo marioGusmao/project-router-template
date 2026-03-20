@@ -8,9 +8,10 @@ import { triggerUndo } from '../layout/undoEvents';
 interface Props {
   noteId: string;
   source: string;
+  sourceProject?: string;
   onClose: () => void;
-  onProjectSuggested?: (noteId: string, source: string, project: string) => void;
-  onDecided?: (noteId: string, source: string, decision: string) => void;
+  onProjectSuggested?: (noteId: string, source: string, sourceProject: string | undefined, project: string) => void;
+  onDecided?: (noteId: string, source: string, sourceProject: string | undefined, decision: string) => void;
 }
 
 function formatDate(iso: string | undefined): string {
@@ -22,7 +23,7 @@ function formatDate(iso: string | undefined): string {
   }
 }
 
-export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDecided }: Props) {
+export function NoteDetail({ noteId, source, sourceProject, onClose, onProjectSuggested, onDecided }: Props) {
   const [note, setNote] = useState<NoteDetailType | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +46,7 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
       setError(null);
       try {
         const [n, p] = await Promise.all([
-          getNote(noteId, source),
+          getNote(noteId, source, sourceProject),
           getProjects(),
         ]);
         setNote(n);
@@ -59,7 +60,7 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
       }
     }
     load();
-  }, [noteId, source]);
+  }, [noteId, source, sourceProject]);
 
   const handleSuggest = async () => {
     if (!suggestedProject || !note) return;
@@ -67,19 +68,19 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
     setSaved(false);
     const previousProject = note.user_suggested_project || null;
     try {
-      await suggestProject(noteId, source, suggestedProject);
+      await suggestProject(noteId, source, suggestedProject, sourceProject);
       setNote({ ...note, user_suggested_project: suggestedProject });
-      onProjectSuggested?.(noteId, source, suggestedProject);
+      onProjectSuggested?.(noteId, source, sourceProject, suggestedProject);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       triggerUndo(`Suggested "${suggestedProject}" for ${noteId}`, async () => {
         try {
           if (previousProject) {
-            await suggestProject(noteId, source, previousProject);
+            await suggestProject(noteId, source, previousProject, sourceProject);
             setNote(prev => prev ? { ...prev, user_suggested_project: previousProject } : prev);
             setSuggestedProject(previousProject);
           } else {
-            await suggestProject(noteId, source, '');
+            await suggestProject(noteId, source, '', sourceProject);
             setNote(prev => prev ? { ...prev, user_suggested_project: undefined } : prev);
             setSuggestedProject('');
           }
@@ -109,17 +110,18 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
         source,
         decision,
         decision === 'approve' ? project ?? undefined : undefined,
+        sourceProject,
       );
-      const refreshed = await getNote(noteId, source);
+      const refreshed = await getNote(noteId, source, sourceProject);
       setNote(refreshed);
-      onProjectSuggested?.(noteId, source, refreshed.project ?? '');
+      onProjectSuggested?.(noteId, source, sourceProject, refreshed.project ?? '');
       setDecideDone(decision);
       setTimeout(() => setDecideDone(null), 2000);
-      onDecided?.(noteId, source, decision);
+      onDecided?.(noteId, source, sourceProject, decision);
       triggerUndo(
         `${decision === 'approve' ? 'Approved' : decision === 'reject' ? 'Rejected' : decision === 'defer' ? 'Deferred' : 'Marked ambiguous'}: ${note?.title || noteId}`,
         async () => {
-          await decideNote(noteId, source, 'needs-review');
+          await decideNote(noteId, source, 'needs-review', undefined, sourceProject);
           window.location.reload();
         },
       );
@@ -134,9 +136,9 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
     setSavingAnnotation(true);
     try {
       const newKeywords = keywordInput.split(',').map(k => k.trim()).filter(Boolean);
-      await annotateNote(noteId, source, reviewerNotes, newKeywords);
+      await annotateNote(noteId, source, reviewerNotes, newKeywords, sourceProject);
       setKeywordInput('');
-      const updated = await getNote(noteId, source);
+      const updated = await getNote(noteId, source, sourceProject);
       setNote(updated);
     } catch {
       // silent
@@ -386,7 +388,9 @@ export function NoteDetail({ noteId, source, onClose, onProjectSuggested, onDeci
 
           const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
           const filename = filePath.split('/').pop() ?? '';
-          const fileUrl = `/api/notes/${note.source_note_id}/file/${encodeURIComponent(filename)}?source=${note.source}`;
+          const fileParams = new URLSearchParams({ source: note.source });
+          if (note.source_project) fileParams.set('source_project', note.source_project);
+          const fileUrl = `/api/notes/${note.source_note_id}/file/${encodeURIComponent(filename)}?${fileParams.toString()}`;
 
           const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext);
           const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'webm'].includes(ext);

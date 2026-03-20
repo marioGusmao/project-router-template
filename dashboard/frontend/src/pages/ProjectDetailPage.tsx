@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getNotes, getProjects, type NoteListItem, type Project } from '../lib/api';
+import { getNotes, getProjects, noteHref, noteKey, type NoteListItem, type Project } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfidenceBar } from '../components/ConfidenceBar';
 
@@ -189,13 +189,13 @@ export function ProjectDetailPage() {
             <tbody>
               {notes.map((note) => (
                 <tr
-                  key={`${note.source}-${note.source_note_id}`}
+                  key={noteKey(note.source, note.source_note_id, note.source_project)}
                   className="table-row-hover"
                   style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
                 >
                   <td className="text-zinc-100 truncate" style={{ padding: '14px 20px', maxWidth: 400 }}>
                     <Link
-                      to={`/notes?id=${note.source_note_id}&source=${note.source}`}
+                      to={noteHref(note)}
                       className="hover:text-blue-400 transition-colors"
                     >
                       {note.title || note.source_note_id}

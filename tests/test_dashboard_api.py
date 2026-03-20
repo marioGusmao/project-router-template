@@ -444,6 +444,92 @@ class TestDashboardAPI(unittest.TestCase):
                     server.shutdown()
                     server.server_close()
 
+    def test_project_router_note_identity_uses_source_project_for_detail_and_actions(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                alpha_path = svc_paths.NORMALIZED_DIR / "project_router" / "alpha" / "20260318T100000Z--pkt_same.md"
+                beta_path = svc_paths.NORMALIZED_DIR / "project_router" / "beta" / "20260318T100500Z--pkt_same.md"
+
+                alpha_meta = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "project_router",
+                        "source_project": "alpha",
+                        "source_note_id": "pkt_same",
+                        "title": "Alpha packet",
+                        "status": "classified",
+                        "project": "home_renovation",
+                    }
+                )
+                beta_meta = cli.ensure_note_metadata_defaults(
+                    {
+                        "source": "project_router",
+                        "source_project": "beta",
+                        "source_note_id": "pkt_same",
+                        "title": "Beta packet",
+                        "status": "classified",
+                        "project": "home_renovation",
+                    }
+                )
+                cli.write_note(alpha_path, alpha_meta, "Alpha body")
+                cli.write_note(beta_path, beta_meta, "Beta body")
+
+                from src.project_router.web.server import create_server
+
+                server = create_server(port=0, static_dir=None)
+                port = server.server_address[1]
+                thread = threading.Thread(target=server.serve_forever)
+                thread.daemon = True
+                thread.start()
+                try:
+                    with urllib.request.urlopen(
+                        f"http://localhost:{port}/api/notes?source=project_router",
+                        timeout=5,
+                    ) as resp:
+                        data = json.loads(resp.read())
+                    self.assertEqual(data["total"], 2)
+                    self.assertEqual(
+                        sorted(note["source_project"] for note in data["notes"]),
+                        ["alpha", "beta"],
+                    )
+
+                    with urllib.request.urlopen(
+                        f"http://localhost:{port}/api/notes/pkt_same?source=project_router&source_project=beta",
+                        timeout=5,
+                    ) as resp:
+                        detail = json.loads(resp.read())["note"]
+                    self.assertEqual(detail["title"], "Beta packet")
+                    self.assertEqual(detail["source_project"], "beta")
+
+                    request = urllib.request.Request(
+                        f"http://localhost:{port}/api/notes/pkt_same/suggest",
+                        data=json.dumps(
+                            {
+                                "source": "project_router",
+                                "source_project": "beta",
+                                "user_suggested_project": "operations",
+                            }
+                        ).encode("utf-8"),
+                        method="POST",
+                    )
+                    request.add_header("Content-Type", "application/json")
+                    with urllib.request.urlopen(request, timeout=5) as resp:
+                        payload = json.loads(resp.read())
+                    self.assertTrue(payload["ok"])
+
+                    alpha_updated, _ = cli.read_note(alpha_path)
+                    beta_updated, _ = cli.read_note(beta_path)
+                    self.assertIsNone(alpha_updated.get("user_suggested_project"))
+                    self.assertEqual(
+                        beta_updated.get("user_suggested_project"),
+                        "operations",
+                    )
+                finally:
+                    server.shutdown()
+                    server.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

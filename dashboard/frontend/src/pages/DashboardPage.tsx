@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getStatus, getNotes, noteKey, type StatusResponse, type NoteListItem } from '../lib/api';
+import { getStatus, getNotes, noteHref, noteKey, type StatusResponse, type NoteListItem } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { SourceIcon } from '../components/SourceIcon';
 
@@ -186,13 +186,13 @@ export function DashboardPage() {
             <tbody>
               {recentNotes.map((note) => (
                 <tr
-                  key={noteKey(note.source, note.source_note_id)}
+                  key={noteKey(note.source, note.source_note_id, note.source_project)}
                   className="table-row-hover"
                   style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
                 >
                   <td style={{ padding: '14px 20px', minWidth: 300 }} className="text-zinc-100">
                     <Link
-                      to={`/notes?id=${note.source_note_id}&source=${note.source}`}
+                      to={noteHref(note)}
                       className="hover:text-blue-400 transition-colors flex items-center gap-2.5"
                     >
                       <SourceIcon source={note.source} />
