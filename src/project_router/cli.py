@@ -1627,7 +1627,38 @@ def triage_command(args: argparse.Namespace) -> int:
         route, details, reason = route_note(body, metadata, defaults, projects)
         score_map = {k: v for k, v in details.items() if k != "confidence"}
         confidence = float(details.get("confidence", 0.0))
+        metadata_source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+        source = metadata_source
+        try:
+            note_path.relative_to(normalized_dir_for(READWISE_SOURCE))
+            source = READWISE_SOURCE
+        except ValueError:
+            pass
+        suggested_route = route
+        suggested_reason = reason
+        if source == READWISE_SOURCE:
+            # Readwise/articles/highlights are untrusted input and must stay in the
+            # review lane until an owner explicitly approves downstream promotion.
+            # Use the source-aware path as a guard too: malformed/untrusted
+            # frontmatter must not bypass the review-only lane.
+            metadata["source"] = READWISE_SOURCE
+            if suggested_route not in ("ambiguous", "needs_review", "pending_project"):
+                guardrail_reason = (
+                    f"candidate destination '{suggested_route}' requires owner review "
+                    "before downstream promotion."
+                )
+            elif suggested_route == "ambiguous":
+                guardrail_reason = "ambiguous Reader item requires owner review before downstream promotion."
+            elif suggested_route == "pending_project":
+                guardrail_reason = "pending-project Reader item requires owner review before downstream promotion."
+            else:
+                guardrail_reason = "Reader item requires owner review before downstream promotion."
+            reason = f"Readwise review-only guardrail: {guardrail_reason} {suggested_reason}".strip()
+            route = "needs_review"
         metadata["candidate_projects"] = sorted(score_map, key=score_map.get, reverse=True)
+        if source == READWISE_SOURCE:
+            metadata["suggested_destination"] = suggested_route
+            metadata["suggested_destination_reason"] = suggested_reason
         metadata["routing_reason"] = reason
         metadata["confidence"] = confidence
         metadata["destination"] = route

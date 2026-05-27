@@ -5510,6 +5510,56 @@ class TestReadwiseNormalize(unittest.TestCase):
             self.assertIn("https://example.com/article", body)
             self.assertIn("Jane Doe", body)
 
+    def test_triage_readwise_routes_matching_items_to_review_only_queue(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_payload = json.loads(json.dumps(self.READWISE_RAW))
+            raw_payload["document"]["summary"] = "Renovation contractor budget article."
+            raw_path = root / "data" / "raw" / "readwise" / "20260315T080000Z--rw_abc123.json"
+            raw_path.write_text(json.dumps(raw_payload), encoding="utf-8")
+            with patch_cli_paths(root):
+                cli.main(["normalize", "--source", "readwise"])
+                cli.main(["triage", "--source", "readwise"])
+            md_file = list((root / "data" / "normalized" / "readwise").glob("*.md"))[0]
+            metadata, _ = cli.read_note(md_file)
+            self.assertEqual(metadata["status"], "needs_review")
+            self.assertEqual(metadata["source"], "readwise")
+            self.assertEqual(metadata["destination"], "needs_review")
+            self.assertIsNone(metadata["project"])
+            self.assertEqual(metadata["suggested_destination"], "home_renovation")
+            self.assertIn("home_renovation", metadata["candidate_projects"])
+            self.assertIn("Readwise review-only guardrail", metadata["routing_reason"])
+            review_copy = root / "data" / "review" / "readwise" / "needs_review" / md_file.name
+            self.assertTrue(review_copy.exists())
+
+    def test_triage_readwise_path_guard_ignores_spoofed_source_metadata(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            raw_payload = json.loads(json.dumps(self.READWISE_RAW))
+            raw_payload["document"]["summary"] = "Renovation contractor budget article."
+            raw_path = root / "data" / "raw" / "readwise" / "20260315T080000Z--rw_abc123.json"
+            raw_path.write_text(json.dumps(raw_payload), encoding="utf-8")
+            with patch_cli_paths(root):
+                cli.main(["normalize", "--source", "readwise"])
+                md_file = list((root / "data" / "normalized" / "readwise").glob("*.md"))[0]
+                metadata, body = cli.read_note(md_file)
+                metadata["source"] = "voicenotes"
+                cli.write_note(md_file, metadata, body)
+                cli.main(["triage", "--source", "readwise"])
+            metadata, _ = cli.read_note(md_file)
+            self.assertEqual(metadata["source"], "readwise")
+            self.assertEqual(metadata["status"], "needs_review")
+            self.assertEqual(metadata["destination"], "needs_review")
+            self.assertIsNone(metadata["project"])
+            self.assertEqual(metadata["suggested_destination"], "home_renovation")
+            self.assertIn("Readwise review-only guardrail", metadata["routing_reason"])
+            review_copy = root / "data" / "review" / "readwise" / "needs_review" / md_file.name
+            self.assertTrue(review_copy.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
