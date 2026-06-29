@@ -1664,14 +1664,15 @@ def triage_command(args: argparse.Namespace) -> int:
         metadata["destination"] = route
         metadata["destination_reason"] = reason
 
+        preservation_route = suggested_route if source == READWISE_SOURCE else route
         preserve_manual_review = False
         if previous_review_status == "reject":
             preserve_manual_review = True
         elif previous_review_status == "approved":
             preserve_manual_review = (
-                route not in ("ambiguous", "needs_review", "pending_project")
+                preservation_route not in ("ambiguous", "needs_review", "pending_project")
                 and previous_status == "classified"
-                and previous_project == route
+                and previous_project == preservation_route
             )
         else:
             if route in ("ambiguous", "needs_review", "pending_project"):
@@ -1689,6 +1690,12 @@ def triage_command(args: argparse.Namespace) -> int:
         if preserve_manual_review:
             metadata["review_status"] = previous_review_status
             metadata["requires_user_confirmation"] = previous_review_status != "approved"
+            if previous_review_status == "approved" and previous_status == "classified" and previous_project:
+                route = previous_project
+                reason = f"Preserved owner approval for '{previous_project}'; current suggested destination is unchanged."
+                metadata["routing_reason"] = reason
+                metadata["destination"] = route
+                metadata["destination_reason"] = reason
         else:
             metadata["review_status"] = "pending"
             metadata["requires_user_confirmation"] = True

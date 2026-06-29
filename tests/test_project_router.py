@@ -5455,6 +5455,15 @@ class TestReadwiseNormalize(unittest.TestCase):
         },
     }
 
+    def _write_and_normalize_readwise(self, root: Path, *, note_id: str, summary: str) -> Path:
+        raw_payload = json.loads(json.dumps(self.READWISE_RAW))
+        raw_payload["document"]["id"] = note_id
+        raw_payload["document"]["summary"] = summary
+        raw_path = root / "data" / "raw" / "readwise" / f"20260315T080000Z--rw_{note_id}.json"
+        raw_path.write_text(json.dumps(raw_payload), encoding="utf-8")
+        cli.main(["normalize", "--source", "readwise"])
+        return list((root / "data" / "normalized" / "readwise").glob(f"*--rw_{note_id}.md"))[0]
+
     def test_normalize_readwise_creates_markdown(self):
         with temporary_repo_dir() as tmp:
             root = Path(tmp)
@@ -5557,6 +5566,106 @@ class TestReadwiseNormalize(unittest.TestCase):
             self.assertIsNone(metadata["project"])
             self.assertEqual(metadata["suggested_destination"], "home_renovation")
             self.assertIn("Readwise review-only guardrail", metadata["routing_reason"])
+            review_copy = root / "data" / "review" / "readwise" / "needs_review" / md_file.name
+            self.assertTrue(review_copy.exists())
+
+    def test_triage_readwise_preserves_approved_same_suggestion(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                md_file = self._write_and_normalize_readwise(
+                    root,
+                    note_id="approvedsame",
+                    summary="Renovation contractor budget article.",
+                )
+                metadata, body = cli.read_note(md_file)
+                metadata.update(
+                    {
+                        "status": "classified",
+                        "project": "home_renovation",
+                        "destination": "home_renovation",
+                        "review_status": "approved",
+                        "requires_user_confirmation": False,
+                        "note_type": "project-idea",
+                    }
+                )
+                cli.write_note(md_file, metadata, body)
+                cli.main(["triage", "--source", "readwise"])
+            metadata, _ = cli.read_note(md_file)
+            self.assertEqual(metadata["status"], "classified")
+            self.assertEqual(metadata["project"], "home_renovation")
+            self.assertEqual(metadata["destination"], "home_renovation")
+            self.assertEqual(metadata["review_status"], "approved")
+            self.assertFalse(metadata["requires_user_confirmation"])
+            self.assertEqual(metadata["suggested_destination"], "home_renovation")
+            self.assertIn("Preserved owner approval", metadata["routing_reason"])
+            review_copy = root / "data" / "review" / "readwise" / "needs_review" / md_file.name
+            self.assertFalse(review_copy.exists())
+
+    def test_triage_readwise_resets_approved_when_suggestion_changes(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                md_file = self._write_and_normalize_readwise(
+                    root,
+                    note_id="approvedchanged",
+                    summary="Article without a matching project destination.",
+                )
+                metadata, body = cli.read_note(md_file)
+                metadata.update(
+                    {
+                        "status": "classified",
+                        "project": "home_renovation",
+                        "destination": "home_renovation",
+                        "review_status": "approved",
+                        "requires_user_confirmation": False,
+                        "note_type": "project-idea",
+                    }
+                )
+                cli.write_note(md_file, metadata, body)
+                cli.main(["triage", "--source", "readwise"])
+            metadata, _ = cli.read_note(md_file)
+            self.assertEqual(metadata["status"], "needs_review")
+            self.assertIsNone(metadata["project"])
+            self.assertEqual(metadata["destination"], "needs_review")
+            self.assertEqual(metadata["review_status"], "pending")
+            self.assertTrue(metadata["requires_user_confirmation"])
+            self.assertIn(metadata["suggested_destination"], {"pending_project", "needs_review", "ambiguous"})
+            review_copy = root / "data" / "review" / "readwise" / "needs_review" / md_file.name
+            self.assertTrue(review_copy.exists())
+
+    def test_triage_readwise_preserves_rejected_note(self):
+        with temporary_repo_dir() as tmp:
+            root = Path(tmp)
+            prepare_repo(root)
+            write_registry(root)
+            with patch_cli_paths(root):
+                md_file = self._write_and_normalize_readwise(
+                    root,
+                    note_id="rejected",
+                    summary="Renovation contractor budget article.",
+                )
+                metadata, body = cli.read_note(md_file)
+                metadata.update(
+                    {
+                        "status": "needs_review",
+                        "project": None,
+                        "destination": "needs_review",
+                        "review_status": "reject",
+                        "requires_user_confirmation": True,
+                    }
+                )
+                cli.write_note(md_file, metadata, body)
+                cli.main(["triage", "--source", "readwise"])
+            metadata, _ = cli.read_note(md_file)
+            self.assertEqual(metadata["status"], "needs_review")
+            self.assertIsNone(metadata["project"])
+            self.assertEqual(metadata["review_status"], "reject")
+            self.assertTrue(metadata["requires_user_confirmation"])
             review_copy = root / "data" / "review" / "readwise" / "needs_review" / md_file.name
             self.assertTrue(review_copy.exists())
 
