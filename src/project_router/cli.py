@@ -1627,20 +1627,52 @@ def triage_command(args: argparse.Namespace) -> int:
         route, details, reason = route_note(body, metadata, defaults, projects)
         score_map = {k: v for k, v in details.items() if k != "confidence"}
         confidence = float(details.get("confidence", 0.0))
+        metadata_source = normalize_source_name(str(metadata.get("source") or VOICE_SOURCE)) or VOICE_SOURCE
+        source = metadata_source
+        try:
+            note_path.relative_to(normalized_dir_for(READWISE_SOURCE))
+            source = READWISE_SOURCE
+        except ValueError:
+            pass
+        suggested_route = route
+        suggested_reason = reason
+        if source == READWISE_SOURCE:
+            # Readwise/articles/highlights are untrusted input and must stay in the
+            # review lane until an owner explicitly approves downstream promotion.
+            # Use the source-aware path as a guard too: malformed/untrusted
+            # frontmatter must not bypass the review-only lane.
+            metadata["source"] = READWISE_SOURCE
+            if suggested_route not in ("ambiguous", "needs_review", "pending_project"):
+                guardrail_reason = (
+                    f"candidate destination '{suggested_route}' requires owner review "
+                    "before downstream promotion."
+                )
+            elif suggested_route == "ambiguous":
+                guardrail_reason = "ambiguous Reader item requires owner review before downstream promotion."
+            elif suggested_route == "pending_project":
+                guardrail_reason = "pending-project Reader item requires owner review before downstream promotion."
+            else:
+                guardrail_reason = "Reader item requires owner review before downstream promotion."
+            reason = f"Readwise review-only guardrail: {guardrail_reason} {suggested_reason}".strip()
+            route = "needs_review"
         metadata["candidate_projects"] = sorted(score_map, key=score_map.get, reverse=True)
+        if source == READWISE_SOURCE:
+            metadata["suggested_destination"] = suggested_route
+            metadata["suggested_destination_reason"] = suggested_reason
         metadata["routing_reason"] = reason
         metadata["confidence"] = confidence
         metadata["destination"] = route
         metadata["destination_reason"] = reason
 
+        preservation_route = suggested_route if source == READWISE_SOURCE else route
         preserve_manual_review = False
         if previous_review_status == "reject":
             preserve_manual_review = True
         elif previous_review_status == "approved":
             preserve_manual_review = (
-                route not in ("ambiguous", "needs_review", "pending_project")
+                preservation_route not in ("ambiguous", "needs_review", "pending_project")
                 and previous_status == "classified"
-                and previous_project == route
+                and previous_project == preservation_route
             )
         else:
             if route in ("ambiguous", "needs_review", "pending_project"):
@@ -1658,6 +1690,12 @@ def triage_command(args: argparse.Namespace) -> int:
         if preserve_manual_review:
             metadata["review_status"] = previous_review_status
             metadata["requires_user_confirmation"] = previous_review_status != "approved"
+            if previous_review_status == "approved" and previous_status == "classified" and previous_project:
+                route = previous_project
+                reason = f"Preserved owner approval for '{previous_project}'; current suggested destination is unchanged."
+                metadata["routing_reason"] = reason
+                metadata["destination"] = route
+                metadata["destination_reason"] = reason
         else:
             metadata["review_status"] = "pending"
             metadata["requires_user_confirmation"] = True
